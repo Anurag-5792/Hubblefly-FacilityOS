@@ -14,10 +14,11 @@ export default function HomePage() {
       <aside className="sidebar">
         <div className="brand">HUBBLEFLY <span>FacilityOS</span></div>
         <nav>
-          <a className="active">Dashboard</a>
+          <a className="active" href="/">Dashboard</a>
           <a>Inventory</a>
           <a>Shopfloor</a>
           <a>Traceability</a>
+          <a href="/mis">MIS & Analytics</a>
           <a>Documents</a>
           <a>Admin</a>
         </nav>
@@ -65,6 +66,15 @@ export default function HomePage() {
             </div>
           </article>
 
+          <article className="panel mis-teaser">
+            <div className="panel-heading">
+              <div><p className="eyebrow">MIS</p><h2>Build your view</h2></div>
+              <span className="status">Read-only analytics</span>
+            </div>
+            <p>Select period, company, warehouse, item group, transaction type and metric. FacilityOS will populate KPIs, tables and graphs from ERPNext-backed data.</p>
+            <a className="mis-link" href="/mis">Open MIS Dashboard →</a>
+          </article>
+
           <article className="panel qr-panel">
             <p className="eyebrow">Universal Resolver</p>
             <h2>Scan anything</h2>
@@ -84,7 +94,7 @@ export default function HomePage() {
       </section>
 
       <nav className="mobile-nav">
-        <a>Home</a><a>Inventory</a><button>Scan</button><a>Shopfloor</a><a>More</a>
+        <a href="/">Home</a><a>Inventory</a><button>Scan</button><a href="/mis">MIS</a><a>More</a>
       </nav>
     </main>
   );
