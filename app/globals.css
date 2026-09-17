@@ -82,6 +82,7 @@ h2 { font-size: 22px; margin-bottom: 0; }
 .lead { max-width: 760px; color: var(--muted); line-height: 1.6; margin: 12px 0 0; }
 .preview-badge, .entity-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 8px 11px; font-size: 11px; font-weight: 900; white-space: nowrap; }
 .preview-badge { background: var(--brand-soft); color: var(--brand-dark); border: 1px solid #ffd8ba; }
+.live-badge { background: #e9f8f0; color: #166534; border-color: #b8e3ca; }
 .scan-layout { display: grid; grid-template-columns: .85fr 1.15fr; gap: 16px; }
 .scan-input-panel { display: grid; gap: 22px; align-content: start; }
 .camera-box { border: 1px dashed #9fb0c4; border-radius: 18px; min-height: 280px; display: grid; place-items: center; background: linear-gradient(180deg, #f9fbfd, #eef3f9); }
@@ -109,8 +110,29 @@ h2 { font-size: 22px; margin-bottom: 0; }
 .result-fields dd { margin: 0; font-weight: 800; overflow-wrap: anywhere; }
 .empty-result { min-height: 180px; display: grid; place-items: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 16px; text-align: center; padding: 20px; }
 .valid-actions { display: grid; gap: 10px; }
+.live-loading, .lookup-warning { border-radius: 14px; padding: 12px 14px; font-size: 12px; line-height: 1.5; }
+.live-loading { background: var(--surface-soft); color: var(--muted); }
+.lookup-warning { background: #fff8e8; color: #8a5a00; border: 1px solid #f6d58a; }
+.live-data-block { display: grid; gap: 10px; }
+.live-data-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.live-data-heading p { margin: 0; }
+.live-data-heading span { border-radius: 999px; padding: 6px 9px; background: #e9f8f0; color: #166534; font-weight: 900; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 .scan-note { margin-top: 16px; background: var(--nav); color: #dce6f1; padding: 16px 18px; border-radius: 16px; line-height: 1.5; font-size: 13px; }
 .scan-note strong { color: #fff; }
+
+.workflow-page { min-height: 100vh; max-width: 1180px; margin: 0 auto; padding: 32px; }
+.workflow-form { display: grid; gap: 18px; }
+.workflow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.workflow-grid label { display: grid; gap: 7px; }
+.workflow-grid label > span { font-size: 12px; font-weight: 900; color: var(--nav); }
+.workflow-grid input, .workflow-grid select { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fff; color: var(--text); }
+.workflow-grid small { color: var(--muted); line-height: 1.4; }
+.workflow-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.workflow-actions span { color: var(--muted); font-size: 12px; }
+.workflow-result { margin-top: 16px; }
+.workflow-result.success { border-top: 4px solid #2d8f5b; }
+.workflow-result.error { border-top: 4px solid #bd3a3a; }
+.workflow-result ul { color: #8f2525; line-height: 1.6; }
 
 @media (max-width: 1100px) {
   .filter-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -146,7 +168,7 @@ h2 { font-size: 22px; margin-bottom: 0; }
   .mobile-nav { position: fixed; display: grid; grid-template-columns: repeat(5, 1fr); align-items: end; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid var(--line); padding: 8px 10px 12px; z-index: 50; }
   .mobile-nav a, .mobile-nav button { border: 0; background: transparent; text-align: center; font-size: 11px; color: var(--muted); padding: 8px 2px; text-decoration: none; }
   .mobile-nav button, .mobile-nav .mobile-scan { background: var(--brand); color: #fff; border-radius: 999px; font-weight: 900; min-height: 48px; display: grid; place-items: center; }
-  .scan-page { padding: 18px; }
+  .scan-page, .workflow-page { padding: 18px; }
   .scan-header { display: block; }
   .preview-badge { margin-top: 16px; }
   .camera-box { min-height: 220px; }
@@ -155,4 +177,5 @@ h2 { font-size: 22px; margin-bottom: 0; }
   .result-fields > div { grid-template-columns: 1fr; gap: 5px; }
   .resolution-heading { display: block; }
   .entity-pill { margin-top: 14px; }
+  .workflow-grid { grid-template-columns: 1fr; }
 }
