@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useMemo, useState } from 'react';
-import { resolveQr } from '../../../lib/qr-resolver';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { resolveQr, type QrResolution } from '../../../lib/qr-resolver';
 import CameraScanner from './camera-scanner';
 
 const samples = [
@@ -14,6 +14,18 @@ const samples = [
   'SFG-ARM-01-S0017',
   'DRN-TITAN-001'
 ];
+
+type LiveLookup = {
+  connected: boolean;
+  source: 'erpnext' | 'facilityos' | 'unavailable';
+  fields: Array<{ label: string; value: string }>;
+  warning?: string;
+};
+
+type ResolveApiResponse = {
+  resolution: QrResolution;
+  live: LiveLookup;
+};
 
 function actionHref(action: string, entity: string) {
   const value = encodeURIComponent(entity);
@@ -27,17 +39,52 @@ function actionHref(action: string, entity: string) {
 export default function ScanPage() {
   const [input, setInput] = useState('');
   const [submitted, setSubmitted] = useState('');
-  const result = useMemo(() => resolveQr(submitted), [submitted]);
+  const localResult = useMemo(() => resolveQr(submitted), [submitted]);
+  const [result, setResult] = useState<QrResolution>(localResult);
+  const [live, setLive] = useState<LiveLookup | null>(null);
+  const [loadingLive, setLoadingLive] = useState(false);
+
+  useEffect(() => {
+    setResult(localResult);
+    setLive(null);
+    if (!submitted) return;
+
+    const controller = new AbortController();
+    setLoadingLive(true);
+
+    fetch(`/api/resolve?value=${encodeURIComponent(submitted)}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Lookup failed (${response.status})`);
+        return response.json() as Promise<ResolveApiResponse>;
+      })
+      .then((payload) => {
+        setResult(payload.resolution);
+        setLive(payload.live);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setLive({ connected: false, source: 'unavailable', fields: [], warning: error instanceof Error ? error.message : 'Live lookup failed.' });
+      })
+      .finally(() => setLoadingLive(false));
+
+    return () => controller.abort();
+  }, [submitted, localResult]);
 
   function resolve(value: string) {
     setInput(value);
-    setSubmitted(value);
+    setSubmitted(value.trim());
   }
 
   function submit(event: FormEvent) {
     event.preventDefault();
     resolve(input);
   }
+
+  const dataBadge = live?.source === 'erpnext'
+    ? 'ERPNext live'
+    : live?.source === 'facilityos'
+      ? 'FacilityOS object'
+      : 'Local resolution';
 
   return (
     <main className="scan-page">
@@ -46,9 +93,9 @@ export default function ScanPage() {
           <Link className="back-link" href="/">← Dashboard</Link>
           <p className="eyebrow">Inventory · Universal QR resolver</p>
           <h1>Scan anything</h1>
-          <p className="lead">Serial, batch, rack position, bin, box, SFG or finished aircraft. FacilityOS identifies the object first, then offers only valid actions.</p>
+          <p className="lead">Serial, batch, rack position, bin, box, SFG or finished aircraft. FacilityOS identifies the object first, then loads authoritative ERPNext data where applicable.</p>
         </div>
-        <span className="preview-badge">Preview data</span>
+        <span className={`preview-badge ${live?.source === 'erpnext' ? 'live-badge' : ''}`}>{loadingLive ? 'Loading live data…' : dataBadge}</span>
       </header>
 
       <section className="scan-layout">
@@ -93,7 +140,7 @@ export default function ScanPage() {
           {result.fields.length > 0 ? (
             <dl className="result-fields">
               {result.fields.map((field) => (
-                <div key={field.label}>
+                <div key={`local-${field.label}`}>
                   <dt>{field.label}</dt>
                   <dd>{field.value}</dd>
                 </div>
@@ -101,6 +148,27 @@ export default function ScanPage() {
             </dl>
           ) : (
             <div className="empty-result">Scan a QR or choose a sample to begin.</div>
+          )}
+
+          {loadingLive && <div className="live-loading">Loading ERPNext / FacilityOS data…</div>}
+
+          {live?.warning && <div className="lookup-warning">{live.warning}</div>}
+
+          {live && live.fields.length > 0 && (
+            <section className="live-data-block">
+              <div className="live-data-heading">
+                <p className="eyebrow">Authoritative data</p>
+                <span>{live.source === 'erpnext' ? 'ERPNext' : 'FacilityOS'}</span>
+              </div>
+              <dl className="result-fields">
+                {live.fields.map((field, index) => (
+                  <div key={`live-${field.label}-${index}`}>
+                    <dt>{field.label}</dt>
+                    <dd>{field.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
           )}
 
           <div className="valid-actions">
@@ -120,7 +188,7 @@ export default function ScanPage() {
       </section>
 
       <section className="scan-note">
-        <strong>Current milestone:</strong> camera scanning, object resolution and workflow routing are now in the first implementation slice. ERPNext-backed values will come through the FacilityOS server-side adapter; no ERPNext API secret is exposed to the browser.
+        <strong>Control boundary:</strong> QR recognition happens locally for speed. Item, Serial No and Batch information is fetched server-side from ERPNext when configured. Physical rack, position, container and genealogy objects remain FacilityOS-managed. ERPNext credentials are never sent to the browser.
       </section>
     </main>
   );
