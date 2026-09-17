@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { resolveQr } from '../../../lib/qr-resolver';
 
@@ -34,7 +34,7 @@ const labels: Record<Kind, { title: string; party: string; helper: string }> = {
   },
 };
 
-export default function InventoryTransactionPage() {
+function InventoryTransactionContent() {
   const params = useSearchParams();
   const requested = (params.get('kind') ?? 'receive').toLowerCase();
   const kind: Kind = requested === 'issue' || requested === 'return' ? requested : 'receive';
@@ -134,5 +134,13 @@ export default function InventoryTransactionPage() {
         </section>
       )}
     </main>
+  );
+}
+
+export default function InventoryTransactionPage() {
+  return (
+    <Suspense fallback={<main className="workflow-page"><div className="panel">Loading transaction workflow…</div></main>}>
+      <InventoryTransactionContent />
+    </Suspense>
   );
 }
