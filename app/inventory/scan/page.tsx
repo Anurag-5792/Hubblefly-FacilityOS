@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { FormEvent, useMemo, useState } from 'react';
 import { resolveQr } from '../../../lib/qr-resolver';
+import CameraScanner from './camera-scanner';
 
 const samples = [
   'PSY-MTR-03-S0042',
@@ -14,14 +15,28 @@ const samples = [
   'DRN-TITAN-001'
 ];
 
+function actionHref(action: string, entity: string) {
+  const value = encodeURIComponent(entity);
+  if (action === 'Move') return `/inventory/move?source=${value}`;
+  if (action === 'Move Stock Here') return `/inventory/move?destination=${value}`;
+  if (action === 'Move Container') return `/inventory/move?source=${value}`;
+  if (action === 'Physical Count') return `/inventory/count?target=${value}`;
+  return null;
+}
+
 export default function ScanPage() {
   const [input, setInput] = useState('');
   const [submitted, setSubmitted] = useState('');
   const result = useMemo(() => resolveQr(submitted), [submitted]);
 
+  function resolve(value: string) {
+    setInput(value);
+    setSubmitted(value);
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault();
-    setSubmitted(input);
+    resolve(input);
   }
 
   return (
@@ -38,9 +53,7 @@ export default function ScanPage() {
 
       <section className="scan-layout">
         <article className="panel scan-input-panel">
-          <div className="camera-box" aria-hidden="true">
-            <div className="camera-frame">QR</div>
-          </div>
+          <CameraScanner onDetected={resolve} />
 
           <form onSubmit={submit} className="scan-form">
             <label htmlFor="qr-value">Scanner / QR value</label>
@@ -61,7 +74,7 @@ export default function ScanPage() {
             <span>Try a sample</span>
             <div className="sample-chips">
               {samples.map((sample) => (
-                <button key={sample} onClick={() => { setInput(sample); setSubmitted(sample); }} type="button">{sample}</button>
+                <button key={sample} onClick={() => resolve(sample)} type="button">{sample}</button>
               ))}
             </div>
           </div>
@@ -93,16 +106,21 @@ export default function ScanPage() {
           <div className="valid-actions">
             <p className="eyebrow">Valid actions</p>
             <div className="action-grid">
-              {result.actions.map((action, index) => (
-                <button className={index === 0 ? 'action action-featured' : 'action'} key={action} type="button">{action}</button>
-              ))}
+              {result.actions.map((action, index) => {
+                const href = actionHref(action, result.normalized);
+                return href ? (
+                  <Link className={index === 0 ? 'action action-featured' : 'action'} href={href} key={action}>{action}</Link>
+                ) : (
+                  <button className={index === 0 ? 'action action-featured' : 'action'} key={action} type="button">{action}</button>
+                );
+              })}
             </div>
           </div>
         </article>
       </section>
 
       <section className="scan-note">
-        <strong>Current milestone:</strong> object resolution and workflow routing. Camera decoding and real ERPNext data will be connected through the FacilityOS server-side adapter next; no ERPNext API secret will be exposed to the browser.
+        <strong>Current milestone:</strong> camera scanning, object resolution and workflow routing are now in the first implementation slice. ERPNext-backed values will come through the FacilityOS server-side adapter; no ERPNext API secret is exposed to the browser.
       </section>
     </main>
   );
