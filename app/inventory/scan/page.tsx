@@ -33,6 +33,9 @@ function actionHref(action: string, entity: string) {
   if (action === 'Move Stock Here') return `/inventory/move?destination=${value}`;
   if (action === 'Move Container') return `/inventory/move?source=${value}`;
   if (action === 'Physical Count') return `/inventory/count?target=${value}`;
+  if (action === 'Receive') return `/inventory/transaction?kind=receive&target=${value}`;
+  if (action === 'Issue') return `/inventory/transaction?kind=issue&target=${value}`;
+  if (action === 'Return') return `/inventory/transaction?kind=return&target=${value}`;
   return null;
 }
 
