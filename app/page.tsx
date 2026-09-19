@@ -5,7 +5,14 @@ const stats = [
   ['Pending Counts', '24']
 ];
 
-const inventoryActions = ['Scan QR', 'Receive', 'Move', 'Issue', 'Return', 'Physical Count'];
+const inventoryActions = [
+  ['Scan QR', '/inventory/scan'],
+  ['Receive', '/inventory/transaction?kind=receive'],
+  ['Move', '/inventory/move'],
+  ['Issue', '/inventory/transaction?kind=issue'],
+  ['Return', '/inventory/transaction?kind=return'],
+  ['Physical Count', '/inventory/count']
+];
 const shopfloorActions = ['Build SFG', 'Install Component', 'Replace Component', 'Route Card'];
 
 export default function HomePage() {
@@ -15,14 +22,14 @@ export default function HomePage() {
         <div className="brand">HUBBLEFLY <span>FacilityOS</span></div>
         <nav>
           <a className="active" href="/">Dashboard</a>
-          <a>Inventory</a>
+          <a href="/inventory">Inventory</a>
           <a>Shopfloor</a>
           <a>Traceability</a>
           <a href="/mis">MIS & Analytics</a>
           <a>Documents</a>
-          <a>Admin</a>
+          <a href="/admin/sync">Admin</a>
         </nav>
-        <div className="sidebar-footer">ERPNext: <strong>Not configured</strong></div>
+        <div className="sidebar-footer">ERPNext: <strong>Server adapter ready</strong></div>
       </aside>
 
       <section className="workspace">
@@ -31,7 +38,7 @@ export default function HomePage() {
             <p className="eyebrow">Hubblefly Technologies Limited</p>
             <h1>Operations Dashboard</h1>
           </div>
-          <button className="scan-primary">▣ Scan QR</button>
+          <a className="scan-primary scan-link" href="/inventory/scan">▣ Scan QR</a>
         </header>
 
         <div className="stats-grid">
@@ -47,11 +54,11 @@ export default function HomePage() {
           <article className="panel">
             <div className="panel-heading">
               <div><p className="eyebrow">Inventory</p><h2>Store Operations</h2></div>
-              <span className="status">HFT Store</span>
+              <a className="status" href="/inventory">Open Inventory</a>
             </div>
             <div className="action-grid">
-              {inventoryActions.map((action, index) => (
-                <button className={index === 0 ? 'action action-featured' : 'action'} key={action}>{action}</button>
+              {inventoryActions.map(([action, href], index) => (
+                <a className={index === 0 ? 'action action-featured action-link' : 'action action-link'} href={href} key={action}>{action}</a>
               ))}
             </div>
           </article>
@@ -79,7 +86,7 @@ export default function HomePage() {
             <p className="eyebrow">Universal Resolver</p>
             <h2>Scan anything</h2>
             <p>Serial, batch, position, bin, box, SFG or drone QR. FacilityOS resolves the object and shows only valid actions for the signed-in role.</p>
-            <div className="qr-placeholder">QR</div>
+            <a className="qr-placeholder" href="/inventory/scan">QR</a>
             <code>R03-L2-P04</code>
           </article>
 
@@ -94,7 +101,7 @@ export default function HomePage() {
       </section>
 
       <nav className="mobile-nav">
-        <a href="/">Home</a><a>Inventory</a><button>Scan</button><a href="/mis">MIS</a><a>More</a>
+        <a href="/">Home</a><a href="/inventory">Inventory</a><a className="mobile-scan" href="/inventory/scan">Scan</a><a href="/mis">MIS</a><a>More</a>
       </nav>
     </main>
   );
