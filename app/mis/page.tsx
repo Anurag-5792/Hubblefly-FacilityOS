@@ -73,7 +73,7 @@ export default function MISPage() {
           <a>Traceability</a>
           <a className="active" href="/mis">MIS & Analytics</a>
           <a>Documents</a>
-          <a>Admin</a>
+          <a href="/admin/sync">Admin</a>
         </nav>
         <div className="sidebar-footer">
           MIS source
