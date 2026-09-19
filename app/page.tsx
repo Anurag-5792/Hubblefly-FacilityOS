@@ -27,7 +27,7 @@ export default function HomePage() {
           <a>Traceability</a>
           <a href="/mis">MIS & Analytics</a>
           <a>Documents</a>
-          <a>Admin</a>
+          <a href="/admin/sync">Admin</a>
         </nav>
         <div className="sidebar-footer">ERPNext: <strong>Server adapter ready</strong></div>
       </aside>
