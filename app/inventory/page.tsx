@@ -106,7 +106,7 @@ export default function InventoryHomePage() {
                   <td>{item.item_group || '—'}</td>
                   <td>{item.has_serial_no ? 'Serial' : item.has_batch_no ? 'Batch' : 'Standard'}</td>
                   <td>{item.stock_uom || '—'}</td>
-                  <td><Link className="mis-link" href={`/inventory/scan?value=${encodeURIComponent(item.name)}`}>Open →</Link></td>
+                  <td><Link className="mis-link" href={`/inventory/item/${encodeURIComponent(item.name)}`}>Open →</Link></td>
                 </tr>
               ))}
             </tbody>
