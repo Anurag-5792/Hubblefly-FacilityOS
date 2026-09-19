@@ -1,10 +1,26 @@
-# FacilityOS Architecture v0.2
+# FacilityOS Architecture v0.3
 
 ## Principle
 
 FacilityOS is the operational web layer and analytics/read-model platform. ERPNext remains the authoritative ERP, stock-ledger and accounting backbone.
 
 The systems must not become competing masters.
+
+## Cost constraint
+
+FacilityOS must add **no separate recurring infrastructure or software cost** beyond the Frappe/ERPNext hosting already being used.
+
+Therefore the production baseline is:
+
+- no separately billed managed PostgreSQL service
+- no paid cache/search service
+- no paid analytics platform
+- no paid AI/API dependency
+- no second paid application host
+
+FacilityOS reporting and operational tables will live inside the existing Frappe site database through a version-controlled FacilityOS Frappe app / DocTypes. Frappe background jobs and scheduler will be used for synchronization and read-model maintenance.
+
+The existing Next.js code remains the interaction/UI prototype while the backend contracts are kept compatible with the Frappe production implementation.
 
 ## Responsibility split
 
@@ -18,9 +34,9 @@ The systems must not become competing masters.
 - route-card UX
 - Gate Pass and Delivery Challan presentation
 - operational audit events
-- FacilityOS-native operational database
+- FacilityOS-native DocTypes/tables
 - MIS/reporting read model
-- cached/synchronized ERPNext master and ledger projections required by the app
+- cached/synchronized ERPNext projections required by the app
 - saved MIS views, exports and dashboard preferences
 
 ### ERPNext
@@ -37,9 +53,9 @@ The systems must not become competing masters.
 
 ## FacilityOS database
 
-FacilityOS will use its own PostgreSQL database.
+FacilityOS uses the **existing Frappe site database**, not a second managed database.
 
-The database has two logical responsibilities:
+The FacilityOS schema has two logical responsibilities:
 
 1. **FacilityOS-native operational data**
    - physical Position
@@ -52,7 +68,7 @@ The database has two logical responsibilities:
    - saved reports/views
 
 2. **ERPNext reporting/read model**
-   - synchronized Item projection
+   - Item projection
    - Warehouse projection
    - Serial No projection
    - Batch projection
@@ -60,37 +76,41 @@ The database has two logical responsibilities:
    - stock-ledger/reporting projection
    - selected document/report facts needed for MIS
 
-ERPNext-derived tables are read models, not a second transactional master.
+ERPNext-derived FacilityOS tables are read models, not a second transactional master.
 
 ## MIS architecture
 
-MIS must normally query the FacilityOS database instead of repeatedly calling ERPNext APIs.
+MIS must normally query the FacilityOS read model instead of repeatedly executing ERPNext API calls or expensive ERP ledger queries.
 
-Proposed path:
+Production path:
 
-`ERPNext -> sync worker -> FacilityOS reporting tables/materialized views -> MIS API -> dashboard/table/chart`
+`ERPNext/Frappe document event -> FacilityOS background update -> FacilityOS reporting DocTypes/read-model tables -> MIS query service -> dashboard/table/chart`
 
-FacilityOS-native operational events are written directly to FacilityOS and can be joined with the synchronized ERP projections.
+Recovery path:
+
+`scheduled reconciliation -> compare source modified timestamps/counts -> repair read model -> record sync audit`
 
 This allows:
 - fast dashboards
 - historical snapshots
 - cross-module reporting
-- lower ERPNext API load
+- minimal API load
 - responsive filters and drilldowns
 - consistent metric definitions
+- no extra database hosting bill
 
 ## Synchronization model
 
-Preferred order:
+Because FacilityOS and ERPNext live on the same Frappe site, the preferred model is:
 
-1. ERPNext webhook/event notification where reliable and available.
-2. Incremental sync by `modified` timestamp as the standard recovery/catch-up path.
-3. Scheduled reconciliation jobs to detect missed updates.
-4. Full rebuild tooling for an individual projection when required.
+1. Frappe `doc_events` hooks for relevant ERPNext DocTypes.
+2. `frappe.enqueue` background jobs for read-model updates when work should not block the transaction.
+3. Incremental reconciliation using source `modified` timestamps.
+4. Frappe scheduler jobs for periodic health/reconciliation.
+5. A rebuild command for an individual projection when required.
 
 Every synchronized record should carry:
-- ERPNext doctype/source
+- ERPNext DocType/source
 - ERPNext document name
 - source modified timestamp
 - FacilityOS synced-at timestamp
@@ -101,11 +121,11 @@ Sync processing must be idempotent.
 
 ## Write discipline
 
-ERP-linked stock writes must pass through a transaction service. UI components and MIS must never post directly to ERPNext.
+ERP-linked stock writes must pass through a transaction service. UI components and MIS must never write directly to ERPNext ledger tables.
 
 Proposed command path:
 
-`UI -> FacilityOS command -> validation -> FacilityOS audit event -> ERPNext adapter -> ERPNext document -> sync result -> FacilityOS read model refresh`
+`UI -> FacilityOS command -> validation -> audit event -> supported Frappe/ERPNext document action -> read-model refresh`
 
 FacilityOS MIS is read-only by default.
 
@@ -113,9 +133,9 @@ FacilityOS MIS is read-only by default.
 
 For ERP-owned stock facts:
 - ERPNext is authoritative.
-- FacilityOS may be briefly behind during synchronization.
-- MIS should display a last-synced timestamp.
-- critical stock actions must validate against ERPNext at transaction time when stale data could cause an incorrect write.
+- FacilityOS read models may be briefly behind while a background update is running.
+- MIS displays a last-synced timestamp.
+- critical stock actions validate against authoritative ERP state before submission when stale data could cause an incorrect write.
 
 For FacilityOS-native facts:
 - FacilityOS is authoritative.
@@ -145,12 +165,13 @@ Resolution must be deterministic from the stored identifier, not from free-text 
 
 ## Sample data
 
-Physical-count/reconciliation workbooks can be used as development sample data.
+The current physical-count/reconciliation workbook is approved as development/sample input only.
 
 Rules:
 - sample data must never be treated as posted opening stock
 - sample data must be explicitly marked as sample/preview
-- real inventory workbooks must not be committed to a public repository
+- real inventory workbooks must not be committed while this repository is public
+- private sample/import files stay outside Git or in ignored private-data paths
 - opening-stock posting remains approval-gated
 
 ## Irreversible-output gate
