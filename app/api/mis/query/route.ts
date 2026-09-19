@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { querySampleMis } from '../../../../lib/mis/sample-provider';
+import { queryMis } from '../../../../lib/mis/provider';
 import type { MisFilters, MisPeriod } from '../../../../lib/mis/types';
 
 const allowedPeriods = new Set<MisPeriod>(['Today', '7 Days', '30 Days', 'Custom']);
@@ -17,7 +17,5 @@ export async function GET(request: NextRequest) {
     groupBy: search.get('groupBy') ?? 'Item Group',
   };
 
-  // Production implementation will query FacilityOS read-model DocTypes/tables
-  // on the existing Frappe site. No separate paid database is required.
-  return NextResponse.json(querySampleMis(filters));
+  return NextResponse.json(await queryMis(filters));
 }
