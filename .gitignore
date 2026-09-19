@@ -6,3 +6,7 @@ out
 .env.*.local
 *.log
 .DS_Store
+
+# Private/local FacilityOS sample and reconciliation data
+sample-data/private/
+*.private.xlsx
