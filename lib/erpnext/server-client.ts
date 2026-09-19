@@ -47,7 +47,18 @@ export async function erpNextRequest<T>(path: string, init: RequestInit = {}): P
 
 export async function findItem(itemCode: string) {
   const encoded = encodeURIComponent(itemCode);
-  return erpNextRequest<{ data: { name: string; item_name: string; stock_uom: string; disabled: number } }>(`/api/resource/Item/${encoded}`);
+  return erpNextRequest<{ data: {
+    name: string;
+    item_code?: string;
+    item_name: string;
+    item_group?: string;
+    stock_uom: string;
+    brand?: string;
+    has_serial_no?: number;
+    has_batch_no?: number;
+    disabled: number;
+    description?: string;
+  } }>(`/api/resource/Item/${encoded}`);
 }
 
 export async function findSerial(serialNo: string) {
@@ -58,4 +69,31 @@ export async function findSerial(serialNo: string) {
 export async function findBatch(batchNo: string) {
   const encoded = encodeURIComponent(batchNo);
   return erpNextRequest<{ data: Record<string, unknown> }>(`/api/resource/Batch/${encoded}`);
+}
+
+export async function findItemStock(itemCode: string) {
+  const filters = encodeURIComponent(JSON.stringify([['item_code', '=', itemCode]]));
+  const fields = encodeURIComponent(JSON.stringify(['item_code', 'warehouse', 'actual_qty', 'reserved_qty', 'projected_qty']));
+  return erpNextRequest<ErpNextListResponse<Record<string, unknown>>>(
+    `/api/resource/Bin?filters=${filters}&fields=${fields}&limit_page_length=100`
+  );
+}
+
+export async function findItemLedger(itemCode: string) {
+  const filters = encodeURIComponent(JSON.stringify([['item_code', '=', itemCode]]));
+  const fields = encodeURIComponent(JSON.stringify([
+    'posting_date',
+    'posting_time',
+    'voucher_type',
+    'voucher_no',
+    'warehouse',
+    'actual_qty',
+    'qty_after_transaction',
+    'batch_no',
+    'serial_no',
+    'company'
+  ]));
+  return erpNextRequest<ErpNextListResponse<Record<string, unknown>>>(
+    `/api/resource/Stock%20Ledger%20Entry?filters=${filters}&fields=${fields}&order_by=posting_date%20desc,posting_time%20desc&limit_page_length=50`
+  );
 }
