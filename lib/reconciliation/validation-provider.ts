@@ -97,7 +97,6 @@ export async function executeValidation(
       };
       exception?: string;
       exc_type?: string;
-      message?: unknown;
     };
 
     if (!response.ok || !payload.message || typeof payload.message !== 'object') {
