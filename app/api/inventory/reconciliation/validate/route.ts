@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { FACILITYOS_SESSION_COOKIE } from '../../../../../lib/auth/frappe-session';
 import {
-  previewValidation,
+  executeValidation,
+  usesPersistentValidation,
+  type ValidationCommand,
+} from '../../../../../lib/reconciliation/validation-provider';
+import {
   type ValidationAction,
-  type ValidationRequest,
   type ValidationRole,
   type ValidationStatus,
 } from '../../../../../lib/reconciliation/validation';
@@ -27,9 +31,9 @@ const statuses = new Set<ValidationStatus>([
 ]);
 
 export async function POST(request: NextRequest) {
-  let body: Partial<ValidationRequest>;
+  let body: Partial<ValidationCommand>;
   try {
-    body = await request.json() as Partial<ValidationRequest>;
+    body = await request.json() as Partial<ValidationCommand>;
   } catch {
     return NextResponse.json({ ok: false, error: 'Invalid JSON body.' }, { status: 400 });
   }
@@ -37,25 +41,38 @@ export async function POST(request: NextRequest) {
   if (!body.action || !actions.has(body.action)) {
     return NextResponse.json({ ok: false, error: 'Unsupported validation action.' }, { status: 400 });
   }
-  if (!body.actorRole || !roles.has(body.actorRole)) {
-    return NextResponse.json({ ok: false, error: 'Inventory or Admin role is required.' }, { status: 400 });
-  }
-  if (!body.currentStatus || !statuses.has(body.currentStatus)) {
-    return NextResponse.json({ ok: false, error: 'Valid current validation status is required.' }, { status: 400 });
+
+  const persistent = usesPersistentValidation();
+
+  if (!persistent) {
+    if (!body.actorRole || !roles.has(body.actorRole)) {
+      return NextResponse.json({ ok: false, error: 'Inventory or Admin role is required in preview mode.' }, { status: 400 });
+    }
+    if (!body.currentStatus || !statuses.has(body.currentStatus)) {
+      return NextResponse.json({ ok: false, error: 'Valid current validation status is required.' }, { status: 400 });
+    }
   }
 
-  const result = previewValidation({
+  if (persistent && !body.sessionName?.trim()) {
+    return NextResponse.json({ ok: false, error: 'Physical-count session is required.' }, { status: 400 });
+  }
+
+  const currentStatus = body.currentStatus && statuses.has(body.currentStatus)
+    ? body.currentStatus
+    : 'DRAFT';
+
+  const command: ValidationCommand = {
     action: body.action,
-    actorRole: body.actorRole,
-    currentStatus: body.currentStatus,
+    sessionName: body.sessionName,
+    actorRole: body.actorRole ?? 'inventory',
     actorName: body.actorName,
+    currentStatus,
     remarks: body.remarks,
     blockingExceptions: Number(body.blockingExceptions ?? 0),
-  });
+  };
 
-  return NextResponse.json({
-    ...result,
-    persisted: false,
-    note: 'Preview only until FacilityOS authentication and Frappe validation records are connected.',
-  }, { status: result.ok ? 200 : 422 });
+  const sid = request.cookies.get(FACILITYOS_SESSION_COOKIE)?.value;
+  const result = await executeValidation(command, sid);
+
+  return NextResponse.json(result, { status: result.ok ? 200 : 422 });
 }
