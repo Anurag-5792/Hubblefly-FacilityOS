@@ -24,7 +24,10 @@ export default function SyncAdminPage() {
           <h1>FacilityOS Sync</h1>
           <p className="lead">Monitor the local FacilityOS reporting projections that power MIS without repeatedly querying ERPNext APIs.</p>
         </div>
-        <span className="preview-badge">{data?.source === 'facilityos-read-model' ? 'Frappe read model' : 'Sample mode'}</span>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Link className="mis-link" href="/admin/integrations">Connection Health →</Link>
+          <span className="preview-badge">{data?.source === 'facilityos-read-model' ? 'Frappe read model' : 'Sample mode'}</span>
+        </div>
       </header>
 
       {error && <div className="lookup-warning">{error}</div>}
