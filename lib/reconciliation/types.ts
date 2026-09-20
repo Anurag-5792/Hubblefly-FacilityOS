@@ -26,6 +26,9 @@ export type ReconciliationSummary = {
     ready: number;
   };
   openingStockGate: 'BLOCKED' | 'READY_FOR_APPROVAL';
+  sessionName?: string | null;
+  validationStatus?: string | null;
+  blockingExceptions?: number;
   lastUpdatedAt?: string | null;
   note?: string;
   error?: string;
