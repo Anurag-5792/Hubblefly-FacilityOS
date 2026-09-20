@@ -16,6 +16,27 @@ def _content_rows(doc):
     return rows
 
 
+def _container_history(container_id):
+    rows = frappe.get_all(
+        "Facility Operational Audit",
+        filters={"entity_type": "Container", "entity_id": container_id},
+        fields=[
+            "event_type", "from_position", "to_position", "actor",
+            "remarks", "reference", "occurred_at",
+        ],
+        order_by="occurred_at desc",
+        limit_page_length=50,
+    )
+    return [{
+        "occurredAt": str(row.occurred_at),
+        "event": row.event_type,
+        "from": row.from_position or None,
+        "to": row.to_position or None,
+        "performedBy": row.actor or None,
+        "reference": row.reference or row.remarks or None,
+    } for row in rows]
+
+
 def _container_payload(doc):
     kind = doc.container_type
     label = "Battery box" if kind == "BB" else "Store box" if kind == "BX" else "Reusable main-store bin"
@@ -27,7 +48,7 @@ def _container_payload(doc):
         "currentPosition": doc.current_position or None,
         "capacity": doc.capacity or None,
         "contents": _content_rows(doc),
-        "history": [],
+        "history": _container_history(doc.container_id),
     }
 
 
