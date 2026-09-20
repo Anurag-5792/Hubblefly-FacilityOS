@@ -61,8 +61,8 @@ export function samplePositionById(id: string): FacilityPositionResponse {
 
 export function sampleContainerById(id: string): FacilityContainerResponse {
   const normalized = id.trim().toUpperCase();
-  const kind = normalized.startsWith('BB-') ? 'BB' : normalized.startsWith('BX-') ? 'BX' : 'BN';
-  const container = normalized === sampleContainer.id
+  const kind: FacilityContainer['kind'] = normalized.startsWith('BB-') ? 'BB' : normalized.startsWith('BX-') ? 'BX' : 'BN';
+  const container: FacilityContainer = normalized === sampleContainer.id
     ? sampleContainer
     : {
         ...sampleContainer,
