@@ -34,13 +34,21 @@ Issue #1 / branch `feature/issue-1-inventory-qr-mvp` currently includes:
 - progressive camera QR scanner with manual/hardware-scanner fallback
 - Move Stock validation workflow
 - Physical Count validation workflow
-- preview-only server APIs so ERPNext is not modified during UX/domain validation
 - server-only ERPNext adapter boundary with environment-based credentials
-- GitHub Actions production build check
+- installable FacilityOS Frappe app scaffold with operational and read-model DocTypes
+- Frappe-backed user sessions and FacilityOS role enforcement
+- persistent physical-count sessions without automatic ERP stock adjustment
+- two-stage Inventory Person → separate Admin validation with immutable audit history
+- audited FacilityOS container-to-position moves
+- ERPNext-derived FacilityOS read-model synchronization for MIS
+- Admin connection-health and synchronization controls
+- GitHub Actions checks for Next.js build, Frappe Python syntax and DocType JSON
 
-## ERPNext environment
+## ERPNext / Frappe environment
 
 Copy `.env.example` to `.env.local` for local development and supply server credentials there. Never expose ERPNext API credentials through browser code or commit real credentials.
+
+The installable Frappe backend lives under `frappe_app/facility_os`. See `docs/frappe-deployment.md` for installation, role assignment, validation and production-gate instructions.
 
 ## Release rule
 
