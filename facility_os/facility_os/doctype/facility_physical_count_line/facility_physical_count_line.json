@@ -4,7 +4,11 @@
   "editable_grid": 1,
   "engine": "InnoDB",
   "field_order": [
+    "target_type",
+    "target_id",
     "item_code",
+    "serial_no",
+    "batch_no",
     "control_type",
     "reference_qty",
     "physical_qty",
@@ -13,18 +17,42 @@
     "difference",
     "location",
     "container",
+    "condition",
     "line_status",
     "blocking_exception",
     "exception"
   ],
   "fields": [
     {
+      "fieldname": "target_type",
+      "fieldtype": "Select",
+      "label": "Target Type",
+      "options": "Serial\nBatch\nPosition\nContainer\nItem",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "target_id",
+      "fieldtype": "Data",
+      "label": "Target ID",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
       "fieldname": "item_code",
       "fieldtype": "Link",
       "label": "Item",
-      "options": "Item",
-      "reqd": 1,
-      "in_list_view": 1
+      "options": "Item"
+    },
+    {
+      "fieldname": "serial_no",
+      "fieldtype": "Data",
+      "label": "Serial No"
+    },
+    {
+      "fieldname": "batch_no",
+      "fieldtype": "Data",
+      "label": "Batch No"
     },
     {
       "fieldname": "control_type",
@@ -71,6 +99,13 @@
       "fieldtype": "Link",
       "label": "Container",
       "options": "Facility Container"
+    },
+    {
+      "fieldname": "condition",
+      "fieldtype": "Select",
+      "label": "Condition",
+      "options": "Good\nDamaged\nRepair\nScrap\nQuarantine",
+      "default": "Good"
     },
     {
       "fieldname": "line_status",
