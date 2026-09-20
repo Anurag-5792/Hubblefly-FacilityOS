@@ -7,12 +7,37 @@ import type { SyncStatusResponse } from '../../../lib/sync/types';
 export default function SyncAdminPage() {
   const [data, setData] = useState<SyncStatusResponse | null>(null);
   const [error, setError] = useState('');
+  const [running, setRunning] = useState(false);
+
+  async function loadStatus() {
+    setError('');
+    try {
+      const response = await fetch('/api/sync/status', { cache: 'no-store' });
+      const payload = await response.json() as SyncStatusResponse;
+      setData(payload);
+      if (!payload.ok) setError(payload.error ?? 'Sync status could not be loaded.');
+    } catch {
+      setError('Sync status could not be loaded.');
+    }
+  }
+
+  async function runSync() {
+    setRunning(true);
+    setError('');
+    try {
+      const response = await fetch('/api/sync/run', { method: 'POST' });
+      const payload = await response.json() as SyncStatusResponse;
+      setData(payload);
+      if (!payload.ok) setError(payload.error ?? 'Sync could not be run.');
+    } catch {
+      setError('Sync could not be run.');
+    } finally {
+      setRunning(false);
+    }
+  }
 
   useEffect(() => {
-    fetch('/api/sync/status', { cache: 'no-store' })
-      .then((response) => response.json())
-      .then((payload: SyncStatusResponse) => setData(payload))
-      .catch(() => setError('Sync status could not be loaded.'));
+    void loadStatus();
   }, []);
 
   return (
@@ -25,6 +50,9 @@ export default function SyncAdminPage() {
           <p className="lead">Monitor the local FacilityOS reporting projections that power MIS without repeatedly querying ERPNext APIs.</p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="scan-primary" type="button" disabled={running || data?.source !== 'facilityos-read-model'} onClick={() => void runSync()}>
+            {running ? 'Syncing…' : 'Run Sync Now'}
+          </button>
           <Link className="mis-link" href="/admin/integrations">Connection Health →</Link>
           <span className="preview-badge">{data?.source === 'facilityos-read-model' ? 'Frappe read model' : 'Sample mode'}</span>
         </div>
@@ -61,7 +89,7 @@ export default function SyncAdminPage() {
       </section>
 
       <section className="scan-note">
-        <strong>Production rule:</strong> ERPNext stays authoritative for stock/accounting. FacilityOS stores synchronized read models for reporting and its own operational data in the existing Frappe site database.
+        <strong>Production rule:</strong> ERPNext stays authoritative for stock/accounting. FacilityOS stores synchronized read models for reporting and its own operational data in the existing Frappe site database. Manual sync only refreshes read models; it never posts ERP stock transactions.
       </section>
     </main>
   );
