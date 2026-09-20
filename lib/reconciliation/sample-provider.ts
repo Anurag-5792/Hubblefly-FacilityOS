@@ -1,0 +1,75 @@
+import type { ReconciliationRow, ReconciliationSummary } from './types';
+
+const rows: ReconciliationRow[] = [
+  {
+    itemCode: 'SAMPLE-MTR-01',
+    itemName: 'Sample serialized motor',
+    control: 'serial',
+    referenceQty: 24,
+    physicalQty: 23,
+    attachedQty: 1,
+    accountedQty: 24,
+    difference: 0,
+    location: 'R01-L1-P01-S1',
+    container: 'BN-001',
+    status: 'ready',
+  },
+  {
+    itemCode: 'SAMPLE-BAT-01',
+    itemName: 'Sample batch-controlled battery',
+    control: 'batch',
+    referenceQty: 60,
+    physicalQty: 54,
+    attachedQty: 0,
+    accountedQty: 54,
+    difference: -6,
+    location: 'Battery Store',
+    container: 'BB-001',
+    status: 'exception',
+    exception: 'Reference and physical quantity differ; investigate before opening-stock approval.',
+  },
+  {
+    itemCode: 'SAMPLE-TNK-01',
+    itemName: 'Sample serialized tank',
+    control: 'serial',
+    referenceQty: 12,
+    physicalQty: 12,
+    attachedQty: 0,
+    accountedQty: 12,
+    difference: 0,
+    location: 'R02-L2-P03-S1',
+    container: 'BX-001',
+    status: 'counted',
+  },
+  {
+    itemCode: 'SAMPLE-ACC-01',
+    itemName: 'Sample standard accessory',
+    control: 'standard',
+    referenceQty: 15,
+    physicalQty: null,
+    attachedQty: null,
+    accountedQty: null,
+    difference: null,
+    location: null,
+    container: null,
+    status: 'pending',
+    exception: 'Physical count not completed.',
+  },
+];
+
+export function sampleReconciliation(): ReconciliationSummary {
+  return {
+    ok: true,
+    source: 'sample',
+    rows,
+    totals: {
+      counted: rows.filter((row) => row.status === 'counted').length,
+      pending: rows.filter((row) => row.status === 'pending').length,
+      exceptions: rows.filter((row) => row.status === 'exception').length,
+      ready: rows.filter((row) => row.status === 'ready').length,
+    },
+    openingStockGate: 'BLOCKED',
+    lastUpdatedAt: null,
+    note: 'Synthetic preview only. Real physical-count data is intentionally not committed to the public repository.',
+  };
+}
