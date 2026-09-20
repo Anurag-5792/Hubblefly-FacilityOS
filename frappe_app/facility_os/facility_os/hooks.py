@@ -5,6 +5,7 @@ app_description = "Operational inventory, physical location, reconciliation and 
 app_email = ""
 app_license = "Proprietary"
 
+before_install = "facility_os.install.before_install"
 after_install = "facility_os.install.after_install"
 
 scheduler_events = {
