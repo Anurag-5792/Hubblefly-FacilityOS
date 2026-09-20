@@ -1,4 +1,5 @@
 import { findBatch, findItem, findSerial, isErpNextConfigured } from './server-client';
+import { getFacilityContainer, getFacilityPosition } from '../facility/provider';
 import type { QrResolution } from '../qr-resolver';
 
 export type LiveField = { label: string; value: string };
@@ -35,12 +36,64 @@ async function itemFields(itemCode: string): Promise<LiveField[]> {
 }
 
 export async function lookupResolvedEntity(resolution: QrResolution): Promise<EntityLookupResult> {
-  if (resolution.type === 'position' || resolution.type === 'container' || resolution.type === 'sfg' || resolution.type === 'drone') {
+  if (resolution.type === 'position') {
+    const response = await getFacilityPosition(resolution.normalized);
+    if (!response.ok || !response.position) {
+      return {
+        connected: isErpNextConfigured(),
+        source: 'facilityos',
+        fields: [],
+        warning: response.error ?? 'FacilityOS position data is unavailable.',
+      };
+    }
+
+    const looseQty = response.position.looseContents.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
+    return {
+      connected: true,
+      source: 'facilityos',
+      fields: [
+        { label: 'Position ID', value: response.position.id },
+        { label: 'Status', value: response.position.status },
+        { label: 'Containers', value: String(response.position.containers.length) },
+        { label: 'Loose quantity', value: String(looseQty) },
+      ],
+      warning: response.note,
+    };
+  }
+
+  if (resolution.type === 'container') {
+    const response = await getFacilityContainer(resolution.normalized);
+    if (!response.ok || !response.container) {
+      return {
+        connected: isErpNextConfigured(),
+        source: 'facilityos',
+        fields: [],
+        warning: response.error ?? 'FacilityOS container data is unavailable.',
+      };
+    }
+
+    const totalQty = response.container.contents.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
+    return {
+      connected: true,
+      source: 'facilityos',
+      fields: [
+        { label: 'Container ID', value: response.container.id },
+        { label: 'Container type', value: response.container.label },
+        { label: 'Current position', value: response.container.currentPosition ?? 'Unplaced' },
+        { label: 'Content lines', value: String(response.container.contents.length) },
+        { label: 'Total quantity', value: String(totalQty) },
+        { label: 'Status', value: response.container.status },
+      ],
+      warning: response.note,
+    };
+  }
+
+  if (resolution.type === 'sfg' || resolution.type === 'drone') {
     return {
       connected: isErpNextConfigured(),
       source: 'facilityos',
       fields: [],
-      warning: 'This object is FacilityOS-managed. ERPNext remains authoritative for stock and item transactions, while physical position/container/genealogy data is maintained by FacilityOS.',
+      warning: 'This object is FacilityOS-managed. Genealogy data will load from FacilityOS once the production genealogy DocTypes are installed.',
     };
   }
 
