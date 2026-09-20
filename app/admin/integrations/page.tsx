@@ -12,6 +12,12 @@ type Health = {
     authenticated: boolean;
   };
   facilityos: {
+    backend: {
+      installed: boolean;
+      ready: boolean;
+      version: string | null;
+      missingDoctypes: string[];
+    };
     misSource: 'sample' | 'frappe';
     operationsSource: 'sample' | 'frappe';
     writePostingEnabled: boolean;
@@ -58,7 +64,7 @@ export default function IntegrationsPage() {
 
       <section className="stats-grid">
         <article className="stat-card"><span>ERPNext</span><strong style={{fontSize: 18}}>{erpState}</strong></article>
-        <article className="stat-card"><span>MIS source</span><strong style={{fontSize: 18}}>{data?.facilityos.misSource ?? '—'}</strong></article>
+        <article className="stat-card"><span>FacilityOS Backend</span><strong style={{fontSize: 18}}>{data?.facilityos.backend.ready ? 'Ready' : data?.facilityos.backend.installed ? 'Incomplete' : 'Not installed'}</strong></article>
         <article className="stat-card"><span>Operations source</span><strong style={{fontSize: 18}}>{data?.facilityos.operationsSource ?? '—'}</strong></article>
         <article className="stat-card"><span>ERP writes</span><strong style={{fontSize: 18}}>{data?.facilityos.writePostingEnabled ? 'Enabled' : 'Disabled'}</strong></article>
       </section>
@@ -73,6 +79,21 @@ export default function IntegrationsPage() {
           <div><dt>Reachable</dt><dd>{data?.erpnext.reachable ? 'Yes' : 'No'}</dd></div>
           <div><dt>Authenticated</dt><dd>{data?.erpnext.authenticated ? 'Yes' : 'No'}</dd></div>
           <div><dt>Credentials in browser</dt><dd>No</dd></div>
+        </dl>
+      </section>
+
+      <section className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-heading">
+          <div><p className="eyebrow">FacilityOS Frappe App</p><h2>Backend readiness</h2></div>
+          <span className={data?.facilityos.backend.ready ? 'preview-badge live-badge' : 'preview-badge'}>
+            {data?.facilityos.backend.ready ? 'Ready' : 'Pending install / migrate'}
+          </span>
+        </div>
+        <dl className="result-fields">
+          <div><dt>Installed</dt><dd>{data?.facilityos.backend.installed ? 'Yes' : 'No'}</dd></div>
+          <div><dt>Ready</dt><dd>{data?.facilityos.backend.ready ? 'Yes' : 'No'}</dd></div>
+          <div><dt>Version</dt><dd>{data?.facilityos.backend.version ?? '—'}</dd></div>
+          <div><dt>Missing DocTypes</dt><dd>{data?.facilityos.backend.missingDoctypes?.length ? data.facilityos.backend.missingDoctypes.join(', ') : 'None reported'}</dd></div>
         </dl>
       </section>
 
