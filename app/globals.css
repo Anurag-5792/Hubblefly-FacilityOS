@@ -68,7 +68,7 @@ h2 { font-size: 22px; margin-bottom: 0; }
 .filter-field label { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
 .filter-field select { border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px; background: #fff; color: var(--text); }
 .mis-grid { display: grid; grid-template-columns: 1.3fr .7fr; gap: 16px; margin-top: 16px; }
-.chart-shell { min-height: 300px; display: flex; align-items: end; gap: 14px; padding-top: 20px; border-top: 1px solid var(--line); }
+.chart-shell { min-height: 300px; display: flex; align-items: flex-end; gap: 14px; padding-top: 20px; border-top: 1px solid var(--line); }
 .chart-bar { flex: 1; min-width: 34px; background: linear-gradient(180deg, var(--brand), #f69b59); border-radius: 10px 10px 3px 3px; position: relative; }
 .chart-bar span { position: absolute; bottom: -26px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--muted); white-space: nowrap; }
 .data-table { width: 100%; border-collapse: collapse; }
