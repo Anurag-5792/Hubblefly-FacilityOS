@@ -73,7 +73,9 @@ export default function ScanPage() {
         if (error instanceof DOMException && error.name === 'AbortError') return;
         setLive({ connected: false, source: 'unavailable', fields: [], warning: error instanceof Error ? error.message : 'Live lookup failed.' });
       })
-      .finally(() => setLoadingLive(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingLive(false);
+      });
 
     return () => controller.abort();
   }, [submitted, localResult]);
