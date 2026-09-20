@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FacilitySession } from '../../../../lib/auth/types';
 import type { ReconciliationSummary } from '../../../../lib/reconciliation/types';
+import type { ValidationAuditEvent, ValidationHistoryResponse } from '../../../../lib/reconciliation/validation-history';
 import type {
   ValidationAction,
   ValidationPreview,
@@ -42,6 +43,7 @@ export default function InventoryValidationPage() {
   const [auth, setAuth] = useState<FacilitySession | null>(null);
   const [summary, setSummary] = useState<ReconciliationSummary | null>(null);
   const [result, setResult] = useState<ApiResponse | null>(null);
+  const [history, setHistory] = useState<ValidationAuditEvent[]>([]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -65,6 +67,17 @@ export default function InventoryValidationPage() {
         ? statusMap[summaryPayload.validationStatus]
         : undefined;
       if (mapped) setStatus(mapped);
+
+      if (summaryPayload.sessionName) {
+        const historyResponse = await fetch(
+          `/api/inventory/reconciliation/validation/history?session=${encodeURIComponent(summaryPayload.sessionName)}`,
+          { cache: 'no-store' }
+        );
+        const historyPayload = await historyResponse.json() as ValidationHistoryResponse;
+        setHistory(historyPayload.events ?? []);
+      } else {
+        setHistory([]);
+      }
     } catch {
       setResult({
         ok: false,
@@ -258,7 +271,7 @@ export default function InventoryValidationPage() {
       )}
 
       {result && (
-        <section className={result.ok ? 'panel workflow-result success' : 'panel workflow-result error'}>
+        <section className={result.ok ? 'panel workflow-result success' : 'panel workflow-result error'} style={{ marginBottom: 16 }}>
           <p className="eyebrow">Validation result</p>
           <h2>{result.message}</h2>
           {result.errors.length > 0 && <ul>{result.errors.map((error) => <li key={error}>{error}</li>)}</ul>}
@@ -271,6 +284,34 @@ export default function InventoryValidationPage() {
           {result.note && <div className="preview-note" style={{ marginTop: 12 }}>{result.note}</div>}
         </section>
       )}
+
+      <section className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-heading">
+          <div><p className="eyebrow">Audit</p><h2>Validation History</h2></div>
+          <span className="status">{history.length} event(s)</span>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table">
+            <thead>
+              <tr><th>Time</th><th>Action</th><th>Actor</th><th>Role</th><th>Transition</th><th>Remarks</th></tr>
+            </thead>
+            <tbody>
+              {history.length === 0 ? (
+                <tr><td colSpan={6} style={{ color: 'var(--muted)' }}>No validation events recorded yet.</td></tr>
+              ) : history.map((event, index) => (
+                <tr key={`${event.occurredAt}-${index}`}>
+                  <td>{event.occurredAt || '—'}</td>
+                  <td><strong>{event.action}</strong></td>
+                  <td>{event.actor || '—'}</td>
+                  <td>{event.actorRole || '—'}</td>
+                  <td>{event.previousStatus} → {event.newStatus}</td>
+                  <td>{event.remarks || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="scan-note">
         <strong>Segregation of duties:</strong> production Admin approval is performed using the signed-in Frappe identity, and the same user who performed Inventory validation cannot approve the same count session as Admin. Admin approval still does not post opening stock.
