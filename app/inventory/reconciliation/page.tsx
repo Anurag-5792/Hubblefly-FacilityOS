@@ -142,7 +142,8 @@ export default function ReconciliationPage() {
           </section>
 
           <section className="workflow-actions">
-            <Link className="action action-featured action-link" href="/inventory/count">Continue Physical Count</Link>
+            <Link className="action action-featured action-link" href="/inventory/reconciliation/validation">Inventory / Admin Validation</Link>
+            <Link className="action action-link" href="/inventory/count">Continue Physical Count</Link>
             <Link className="action action-link" href="/inventory/scan">Scan Stock</Link>
             <Link className="action action-link" href="/admin/sync">Sync Status</Link>
           </section>
