@@ -97,3 +97,17 @@ export async function findItemLedger(itemCode: string) {
     `/api/resource/Stock%20Ledger%20Entry?filters=${filters}&fields=${fields}&order_by=posting_date%20desc,posting_time%20desc&limit_page_length=50`
   );
 }
+
+
+export async function testErpNextConnection() {
+  if (!isErpNextConfigured()) {
+    return { configured: false, reachable: false, authenticated: false };
+  }
+
+  try {
+    await erpNextRequest<{ message?: string }>('/api/method/frappe.auth.get_logged_user');
+    return { configured: true, reachable: true, authenticated: true };
+  } catch {
+    return { configured: true, reachable: false, authenticated: false };
+  }
+}
