@@ -26,6 +26,7 @@ const actions = [
   ['Issue', '/inventory/transaction?kind=issue'],
   ['Return', '/inventory/transaction?kind=return'],
   ['Physical Count', '/inventory/count'],
+  ['Reconciliation', '/inventory/reconciliation'],
 ];
 
 export default function InventoryHomePage() {
