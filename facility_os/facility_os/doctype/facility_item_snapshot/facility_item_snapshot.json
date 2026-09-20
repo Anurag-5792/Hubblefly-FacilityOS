@@ -1,0 +1,97 @@
+{
+  "actions": [],
+  "autoname": "field:source_name",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "source_name",
+    "item_code",
+    "item_name",
+    "item_group",
+    "brand",
+    "stock_uom",
+    "has_serial_no",
+    "has_batch_no",
+    "disabled",
+    "source_modified",
+    "synced_at"
+  ],
+  "fields": [
+    {
+      "fieldname": "source_name",
+      "fieldtype": "Data",
+      "label": "Source Name",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Data",
+      "label": "Item Code",
+      "reqd": 1
+    },
+    {
+      "fieldname": "item_name",
+      "fieldtype": "Data",
+      "label": "Item Name"
+    },
+    {
+      "fieldname": "item_group",
+      "fieldtype": "Data",
+      "label": "Item Group"
+    },
+    {
+      "fieldname": "brand",
+      "fieldtype": "Data",
+      "label": "Brand"
+    },
+    {
+      "fieldname": "stock_uom",
+      "fieldtype": "Data",
+      "label": "Stock UOM"
+    },
+    {
+      "fieldname": "has_serial_no",
+      "fieldtype": "Check",
+      "label": "Serial Controlled"
+    },
+    {
+      "fieldname": "has_batch_no",
+      "fieldtype": "Check",
+      "label": "Batch Controlled"
+    },
+    {
+      "fieldname": "disabled",
+      "fieldtype": "Check",
+      "label": "Disabled"
+    },
+    {
+      "fieldname": "source_modified",
+      "fieldtype": "Datetime",
+      "label": "Source Modified"
+    },
+    {
+      "fieldname": "synced_at",
+      "fieldtype": "Datetime",
+      "label": "Synced At"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Item Snapshot",
+  "naming_rule": "By fieldname",
+  "permissions": [
+    {
+      "role": "FacilityOS MIS",
+      "read": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": []
+}
