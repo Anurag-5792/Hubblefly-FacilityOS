@@ -6,6 +6,16 @@ import { useSearchParams } from 'next/navigation';
 import { resolveQr } from '../../../lib/qr-resolver';
 
 type PreviewResponse = { ok: boolean; errors: string[]; postingMode: string; note: string };
+type SaveResponse = {
+  ok: boolean;
+  persisted: boolean;
+  sessionName?: string;
+  lineStatus?: string;
+  blockingExceptions?: number;
+  validationStatus?: string;
+  note?: string;
+  error?: string;
+};
 
 function CountContent() {
   const params = useSearchParams();
@@ -14,7 +24,9 @@ function CountContent() {
   const [condition, setCondition] = useState('Good');
   const [container, setContainer] = useState('');
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
+  const [saved, setSaved] = useState<SaveResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
   const targetResolved = useMemo(() => resolveQr(target), [target]);
   const containerResolved = useMemo(() => resolveQr(container), [container]);
 
@@ -22,6 +34,7 @@ function CountContent() {
     event.preventDefault();
     setBusy(true);
     setPreview(null);
+    setSaved(null);
     try {
       const response = await fetch('/api/inventory/count/preview', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -29,6 +42,28 @@ function CountContent() {
       });
       setPreview(await response.json());
     } finally { setBusy(false); }
+  }
+
+  async function saveCount() {
+    setSaving(true);
+    setSaved(null);
+    try {
+      const response = await fetch('/api/inventory/count/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target,
+          quantity: Number(quantity),
+          condition,
+          container: container || undefined,
+        }),
+      });
+      setSaved(await response.json() as SaveResponse);
+    } catch {
+      setSaved({ ok: false, persisted: false, error: 'Count could not be saved.' });
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -43,7 +78,8 @@ function CountContent() {
         </div>
         <div className="workflow-actions"><button className="scan-primary" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Validate Count'}</button><span>Validation only — no ERPNext adjustment is submitted.</span></div>
       </form>
-      {preview && <section className={preview.ok ? 'panel workflow-result success' : 'panel workflow-result error'}><p className="eyebrow">Validation result</p><h2>{preview.ok ? 'Count is ready for verification' : 'Count needs correction'}</h2>{preview.errors?.length > 0 && <ul>{preview.errors.map((error) => <li key={error}>{error}</li>)}</ul>}{preview.ok && <dl className="result-fields"><div><dt>Posting mode</dt><dd>{preview.postingMode}</dd></div><div><dt>Control note</dt><dd>{preview.note}</dd></div></dl>}</section>}
+      {preview && <section className={preview.ok ? 'panel workflow-result success' : 'panel workflow-result error'}><p className="eyebrow">Validation result</p><h2>{preview.ok ? 'Count is ready to save' : 'Count needs correction'}</h2>{preview.errors?.length > 0 && <ul>{preview.errors.map((error) => <li key={error}>{error}</li>)}</ul>}{preview.ok && <><dl className="result-fields"><div><dt>ERPNext posting</dt><dd>Not performed</dd></div><div><dt>Control note</dt><dd>{preview.note}</dd></div></dl><div className="workflow-actions" style={{ marginTop: 16 }}><button className="primary-button" type="button" disabled={saving} onClick={() => void saveCount()}>{saving ? 'Saving…' : 'Save Count to FacilityOS'}</button><span>This records physical truth only; it does not adjust ERPNext stock.</span></div></>}</section>}
+      {saved && <section className={saved.ok ? 'panel workflow-result success' : 'panel workflow-result error'} style={{ marginTop: 16 }}><p className="eyebrow">FacilityOS count record</p><h2>{saved.ok ? (saved.persisted ? 'Physical count saved' : 'Preview validated') : 'Count was not saved'}</h2>{saved.error && <div className="lookup-warning">{saved.error}</div>}{saved.ok && <dl className="result-fields"><div><dt>Persisted</dt><dd>{saved.persisted ? 'Yes' : 'No — preview mode'}</dd></div><div><dt>Session</dt><dd>{saved.sessionName ?? 'Preview'}</dd></div><div><dt>Line status</dt><dd>{saved.lineStatus ?? '—'}</dd></div><div><dt>Blocking exceptions</dt><dd>{saved.blockingExceptions ?? '—'}</dd></div></dl>}{saved.note && <div className="preview-note" style={{ marginTop: 12 }}>{saved.note}</div>}</section>}
     </main>
   );
 }
