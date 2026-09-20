@@ -7,7 +7,8 @@ ROLES = (
     "FacilityOS Admin",
 )
 
-def after_install():
+
+def _ensure_roles():
     for role_name in ROLES:
         if not frappe.db.exists("Role", role_name):
             frappe.get_doc({
@@ -16,3 +17,11 @@ def after_install():
                 "desk_access": 1,
             }).insert(ignore_permissions=True)
     frappe.db.commit()
+
+
+def before_install():
+    _ensure_roles()
+
+
+def after_install():
+    _ensure_roles()
