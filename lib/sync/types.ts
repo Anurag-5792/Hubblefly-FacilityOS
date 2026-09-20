@@ -11,4 +11,5 @@ export type SyncStatusResponse = {
   ok: boolean;
   source: 'sample' | 'facilityos-read-model';
   projections: SyncProjectionStatus[];
+  error?: string;
 };
