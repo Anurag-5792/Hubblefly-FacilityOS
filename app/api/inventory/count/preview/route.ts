@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server';
 import { validateCount } from '../../../../../lib/inventory-workflows';
 
 export async function POST(request: Request) {
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json() as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ ok: false, errors: ['Invalid JSON body.'] }, { status: 400 });
+  }
+
   const result = validateCount({
     target: String(body.target ?? ''),
     quantity: Number(body.quantity ?? 0),
@@ -10,5 +16,5 @@ export async function POST(request: Request) {
     container: body.container ? String(body.container) : undefined,
   });
 
-  return NextResponse.json(result, { status: result.ok ? 200 : 400 });
+  return NextResponse.json(result, { status: result.ok ? 200 : 422 });
 }
