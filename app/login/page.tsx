@@ -23,7 +23,8 @@ export default function LoginPage() {
         setError(payload.error ?? 'Login failed.');
         return;
       }
-      window.location.href = '/';
+      const requested = new URLSearchParams(window.location.search).get('next');
+      window.location.href = requested && requested.startsWith('/') ? requested : '/';
     } catch {
       setError('Login could not be completed.');
     } finally {
