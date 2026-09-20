@@ -110,3 +110,24 @@ export async function testErpNextConnection() {
     return { configured: true, reachable: false, authenticated: false };
   }
 }
+
+
+export async function testFacilityOsBackend() {
+  if (!isErpNextConfigured()) {
+    return { installed: false, ready: false, version: null as string | null, missingDoctypes: [] as string[] };
+  }
+
+  try {
+    const response = await erpNextRequest<{
+      message?: { ok?: boolean; ready?: boolean; version?: string; missingDoctypes?: string[] };
+    }>('/api/method/facility_os.api.health.check');
+    return {
+      installed: true,
+      ready: response.message?.ready === true,
+      version: response.message?.version ?? null,
+      missingDoctypes: response.message?.missingDoctypes ?? [],
+    };
+  } catch {
+    return { installed: false, ready: false, version: null as string | null, missingDoctypes: [] as string[] };
+  }
+}
