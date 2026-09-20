@@ -4,7 +4,13 @@ import { previewInventoryTransaction, type InventoryTransactionKind } from '../.
 const allowedKinds = new Set<InventoryTransactionKind>(['receive', 'issue', 'return']);
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json() as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ ok: false, errors: ['Invalid JSON body.'] }, { status: 400 });
+  }
+
   const kind = String(body.kind ?? '').toLowerCase() as InventoryTransactionKind;
 
   if (!allowedKinds.has(kind)) {
