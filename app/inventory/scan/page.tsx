@@ -27,11 +27,16 @@ type ResolveApiResponse = {
   live: LiveLookup;
 };
 
-function actionHref(action: string, entity: string) {
+function actionHref(action: string, entity: string, type: QrResolution['type']) {
   const value = encodeURIComponent(entity);
+  if (action === 'View Contents' && type === 'position') return `/inventory/position/${value}`;
+  if (action === 'View Contents' && type === 'container') return `/inventory/container/${value}`;
   if (action === 'Move') return `/inventory/move?source=${value}`;
   if (action === 'Move Stock Here') return `/inventory/move?destination=${value}`;
   if (action === 'Move Container') return `/inventory/move?source=${value}`;
+  if (action === 'Place Container') return `/inventory/move?destination=${value}`;
+  if (action === 'Add Stock') return `/inventory/move?destination=${value}`;
+  if (action === 'Remove Stock') return `/inventory/move?source=${value}`;
   if (action === 'Physical Count') return `/inventory/count?target=${value}`;
   if (action === 'Receive') return `/inventory/transaction?kind=receive&target=${value}`;
   if (action === 'Issue') return `/inventory/transaction?kind=issue&target=${value}`;
@@ -178,7 +183,7 @@ export default function ScanPage() {
             <p className="eyebrow">Valid actions</p>
             <div className="action-grid">
               {result.actions.map((action, index) => {
-                const href = actionHref(action, result.normalized);
+                const href = actionHref(action, result.normalized, result.type);
                 return href ? (
                   <Link className={index === 0 ? 'action action-featured' : 'action'} href={href} key={action}>{action}</Link>
                 ) : (
