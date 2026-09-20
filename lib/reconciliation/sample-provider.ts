@@ -69,6 +69,9 @@ export function sampleReconciliation(): ReconciliationSummary {
       ready: rows.filter((row) => row.status === 'ready').length,
     },
     openingStockGate: 'BLOCKED',
+    sessionName: 'SAMPLE-PC-0001',
+    validationStatus: 'Submitted',
+    blockingExceptions: rows.filter((row) => row.status === 'exception').length,
     lastUpdatedAt: null,
     note: 'Synthetic preview only. Real physical-count data is intentionally not committed to the public repository.',
   };
