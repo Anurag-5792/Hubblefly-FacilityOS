@@ -65,4 +65,5 @@ def summary(session_name=None):
         "lastUpdatedAt": str(doc.modified),
         "sessionName": doc.name,
         "validationStatus": doc.validation_status,
+        "blockingExceptions": int(doc.blocking_exceptions or 0),
     }
