@@ -85,3 +85,27 @@ def act(session_name, action, remarks=None):
         "persisted": True,
         "message": "Validation recorded.",
     }
+
+
+@frappe.whitelist()
+def history(session_name):
+    require_any_role(ROLE_INVENTORY, ROLE_ADMIN)
+    rows = frappe.get_all(
+        "Facility Validation Record",
+        filters={
+            "reference_doctype": "Facility Physical Count Session",
+            "reference_name": session_name,
+        },
+        fields=[
+            "action",
+            "previous_status",
+            "new_status",
+            "actor",
+            "actor_role",
+            "remarks",
+            "blocking_exceptions",
+            "occurred_at",
+        ],
+        order_by="occurred_at asc",
+    )
+    return {"sessionName": session_name, "events": rows}
