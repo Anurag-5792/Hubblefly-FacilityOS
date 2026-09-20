@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
-import { testErpNextConnection } from '../../../lib/erpnext/server-client';
+import { testErpNextConnection, testFacilityOsBackend } from '../../../lib/erpnext/server-client';
 
 export async function GET() {
-  const erpnext = await testErpNextConnection();
+  const [erpnext, backend] = await Promise.all([
+    testErpNextConnection(),
+    testFacilityOsBackend(),
+  ]);
   const misSource = process.env.FACILITYOS_MIS_SOURCE === 'frappe' ? 'frappe' : 'sample';
   const operationsSource = process.env.FACILITYOS_OPERATIONS_SOURCE === 'frappe'
     || (!process.env.FACILITYOS_OPERATIONS_SOURCE && misSource === 'frappe')
@@ -14,6 +17,7 @@ export async function GET() {
     service: 'Hubblefly FacilityOS',
     erpnext,
     facilityos: {
+      backend,
       misSource,
       operationsSource,
       writePostingEnabled: false,
