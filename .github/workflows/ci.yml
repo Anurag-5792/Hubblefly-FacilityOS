@@ -18,5 +18,19 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
-      - name: Build
+      - name: Build web app
         run: npm run build
+      - name: Compile Frappe Python sources
+        run: python -m compileall -q frappe_app/facility_os/facility_os
+      - name: Validate Frappe DocType JSON
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          files = list(Path("frappe_app/facility_os/facility_os").rglob("*.json"))
+          for path in files:
+              with path.open("r", encoding="utf-8") as handle:
+                  json.load(handle)
+          print(f"Validated {len(files)} Frappe JSON files")
+          PY
