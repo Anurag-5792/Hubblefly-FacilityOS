@@ -38,8 +38,7 @@ export async function erpNextRequest<T>(path: string, init: RequestInit = {}): P
   });
 
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`ERPNext request failed (${response.status}): ${detail.slice(0, 500)}`);
+    throw new Error(`ERPNext request failed with HTTP ${response.status}.`);
   }
 
   return response.json() as Promise<T>;
