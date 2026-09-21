@@ -18,6 +18,9 @@ REQUIRED_DOCTYPES = (
     "Facility Operational Audit",
     "Facility Label Registry",
     "Facility Traceability Exception",
+    "Facility Route Card",
+    "Facility Route Operation",
+    "Facility Genealogy Event",
 )
 
 
