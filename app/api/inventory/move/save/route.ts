@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { authorizeFacilityRequest } from '../../../../../lib/auth/server-guard';
 import { FACILITYOS_SESSION_COOKIE } from '../../../../../lib/auth/frappe-session';
 import { saveContainerMove } from '../../../../../lib/inventory/move-provider';
 import { validateMove } from '../../../../../lib/inventory-workflows';
 
 export async function POST(request: NextRequest) {
+  const authorization = await authorizeFacilityRequest(request, ['inventory']);
+  if (!authorization.ok) {
+    return NextResponse.json({ ok: false, error: authorization.error }, { status: authorization.status });
+  }
   let body: { source?: unknown; destination?: unknown; quantity?: unknown; condition?: unknown; remarks?: unknown };
   try {
     body = await request.json();
