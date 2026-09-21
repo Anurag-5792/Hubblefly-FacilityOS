@@ -16,6 +16,8 @@ REQUIRED_DOCTYPES = (
     "Facility Batch Snapshot",
     "Facility Stock Movement Fact",
     "Facility Operational Audit",
+    "Facility Label Registry",
+    "Facility Traceability Exception",
 )
 
 
