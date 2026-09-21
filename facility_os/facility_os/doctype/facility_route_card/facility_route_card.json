@@ -1,0 +1,92 @@
+{
+  "actions": [],
+  "autoname": "field:route_card_id",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "route_card_id",
+    "sfg_code",
+    "serial_no",
+    "status",
+    "current_operation",
+    "started_at",
+    "completed_at",
+    "operations"
+  ],
+  "fields": [
+    {
+      "fieldname": "route_card_id",
+      "fieldtype": "Data",
+      "label": "Route Card ID",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "sfg_code",
+      "fieldtype": "Data",
+      "label": "SFG Code",
+      "reqd": 1
+    },
+    {
+      "fieldname": "serial_no",
+      "fieldtype": "Data",
+      "label": "SFG Serial No",
+      "reqd": 1
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Draft\nIn Progress\nComplete\nBlocked",
+      "default": "Draft",
+      "reqd": 1
+    },
+    {
+      "fieldname": "current_operation",
+      "fieldtype": "Int",
+      "label": "Current Operation",
+      "default": "1"
+    },
+    {
+      "fieldname": "started_at",
+      "fieldtype": "Datetime",
+      "label": "Started At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "completed_at",
+      "fieldtype": "Datetime",
+      "label": "Completed At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "operations",
+      "fieldtype": "Table",
+      "label": "Operations",
+      "options": "Facility Route Operation"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Route Card",
+  "naming_rule": "By fieldname",
+  "permissions": [
+    {
+      "role": "FacilityOS Shopfloor",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}
