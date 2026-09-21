@@ -23,11 +23,11 @@ export default function HomePage() {
         <nav>
           <a className="active" href="/">Dashboard</a>
           <a href="/inventory">Inventory</a>
-          <a>Shopfloor</a>
-          <a>Traceability</a>
+          <a href="/shopfloor">Shopfloor</a>
+          <a href="/inventory/traceability">Traceability</a>
           <a href="/mis">MIS & Analytics</a>
           <a>Documents</a>
-          <a href="/admin/sync">Admin</a>
+          <a href="/admin">Admin</a>
         </nav>
         <div className="sidebar-footer">ERPNext: <strong>Server adapter ready</strong></div>
       </aside>
@@ -38,7 +38,7 @@ export default function HomePage() {
             <p className="eyebrow">Hubblefly Technologies Limited</p>
             <h1>Operations Dashboard</h1>
           </div>
-          <a className="scan-primary scan-link" href="/inventory/scan">▣ Scan QR</a>
+          <div className="workflow-actions"><a className="action action-link" href="/roles">Role Workspaces</a><a className="scan-primary scan-link" href="/inventory/scan">▣ Scan QR</a></div>
         </header>
 
         <div className="stats-grid">
@@ -66,10 +66,10 @@ export default function HomePage() {
           <article className="panel">
             <div className="panel-heading">
               <div><p className="eyebrow">Shopfloor</p><h2>Assembly & Genealogy</h2></div>
-              <span className="status">SFG Traceability</span>
+              <a className="status" href="/shopfloor">Open Shopfloor</a>
             </div>
             <div className="action-grid">
-              {shopfloorActions.map(action => <button className="action" key={action}>{action}</button>)}
+              {shopfloorActions.map(action => <a className="action action-link" href="/shopfloor" key={action}>{action}</a>)}
             </div>
           </article>
 
