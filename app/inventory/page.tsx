@@ -27,6 +27,7 @@ const actions = [
   ['Return', '/inventory/transaction?kind=return'],
   ['Physical Count', '/inventory/count'],
   ['Reconciliation', '/inventory/reconciliation'],
+  ['Traceability', '/inventory/traceability'],
 ];
 
 export default function InventoryHomePage() {
