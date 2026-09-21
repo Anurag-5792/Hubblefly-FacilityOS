@@ -1,0 +1,29 @@
+name: Sync Frappe Deploy Branch
+
+on:
+  push:
+    branches:
+      - feature/issue-1-inventory-qr-mvp
+    paths:
+      - 'frappe_app/facility_os/**'
+      - '.github/workflows/sync-frappe-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create deployment subtree
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git subtree split --prefix=frappe_app/facility_os -b facilityos-frappe-deploy-tmp
+          git push origin facilityos-frappe-deploy-tmp:frappe-app-deploy --force
