@@ -76,7 +76,7 @@ export default function ShopfloorWorkspace() {
         <div className="role-action-grid">
           <Link className="role-action role-action-primary" href="/inventory/scan"><strong>Scan & Resolve</strong><span>Serial / SFG / Drone</span><b>→</b></Link>
           <a className="role-action" href="#build"><strong>Build SFG</strong><span>Create component genealogy</span><b>→</b></a>
-          <a className="role-action" href="#genealogy"><strong>Install Component</strong><span>Record parent-child identity</span><b>→</b></a>
+          <Link className="role-action" href="/shopfloor/genealogy"><strong>Genealogy Explorer</strong><span>Trace component ↔ SFG ↔ drone</span><b>→</b></Link>
           <a className="role-action" href="#genealogy"><strong>Replace Component</strong><span>Preserve old + new history</span><b>→</b></a>
         </div>
       </section>
