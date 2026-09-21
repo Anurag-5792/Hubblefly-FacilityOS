@@ -32,7 +32,11 @@ Do not run opening-stock posting. FacilityOS currently has no opening-stock post
 
 The FacilityOS Frappe app must be installed as a custom app on the same site as ERPNext.
 
-The app currently lives in a monorepo subdirectory. If the Frappe Cloud custom-app flow requires the app at repository root, split `frappe_app/facility_os` into a dedicated deployment repository before production installation. Do not duplicate business logic; the dedicated repository should track this source.
+A standalone deployment branch is maintained in the same GitHub repository:
+
+`frappe-app-deploy`
+
+That branch exposes `pyproject.toml` and the `facility_os` package at repository root for Frappe Cloud / Bench installation. The development source remains under `frappe_app/facility_os` on the main feature branch. Do not place inventory data, credentials or private reconciliation files in the deployment branch.
 
 ## Required roles
 
