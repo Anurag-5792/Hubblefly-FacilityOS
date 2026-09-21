@@ -1,0 +1,41 @@
+name: FacilityOS Frappe App CI
+
+on:
+  push:
+    branches: [frappe-app-deploy]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile Python sources
+        run: python -m compileall -q facility_os
+      - name: Validate DocType JSON
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          files = list(Path("facility_os").rglob("*.json"))
+          for path in files:
+              with path.open("r", encoding="utf-8") as handle:
+                  json.load(handle)
+          print(f"Validated {len(files)} JSON files")
+          PY
+      - name: Validate pyproject
+        run: |
+          python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as handle:
+              data = tomllib.load(handle)
+          deps = data.get("tool", {}).get("bench", {}).get("frappe-dependencies", {})
+          assert "frappe" in deps, "frappe dependency is required"
+          assert "erpnext" in deps, "erpnext dependency is required"
+          print("pyproject dependency declaration is valid")
+          PY
