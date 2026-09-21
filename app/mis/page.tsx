@@ -69,11 +69,11 @@ export default function MISPage() {
         <nav>
           <a href="/">Dashboard</a>
           <a href="/inventory">Inventory</a>
-          <a>Shopfloor</a>
-          <a>Traceability</a>
+          <a href="/shopfloor">Shopfloor</a>
+          <a href="/inventory/traceability">Traceability</a>
           <a className="active" href="/mis">MIS & Analytics</a>
           <a>Documents</a>
-          <a href="/admin/sync">Admin</a>
+          <a href="/admin">Admin</a>
         </nav>
         <div className="sidebar-footer">
           MIS source
@@ -87,9 +87,9 @@ export default function MISPage() {
             <p className="eyebrow">Management Information System</p>
             <h1>Select your requirements</h1>
           </div>
-          <button className="primary-button" onClick={() => void runReport()} disabled={busy}>
+          <div className="workflow-actions"><a className="action action-link" href="/roles">Role Workspaces</a><button className="primary-button" onClick={() => void runReport()} disabled={busy}>
             {busy ? "Running…" : "Run Report"}
-          </button>
+          </button></div>
         </header>
 
         <div className="preview-note">
