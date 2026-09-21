@@ -53,7 +53,7 @@ export default function ShopfloorWorkspace() {
             {workCells.map((cell) => (
               <article key={cell.code}>
                 <span>{cell.code}</span><strong>{cell.name}</strong><small>{cell.status}</small>
-                <Link href={'/inventory/scan?value=' + encodeURIComponent(cell.code + '-S0001')}>Open sample →</Link>
+                <Link href={'/shopfloor/route-card/' + encodeURIComponent('RC-' + cell.code + '-S0001')}>Open Route Card →</Link>
               </article>
             ))}
           </div>
