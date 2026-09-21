@@ -56,14 +56,23 @@ def summary(session_name=None):
             "exception": line.exception or None,
         })
 
+    traceability_blocking = frappe.db.count(
+        "Facility Traceability Exception",
+        filters={"status": "Open", "blocking": 1},
+    )
+    total_blocking = int(doc.blocking_exceptions or 0) + int(traceability_blocking or 0)
+    gate_ready = doc.opening_stock_gate == "Ready for Approval" and total_blocking == 0
+
     return {
         "ok": True,
         "source": "facilityos",
         "rows": rows,
         "totals": totals,
-        "openingStockGate": "READY_FOR_APPROVAL" if doc.opening_stock_gate == "Ready for Approval" else "BLOCKED",
+        "openingStockGate": "READY_FOR_APPROVAL" if gate_ready else "BLOCKED",
         "lastUpdatedAt": str(doc.modified),
         "sessionName": doc.name,
         "validationStatus": doc.validation_status,
-        "blockingExceptions": int(doc.blocking_exceptions or 0),
+        "blockingExceptions": total_blocking,
+        "countLineBlockingExceptions": int(doc.blocking_exceptions or 0),
+        "traceabilityBlockingExceptions": int(traceability_blocking or 0),
     }
