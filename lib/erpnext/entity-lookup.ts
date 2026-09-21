@@ -1,4 +1,4 @@
-import { findBatch, findItem, findSerial, isErpNextConfigured } from './server-client';
+import { findBatch, findFacilityLabel, findItem, findSerial, isErpNextConfigured } from './server-client';
 import { getFacilityContainer, getFacilityPosition } from '../facility/provider';
 import type { QrResolution } from '../qr-resolver';
 
