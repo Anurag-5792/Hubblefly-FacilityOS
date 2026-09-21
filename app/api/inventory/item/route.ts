@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { authorizeFacilityRequest } from '../../../../lib/auth/server-guard';
 import { findItem, findItemLedger, findItemStock, isErpNextConfigured } from '../../../../lib/erpnext/server-client';
 
 const previewStock = [
@@ -12,6 +13,10 @@ const previewLedger = [
 ];
 
 export async function GET(request: NextRequest) {
+  const authorization = await authorizeFacilityRequest(request, ['inventory']);
+  if (!authorization.ok) {
+    return NextResponse.json({ ok: false, error: authorization.error }, { status: authorization.status });
+  }
   const code = request.nextUrl.searchParams.get('code')?.trim();
   if (!code) {
     return NextResponse.json({ ok: false, error: 'Item code is required.' }, { status: 400 });
