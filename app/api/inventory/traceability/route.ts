@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { authorizeFacilityRequest } from '../../../../lib/auth/server-guard';
 import { FACILITYOS_SESSION_COOKIE } from '../../../../lib/auth/frappe-session';
 import {
   getTraceabilitySummary,
@@ -8,12 +9,20 @@ import {
 } from '../../../../lib/traceability/provider';
 
 export async function GET(request: NextRequest) {
+  const authorization = await authorizeFacilityRequest(request, ['inventory']);
+  if (!authorization.ok) {
+    return NextResponse.json({ ok: false, error: authorization.error }, { status: authorization.status });
+  }
   const sid = request.cookies.get(FACILITYOS_SESSION_COOKIE)?.value;
   const result = await getTraceabilitySummary(sid);
   return NextResponse.json(result, { status: result.ok ? 200 : 401 });
 }
 
 export async function POST(request: NextRequest) {
+  const authorization = await authorizeFacilityRequest(request, ['inventory']);
+  if (!authorization.ok) {
+    return NextResponse.json({ ok: false, error: authorization.error }, { status: authorization.status });
+  }
   let body: Record<string, unknown>;
   try {
     body = await request.json() as Record<string, unknown>;
