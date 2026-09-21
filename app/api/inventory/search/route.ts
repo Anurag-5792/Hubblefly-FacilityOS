@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { authorizeFacilityRequest } from '../../../../lib/auth/server-guard';
 import { erpNextRequest, isErpNextConfigured } from '../../../../lib/erpnext/server-client';
 
 type ItemRow = {
@@ -19,6 +20,10 @@ const previewItems: ItemRow[] = [
 ];
 
 export async function GET(request: NextRequest) {
+  const authorization = await authorizeFacilityRequest(request, ['inventory']);
+  if (!authorization.ok) {
+    return NextResponse.json({ ok: false, error: authorization.error }, { status: authorization.status });
+  }
   const query = (request.nextUrl.searchParams.get('q') ?? '').trim();
   if (!query) {
     return NextResponse.json({ source: isErpNextConfigured() ? 'erpnext' : 'preview', results: [] });
