@@ -49,7 +49,7 @@ export default function AdminWorkspace() {
       <section className="panel" id="audit">
         <div className="panel-heading"><div><p className="eyebrow">Governance</p><h2>Admin responsibilities</h2></div></div>
         <div className="admin-control-grid">
-          <article><strong>Users & Roles</strong><p>Assign Inventory, Shopfloor, MIS and Admin permissions. Avoid unnecessary dual-role approvals.</p></article>
+          <article><strong>Users & Roles</strong><p>Assign Inventory, Shopfloor, MIS and Admin permissions. Avoid unnecessary dual-role approvals.</p><Link className="mis-link" href="/admin/users">Manage Access →</Link></article>
           <article><strong>Master Data</strong><p>Review Item, Serial, Batch, Position and Container readiness before migration/posting.</p></article>
           <article><strong>Audit Trail</strong><p>Review who counted, moved, validated, approved or resolved exceptions and when.</p></article>
           <article><strong>Release Gates</strong><p>Keep ERP stock writes and opening-stock posting blocked until UAT and explicit approval.</p></article>
