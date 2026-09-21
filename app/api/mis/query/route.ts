@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { authorizeFacilityRequest } from '../../../../lib/auth/server-guard';
 import { queryMis } from '../../../../lib/mis/provider';
 import type { MisFilters, MisPeriod } from '../../../../lib/mis/types';
 
 const allowedPeriods = new Set<MisPeriod>(['Today', '7 Days', '30 Days', 'Custom']);
 
 export async function GET(request: NextRequest) {
+  const authorization = await authorizeFacilityRequest(request, ['mis']);
+  if (!authorization.ok) {
+    return NextResponse.json({ ok: false, error: authorization.error }, { status: authorization.status });
+  }
   const search = request.nextUrl.searchParams;
   const requestedPeriod = (search.get('period') ?? 'Today') as MisPeriod;
 
