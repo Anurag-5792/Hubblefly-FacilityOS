@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { authorizeFacilityRequest } from '../../../../../lib/auth/server-guard';
 import { previewInventoryTransaction, type InventoryTransactionKind } from '../../../../../lib/inventory-transactions';
 
 const allowedKinds = new Set<InventoryTransactionKind>(['receive', 'issue', 'return']);
 
 export async function POST(request: NextRequest) {
+  const authorization = await authorizeFacilityRequest(request, ['inventory']);
+  if (!authorization.ok) {
+    return NextResponse.json({ ok: false, error: authorization.error }, { status: authorization.status });
+  }
   let body: Record<string, unknown>;
   try {
     body = await request.json() as Record<string, unknown>;
