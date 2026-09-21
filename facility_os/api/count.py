@@ -14,6 +14,14 @@ def _resolve_target(target):
     value = (target or "").strip().upper()
 
     if SERIAL_RE.match(value):
+        label_status = None
+        if frappe.db.exists("DocType", "Facility Label Registry"):
+            label_status = frappe.db.get_value("Facility Label Registry", value, "status")
+        if label_status in ("Prepared", "Unused", "Void", "Exception"):
+            frappe.throw(
+                f"Serial label {value} has FacilityOS status {label_status} and cannot be counted as physical stock."
+            )
+
         item_code = frappe.db.get_value("Serial No", value, "item_code")
         if not item_code:
             item_code = SERIAL_RE.match(value).group(1)
