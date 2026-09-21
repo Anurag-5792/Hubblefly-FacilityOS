@@ -19,6 +19,16 @@ TRANSITIONS = {
 REJECT_ACTIONS = {"inventory_reject", "admin_reject"}
 
 
+def _blocking_total(doc):
+    traceability = 0
+    if frappe.db.exists("DocType", "Facility Traceability Exception"):
+        traceability = frappe.db.count(
+            "Facility Traceability Exception",
+            filters={"status": "Open", "blocking": 1},
+        )
+    return int(doc.blocking_exceptions or 0) + int(traceability or 0)
+
+
 def _audit(doc, action, previous, new_status, actor, actor_role, remarks):
     frappe.get_doc({
         "doctype": "Facility Validation Record",
@@ -30,7 +40,7 @@ def _audit(doc, action, previous, new_status, actor, actor_role, remarks):
         "actor": actor,
         "actor_role": actor_role,
         "remarks": remarks or "",
-        "blocking_exceptions": doc.blocking_exceptions or 0,
+        "blocking_exceptions": _blocking_total(doc),
         "occurred_at": now_datetime(),
     }).insert(ignore_permissions=True)
 
@@ -55,8 +65,9 @@ def act(session_name, action, remarks=None):
     if action in REJECT_ACTIONS and not (remarks or "").strip():
         frappe.throw("Remarks are required when rejecting validation.")
 
-    if action in ("inventory_validate", "admin_approve") and int(doc.blocking_exceptions or 0) > 0:
-        frappe.throw("Blocking reconciliation exceptions must be resolved first.")
+    blocking_total = _blocking_total(doc)
+    if action in ("inventory_validate", "admin_approve") and blocking_total > 0:
+        frappe.throw("Blocking reconciliation or traceability exceptions must be resolved first.")
 
     if action == "admin_approve" and doc.inventory_validated_by == actor:
         frappe.throw("Admin approver must be different from the Inventory validator.")
@@ -67,7 +78,7 @@ def act(session_name, action, remarks=None):
     elif action == "admin_approve":
         doc.admin_approved_by = actor
         doc.admin_approved_at = now_datetime()
-        doc.opening_stock_gate = "Ready for Approval"
+        doc.opening_stock_gate = "Ready for Approval" if blocking_total == 0 else "Blocked"
     else:
         doc.opening_stock_gate = "Blocked"
 
