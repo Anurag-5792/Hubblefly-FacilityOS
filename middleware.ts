@@ -19,5 +19,7 @@ export const config = {
     '/inventory/:path*',
     '/mis/:path*',
     '/admin/:path*',
+    '/shopfloor/:path*',
+    '/roles/:path*',
   ],
 };
