@@ -1,0 +1,91 @@
+{
+  "actions": [],
+  "autoname": "hash",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "event_type",
+    "parent_id",
+    "child_id",
+    "replacement_id",
+    "route_card",
+    "operator",
+    "occurred_at",
+    "note"
+  ],
+  "fields": [
+    {
+      "fieldname": "event_type",
+      "fieldtype": "Select",
+      "label": "Event",
+      "options": "BUILT_FROM\nINSTALLED_IN\nREMOVED_FROM\nREPLACED_BY",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "parent_id",
+      "fieldtype": "Data",
+      "label": "Parent ID",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "child_id",
+      "fieldtype": "Data",
+      "label": "Child ID",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "replacement_id",
+      "fieldtype": "Data",
+      "label": "Replacement ID"
+    },
+    {
+      "fieldname": "route_card",
+      "fieldtype": "Link",
+      "label": "Route Card",
+      "options": "Facility Route Card"
+    },
+    {
+      "fieldname": "operator",
+      "fieldtype": "Link",
+      "label": "Operator",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "occurred_at",
+      "fieldtype": "Datetime",
+      "label": "Occurred At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "note",
+      "fieldtype": "Small Text",
+      "label": "Note"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Genealogy Event",
+  "permissions": [
+    {
+      "role": "FacilityOS Shopfloor",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    }
+  ],
+  "sort_field": "occurred_at",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}
