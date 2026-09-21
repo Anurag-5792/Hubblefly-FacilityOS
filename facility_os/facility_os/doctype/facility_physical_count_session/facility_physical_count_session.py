@@ -1,6 +1,7 @@
 import frappe
 from frappe.model.document import Document
 
+
 class FacilityPhysicalCountSession(Document):
     def validate(self):
         blocking = 0
@@ -14,8 +15,18 @@ class FacilityPhysicalCountSession(Document):
                 line.difference = line.accounted_qty - float(line.reference_qty or 0)
             if line.blocking_exception:
                 blocking += 1
+
         self.blocking_exceptions = blocking
-        if self.validation_status != "Admin Approved":
+
+        traceability_blocking = 0
+        if frappe.db.exists("DocType", "Facility Traceability Exception"):
+            traceability_blocking = frappe.db.count(
+                "Facility Traceability Exception",
+                filters={"status": "Open", "blocking": 1},
+            )
+
+        total_blocking = blocking + int(traceability_blocking or 0)
+        if self.validation_status != "Admin Approved" or total_blocking > 0:
             self.opening_stock_gate = "Blocked"
-        elif blocking == 0:
+        else:
             self.opening_stock_gate = "Ready for Approval"
