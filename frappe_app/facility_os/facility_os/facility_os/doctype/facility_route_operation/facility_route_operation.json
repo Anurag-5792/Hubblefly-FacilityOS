@@ -1,0 +1,79 @@
+{
+  "actions": [],
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "sequence",
+    "operation",
+    "status",
+    "expected_component",
+    "scanned_component",
+    "operator",
+    "completed_at",
+    "note"
+  ],
+  "fields": [
+    {
+      "fieldname": "sequence",
+      "fieldtype": "Int",
+      "label": "Sequence",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "operation",
+      "fieldtype": "Data",
+      "label": "Operation",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Pending\nIn Progress\nComplete\nBlocked",
+      "default": "Pending",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "expected_component",
+      "fieldtype": "Data",
+      "label": "Expected Component"
+    },
+    {
+      "fieldname": "scanned_component",
+      "fieldtype": "Data",
+      "label": "Scanned Component"
+    },
+    {
+      "fieldname": "operator",
+      "fieldtype": "Link",
+      "label": "Operator",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "completed_at",
+      "fieldtype": "Datetime",
+      "label": "Completed At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "note",
+      "fieldtype": "Small Text",
+      "label": "Note"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 1,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Route Operation",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 0
+}
