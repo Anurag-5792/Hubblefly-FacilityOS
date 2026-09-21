@@ -59,7 +59,7 @@ export default function InventoryHomePage() {
     <main className="workflow-page">
       <header className="scan-header">
         <div>
-          <Link className="back-link" href="/">← Dashboard</Link>
+          <div className="workflow-actions"><Link className="back-link" href="/">← Dashboard</Link><Link className="back-link" href="/inventory/dashboard">Inventory Workspace</Link></div>
           <p className="eyebrow">HFT Store · Inventory</p>
           <h1>Inventory Control</h1>
           <p className="lead">Search, scan and act from one place. ERPNext remains the stock system of record; FacilityOS adds fast operator workflows and physical-location context.</p>
