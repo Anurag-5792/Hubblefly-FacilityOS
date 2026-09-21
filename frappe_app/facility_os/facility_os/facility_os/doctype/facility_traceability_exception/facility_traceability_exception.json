@@ -1,0 +1,138 @@
+{
+  "actions": [],
+  "autoname": "hash",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "exception_type",
+    "entity_type",
+    "entity_id",
+    "item_code",
+    "session_name",
+    "expected_label",
+    "observed_label",
+    "blocking",
+    "status",
+    "reported_by",
+    "reported_at",
+    "resolved_by",
+    "resolved_at",
+    "resolution_remarks"
+  ],
+  "fields": [
+    {
+      "fieldname": "exception_type",
+      "fieldtype": "Select",
+      "label": "Exception Type",
+      "options": "Unused Serial\nMissing Sticker\nMissing Component Identity\nDuplicate Label\nUnrecognized Label\nLabel Mismatch\nOther",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "entity_type",
+      "fieldtype": "Select",
+      "label": "Entity Type",
+      "options": "Item\nSerial\nBatch\nContainer\nPosition\nSFG\nDrone",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "entity_id",
+      "fieldtype": "Data",
+      "label": "Entity ID",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Link",
+      "label": "Item",
+      "options": "Item"
+    },
+    {
+      "fieldname": "session_name",
+      "fieldtype": "Link",
+      "label": "Physical Count Session",
+      "options": "Facility Physical Count Session"
+    },
+    {
+      "fieldname": "expected_label",
+      "fieldtype": "Data",
+      "label": "Expected Label"
+    },
+    {
+      "fieldname": "observed_label",
+      "fieldtype": "Data",
+      "label": "Observed Label"
+    },
+    {
+      "fieldname": "blocking",
+      "fieldtype": "Check",
+      "label": "Blocking",
+      "default": "1"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Open\nResolved\nVoid",
+      "default": "Open",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "reported_by",
+      "fieldtype": "Link",
+      "label": "Reported By",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "reported_at",
+      "fieldtype": "Datetime",
+      "label": "Reported At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "resolved_by",
+      "fieldtype": "Link",
+      "label": "Resolved By",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "resolved_at",
+      "fieldtype": "Datetime",
+      "label": "Resolved At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "resolution_remarks",
+      "fieldtype": "Small Text",
+      "label": "Resolution Remarks"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Traceability Exception",
+  "naming_rule": "Random",
+  "permissions": [
+    {
+      "role": "FacilityOS Inventory",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}
