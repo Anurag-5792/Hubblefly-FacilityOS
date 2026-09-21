@@ -18,13 +18,23 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      const payload = await response.json() as { ok?: boolean; error?: string };
+      const payload = await response.json() as { ok?: boolean; error?: string; role?: string };
       if (!response.ok || payload.ok === false) {
         setError(payload.error ?? 'Login failed.');
         return;
       }
       const requested = new URLSearchParams(window.location.search).get('next');
-      window.location.href = requested && requested.startsWith('/') ? requested : '/';
+      if (requested && requested.startsWith('/')) {
+        window.location.href = requested;
+        return;
+      }
+      const routeByRole: Record<string, string> = {
+        inventory: '/inventory/dashboard',
+        shopfloor: '/shopfloor',
+        mis: '/mis',
+        admin: '/admin',
+      };
+      window.location.href = routeByRole[payload.role ?? ''] ?? '/roles';
     } catch {
       setError('Login could not be completed.');
     } finally {
