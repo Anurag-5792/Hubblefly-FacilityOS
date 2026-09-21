@@ -131,3 +131,31 @@ export async function testFacilityOsBackend() {
     return { installed: false, ready: false, version: null as string | null, missingDoctypes: [] as string[] };
   }
 }
+
+
+export async function findFacilityLabel(labelId: string) {
+  if (!isErpNextConfigured()) return null;
+
+  const filters = encodeURIComponent(JSON.stringify([['label_id', '=', labelId]]));
+  const fields = encodeURIComponent(JSON.stringify([
+    'label_id',
+    'label_type',
+    'item_code',
+    'status',
+    'applied_entity_id',
+    'applied_at',
+    'source_reference',
+    'remarks'
+  ]));
+
+  try {
+    const response = await erpNextRequest<ErpNextListResponse<Record<string, unknown>>>(
+      `/api/resource/Facility%20Label%20Registry?filters=${filters}&fields=${fields}&limit_page_length=1`
+    );
+    return response.data[0] ?? null;
+  } catch {
+    // The FacilityOS custom app may not be installed yet. In that case the
+    // ordinary ERPNext Serial/Batch lookup remains the fallback.
+    return null;
+  }
+}
