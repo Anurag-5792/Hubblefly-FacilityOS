@@ -1,7 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { authorizeFacilityRequest } from '../../../lib/auth/server-guard';
 import { testErpNextConnection, testFacilityOsBackend } from '../../../lib/erpnext/server-client';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authorization = await authorizeFacilityRequest(request, ['admin']);
+  if (!authorization.ok) {
+    return NextResponse.json({ ok: false, error: authorization.error }, { status: authorization.status });
+  }
   const [erpnext, backend] = await Promise.all([
     testErpNextConnection(),
     testFacilityOsBackend(),
