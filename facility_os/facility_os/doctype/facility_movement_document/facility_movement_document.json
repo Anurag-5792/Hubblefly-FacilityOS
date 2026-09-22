@@ -17,6 +17,11 @@
     "vehicle_no",
     "returnable",
     "expected_return_date",
+    "generate_gate_pass",
+    "generate_delivery_challan",
+    "gate_pass_no",
+    "delivery_challan_no",
+    "erp_reconciliation_status",
     "reference_doctype",
     "reference_name",
     "erpnext_posted",
@@ -31,7 +36,7 @@
       "fieldname": "document_type",
       "fieldtype": "Select",
       "label": "Document Type",
-      "options": "GRN\nGate Pass\nDelivery Challan",
+      "options": "GRN\nOutward Movement\nGate Pass\nDelivery Challan",
       "reqd": 1,
       "in_list_view": 1
     },
@@ -105,6 +110,38 @@
       "fieldname": "expected_return_date",
       "fieldtype": "Date",
       "label": "Expected Return Date"
+    },
+    {
+      "fieldname": "generate_gate_pass",
+      "fieldtype": "Check",
+      "label": "Generate Gate Pass",
+      "default": "0"
+    },
+    {
+      "fieldname": "generate_delivery_challan",
+      "fieldtype": "Check",
+      "label": "Generate Delivery Challan",
+      "default": "0"
+    },
+    {
+      "fieldname": "gate_pass_no",
+      "fieldtype": "Data",
+      "label": "Gate Pass No",
+      "read_only": 1
+    },
+    {
+      "fieldname": "delivery_challan_no",
+      "fieldtype": "Data",
+      "label": "Delivery Challan No",
+      "read_only": 1
+    },
+    {
+      "fieldname": "erp_reconciliation_status",
+      "fieldtype": "Select",
+      "label": "ERP Reconciliation Status",
+      "options": "Not Linked\nERP Draft Linked\nReconciled\nSubmitted",
+      "default": "Not Linked",
+      "read_only": 1
     },
     {
       "fieldname": "reference_doctype",
