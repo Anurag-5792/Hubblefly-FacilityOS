@@ -1,4 +1,4 @@
-export type FacilityDocumentType = 'GRN' | 'GATE_PASS' | 'DELIVERY_CHALLAN';
+export type FacilityDocumentType = 'GRN' | 'OUTWARD' | 'GATE_PASS' | 'DELIVERY_CHALLAN';
 
 export type FacilityDocumentLine = {
   itemCode: string;
@@ -28,6 +28,11 @@ export type FacilityMovementDocument = {
   vehicleNo?: string;
   returnable?: boolean;
   expectedReturnDate?: string;
+  generateGatePass?: boolean;
+  generateDeliveryChallan?: boolean;
+  gatePassNo?: string;
+  deliveryChallanNo?: string;
+  erpReconciliationStatus?: 'not_linked' | 'erp_draft_linked' | 'reconciled' | 'submitted';
   referenceType?: string;
   referenceName?: string;
   lines: FacilityDocumentLine[];
