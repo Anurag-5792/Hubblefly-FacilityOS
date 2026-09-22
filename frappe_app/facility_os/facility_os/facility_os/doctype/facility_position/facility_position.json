@@ -1,0 +1,92 @@
+{
+  "actions": [],
+  "allow_rename": 0,
+  "autoname": "field:position_id",
+  "creation": "",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "position_id",
+    "warehouse",
+    "rack",
+    "level",
+    "position",
+    "stack_slot",
+    "status"
+  ],
+  "fields": [
+    {
+      "fieldname": "position_id",
+      "fieldtype": "Data",
+      "label": "Position ID",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "warehouse",
+      "fieldtype": "Link",
+      "label": "Warehouse",
+      "options": "Warehouse",
+      "reqd": 1
+    },
+    {
+      "fieldname": "rack",
+      "fieldtype": "Data",
+      "label": "Rack",
+      "reqd": 1
+    },
+    {
+      "fieldname": "level",
+      "fieldtype": "Select",
+      "label": "Level",
+      "options": "L1\nL2\nL3",
+      "reqd": 1
+    },
+    {
+      "fieldname": "position",
+      "fieldtype": "Data",
+      "label": "Position",
+      "reqd": 1
+    },
+    {
+      "fieldname": "stack_slot",
+      "fieldtype": "Select",
+      "label": "Stack Slot",
+      "options": "\nS1\nS2"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Active\nBlocked",
+      "default": "Active",
+      "reqd": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "is_submittable": 0,
+  "links": [],
+  "modified": "",
+  "module": "FacilityOS",
+  "name": "Facility Position",
+  "naming_rule": "By fieldname",
+  "permissions": [
+    {
+      "role": "FacilityOS Inventory",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

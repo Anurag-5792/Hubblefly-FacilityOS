@@ -1,4 +1,5 @@
 import './globals.css';
+import './inventory-workflows.css';
 
 export const metadata = {
   title: 'Hubblefly FacilityOS',

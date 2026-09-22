@@ -1,0 +1,92 @@
+{
+  "actions": [],
+  "autoname": "field:label_id",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "label_id",
+    "label_type",
+    "item_code",
+    "status",
+    "applied_entity_id",
+    "applied_at",
+    "source_reference",
+    "remarks"
+  ],
+  "fields": [
+    {
+      "fieldname": "label_id",
+      "fieldtype": "Data",
+      "label": "Label ID",
+      "reqd": 1,
+      "unique": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "label_type",
+      "fieldtype": "Select",
+      "label": "Label Type",
+      "options": "Serial\nBatch\nContainer\nPosition\nSFG\nDrone",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Link",
+      "label": "Item",
+      "options": "Item"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Prepared\nApplied\nUnused\nVoid\nException",
+      "default": "Prepared",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "applied_entity_id",
+      "fieldtype": "Data",
+      "label": "Applied Entity ID"
+    },
+    {
+      "fieldname": "applied_at",
+      "fieldtype": "Datetime",
+      "label": "Applied At"
+    },
+    {
+      "fieldname": "source_reference",
+      "fieldtype": "Data",
+      "label": "Source Reference"
+    },
+    {
+      "fieldname": "remarks",
+      "fieldtype": "Small Text",
+      "label": "Remarks"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Label Registry",
+  "naming_rule": "By fieldname",
+  "permissions": [
+    {
+      "role": "FacilityOS Inventory",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

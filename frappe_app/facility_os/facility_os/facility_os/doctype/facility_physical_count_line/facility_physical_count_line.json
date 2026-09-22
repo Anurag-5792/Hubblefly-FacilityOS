@@ -1,0 +1,138 @@
+{
+  "actions": [],
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "target_type",
+    "target_id",
+    "item_code",
+    "serial_no",
+    "batch_no",
+    "control_type",
+    "reference_qty",
+    "physical_qty",
+    "attached_qty",
+    "accounted_qty",
+    "difference",
+    "location",
+    "container",
+    "condition",
+    "line_status",
+    "blocking_exception",
+    "exception"
+  ],
+  "fields": [
+    {
+      "fieldname": "target_type",
+      "fieldtype": "Select",
+      "label": "Target Type",
+      "options": "Serial\nBatch\nPosition\nContainer\nItem",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "target_id",
+      "fieldtype": "Data",
+      "label": "Target ID",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Link",
+      "label": "Item",
+      "options": "Item"
+    },
+    {
+      "fieldname": "serial_no",
+      "fieldtype": "Data",
+      "label": "Serial No"
+    },
+    {
+      "fieldname": "batch_no",
+      "fieldtype": "Data",
+      "label": "Batch No"
+    },
+    {
+      "fieldname": "control_type",
+      "fieldtype": "Select",
+      "label": "Control",
+      "options": "Serial\nBatch\nStandard",
+      "reqd": 1
+    },
+    {
+      "fieldname": "reference_qty",
+      "fieldtype": "Float",
+      "label": "Reference Qty"
+    },
+    {
+      "fieldname": "physical_qty",
+      "fieldtype": "Float",
+      "label": "Physical Qty"
+    },
+    {
+      "fieldname": "attached_qty",
+      "fieldtype": "Float",
+      "label": "Attached / WIP Qty"
+    },
+    {
+      "fieldname": "accounted_qty",
+      "fieldtype": "Float",
+      "label": "Accounted Qty",
+      "read_only": 1
+    },
+    {
+      "fieldname": "difference",
+      "fieldtype": "Float",
+      "label": "Difference",
+      "read_only": 1
+    },
+    {
+      "fieldname": "location",
+      "fieldtype": "Link",
+      "label": "Position",
+      "options": "Facility Position"
+    },
+    {
+      "fieldname": "container",
+      "fieldtype": "Link",
+      "label": "Container",
+      "options": "Facility Container"
+    },
+    {
+      "fieldname": "condition",
+      "fieldtype": "Select",
+      "label": "Condition",
+      "options": "Good\nDamaged\nRepair\nScrap\nQuarantine",
+      "default": "Good"
+    },
+    {
+      "fieldname": "line_status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Pending\nCounted\nException\nReady",
+      "default": "Pending"
+    },
+    {
+      "fieldname": "blocking_exception",
+      "fieldtype": "Check",
+      "label": "Blocking Exception",
+      "default": "0"
+    },
+    {
+      "fieldname": "exception",
+      "fieldtype": "Small Text",
+      "label": "Exception"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "istable": 1,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Physical Count Line",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": []
+}
