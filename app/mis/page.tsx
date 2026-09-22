@@ -53,9 +53,12 @@ export default function MISPage() {
     void runReport(initialFilters);
   }, []);
 
+  const rows = Array.isArray(data.rows) ? data.rows : [];
+  const total = Number.isFinite(data.total) ? data.total : 0;
+
   const max = useMemo(
-    () => Math.max(...data.rows.map((row: MisRow) => row.displayed), 1),
-    [data.rows]
+    () => Math.max(...rows.map((row: MisRow) => row.displayed), 1),
+    [rows]
   );
 
   const update = (key: keyof MisFilters, value: string) => {
@@ -110,8 +113,8 @@ export default function MISPage() {
         </section>
 
         <div className="stats-grid">
-          <article className="stat-card"><span>Selected metric total</span><strong>{data.total.toLocaleString()}</strong></article>
-          <article className="stat-card"><span>Rows returned</span><strong>{data.rows.length}</strong></article>
+          <article className="stat-card"><span>Selected metric total</span><strong>{total.toLocaleString()}</strong></article>
+          <article className="stat-card"><span>Rows returned</span><strong>{rows.length}</strong></article>
           <article className="stat-card"><span>Source</span><strong style={{fontSize: 16}}>{data.source === "sample" ? "Sample" : "FacilityOS DB"}</strong></article>
           <article className="stat-card"><span>Period</span><strong style={{fontSize: 20}}>{filters.period}</strong></article>
         </div>
@@ -120,7 +123,7 @@ export default function MISPage() {
           <article className="panel">
             <div className="panel-heading"><div><p className="eyebrow">Graph</p><h2>{filters.metric} by {filters.groupBy}</h2></div><span className="status">FacilityOS query</span></div>
             <div className="chart-shell">
-              {data.rows.map(row => <div key={row.label} className="chart-bar" style={{height: `${Math.max(8, Math.round((row.displayed / max) * 220))}px`}} title={`${row.label}: ${row.displayed}`}><span>{row.label}</span></div>)}
+              {rows.map(row => <div key={row.label} className="chart-bar" style={{height: `${Math.max(8, Math.round((row.displayed / max) * 220))}px`}} title={`${row.label}: ${row.displayed}`}><span>{row.label}</span></div>)}
             </div>
           </article>
 
@@ -140,9 +143,9 @@ export default function MISPage() {
             <table className="data-table">
               <thead><tr><th>{filters.groupBy}</th><th>Stock Qty</th><th>Moves</th><th>Exceptions</th><th>Selected Metric</th></tr></thead>
               <tbody>
-                {data.rows.length === 0 ? (
+                {rows.length === 0 ? (
                   <tr><td colSpan={5} style={{ color: "var(--muted)" }}>{busy ? "Running report…" : "No rows returned."}</td></tr>
-                ) : data.rows.map(row => <tr key={row.label}><td>{row.label}</td><td>{row.stock}</td><td>{row.moves}</td><td>{row.exceptions}</td><td><strong>{row.displayed}</strong></td></tr>)}
+                ) : rows.map(row => <tr key={row.label}><td>{row.label}</td><td>{row.stock}</td><td>{row.moves}</td><td>{row.exceptions}</td><td><strong>{row.displayed}</strong></td></tr>)}
               </tbody>
             </table>
           </div>
