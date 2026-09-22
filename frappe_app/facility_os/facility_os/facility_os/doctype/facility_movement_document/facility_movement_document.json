@@ -1,0 +1,175 @@
+{
+  "actions": [],
+  "autoname": "FOS-DOC-.YYYY.-.#####",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "document_type",
+    "status",
+    "company",
+    "warehouse",
+    "party_name",
+    "supplier_invoice",
+    "supplier_invoice_date",
+    "recipient",
+    "purpose",
+    "vehicle_no",
+    "returnable",
+    "expected_return_date",
+    "reference_doctype",
+    "reference_name",
+    "erpnext_posted",
+    "erpnext_reference",
+    "prepared_by",
+    "checked_by",
+    "authorized_by",
+    "lines"
+  ],
+  "fields": [
+    {
+      "fieldname": "document_type",
+      "fieldtype": "Select",
+      "label": "Document Type",
+      "options": "GRN\nGate Pass\nDelivery Challan",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Draft\nPrepared\nChecked\nAuthorized\nCancelled",
+      "default": "Draft",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "company",
+      "fieldtype": "Link",
+      "label": "Company",
+      "options": "Company",
+      "reqd": 1
+    },
+    {
+      "fieldname": "warehouse",
+      "fieldtype": "Link",
+      "label": "Warehouse",
+      "options": "Warehouse",
+      "reqd": 1
+    },
+    {
+      "fieldname": "party_name",
+      "fieldtype": "Data",
+      "label": "Supplier / Party"
+    },
+    {
+      "fieldname": "supplier_invoice",
+      "fieldtype": "Data",
+      "label": "Supplier Invoice / Challan"
+    },
+    {
+      "fieldname": "supplier_invoice_date",
+      "fieldtype": "Date",
+      "label": "Supplier Invoice / Challan Date"
+    },
+    {
+      "fieldname": "recipient",
+      "fieldtype": "Data",
+      "label": "Recipient / To"
+    },
+    {
+      "fieldname": "purpose",
+      "fieldtype": "Small Text",
+      "label": "Purpose"
+    },
+    {
+      "fieldname": "vehicle_no",
+      "fieldtype": "Data",
+      "label": "Vehicle No"
+    },
+    {
+      "fieldname": "returnable",
+      "fieldtype": "Check",
+      "label": "Returnable",
+      "default": "0"
+    },
+    {
+      "fieldname": "expected_return_date",
+      "fieldtype": "Date",
+      "label": "Expected Return Date"
+    },
+    {
+      "fieldname": "reference_doctype",
+      "fieldtype": "Data",
+      "label": "Reference DocType"
+    },
+    {
+      "fieldname": "reference_name",
+      "fieldtype": "Data",
+      "label": "Reference Name"
+    },
+    {
+      "fieldname": "erpnext_posted",
+      "fieldtype": "Check",
+      "label": "ERPNext Posted",
+      "default": "0",
+      "read_only": 1
+    },
+    {
+      "fieldname": "erpnext_reference",
+      "fieldtype": "Data",
+      "label": "ERPNext Reference",
+      "read_only": 1
+    },
+    {
+      "fieldname": "prepared_by",
+      "fieldtype": "Link",
+      "label": "Prepared By",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "checked_by",
+      "fieldtype": "Link",
+      "label": "Checked By",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "authorized_by",
+      "fieldtype": "Link",
+      "label": "Authorized By",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "lines",
+      "fieldtype": "Table",
+      "label": "Items",
+      "options": "Facility Document Line",
+      "reqd": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Movement Document",
+  "permissions": [
+    {
+      "role": "FacilityOS Inventory",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}
