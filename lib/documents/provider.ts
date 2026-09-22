@@ -21,6 +21,7 @@ export function sampleDocument(type: FacilityDocumentType): FacilityMovementDocu
     id,
     type,
     status: 'draft',
+    documentDate: '2026-09-22',
     company: 'Hubblefly Technologies Limited',
     warehouse: 'HFT Store',
     partyName: type === 'GRN' ? 'Preview Supplier' : undefined,
