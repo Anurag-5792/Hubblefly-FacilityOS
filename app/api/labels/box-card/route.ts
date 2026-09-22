@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorizeFacilityRequest } from '../../../../lib/auth/server-guard';
-import { sampleBoxCard } from '../../../../lib/documents/provider';
+import { FACILITYOS_SESSION_COOKIE } from '../../../../lib/auth/frappe-session';
+import { getBoxCard } from '../../../../lib/documents/provider';
 
 export async function GET(request: NextRequest) {
   const authorization = await authorizeFacilityRequest(request, ['inventory']);
@@ -13,6 +14,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Container ID is required.' }, { status: 400 });
   }
 
-  // Preview-safe until the FacilityOS Frappe app is installed.
-  return NextResponse.json({ ok: true, source: 'sample', card: sampleBoxCard(containerId) });
+  const sid = request.cookies.get(FACILITYOS_SESSION_COOKIE)?.value;
+  const result = await getBoxCard(containerId, sid);
+  return NextResponse.json(result, { status: result.ok ? 200 : 404 });
 }
