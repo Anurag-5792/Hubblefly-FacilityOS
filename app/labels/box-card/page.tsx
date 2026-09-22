@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import FacilityQr from '../../../components/facility-qr';
 import { useState } from 'react';
 import type { BoxCardPreview } from '../../../lib/documents/types';
 
@@ -59,10 +60,7 @@ export default function BoxCardPage() {
                 <h2>{card.containerId}</h2>
                 <span>{card.status}</span>
               </div>
-              <div className="box-card-qr-placeholder">
-                <strong>QR</strong>
-                <small>{card.qrPayload}</small>
-              </div>
+              <FacilityQr value={card.qrPayload} size={104} label={card.containerId} />
             </div>
 
             <div className="box-card-item">
