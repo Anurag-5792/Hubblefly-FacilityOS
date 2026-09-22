@@ -417,3 +417,9 @@ h2 { font-size: 22px; margin-bottom: 0; }
   .print-document-shell { background: #fff; padding: 0; }
   .print-paper { box-shadow: none; margin: 0 auto; }
 }
+
+
+.facility-qr { display: grid; justify-items: center; align-content: start; gap: 4px; background: #fff; padding: 5px; color: #111; }
+.facility-qr small { max-width: 130px; font-size: 8px; line-height: 1.15; text-align: center; word-break: break-all; color: #111; }
+.print-doc-qr { display: grid; justify-items: end; gap: 4px; }
+.print-doc-qr p { margin: 0; font-size: 9px; color: #333; }
