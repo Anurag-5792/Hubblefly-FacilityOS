@@ -4,7 +4,7 @@ import { FACILITYOS_SESSION_COOKIE } from '../../../lib/auth/frappe-session';
 import { saveMovementDocument } from '../../../lib/documents/provider';
 import type { FacilityMovementDocument } from '../../../lib/documents/types';
 
-const allowedTypes = new Set(['GRN', 'GATE_PASS', 'DELIVERY_CHALLAN']);
+const allowedTypes = new Set(['GRN', 'OUTWARD', 'GATE_PASS', 'DELIVERY_CHALLAN']);
 
 export async function POST(request: NextRequest) {
   const authorization = await authorizeFacilityRequest(request, ['inventory']);
@@ -56,6 +56,14 @@ export async function POST(request: NextRequest) {
 
   if (document.type !== 'GRN' && (!document.recipient?.trim() || !document.purpose?.trim())) {
     return NextResponse.json({ ok: false, persisted: false, error: 'Recipient and Purpose are required.' }, { status: 400 });
+  }
+
+  if (document.type === 'OUTWARD' && !document.generateGatePass && !document.generateDeliveryChallan) {
+    return NextResponse.json({ ok: false, persisted: false, error: 'Select at least one output: Gate Pass or Delivery Challan.' }, { status: 400 });
+  }
+
+  if (document.type === 'OUTWARD' && document.returnable && !document.expectedReturnDate) {
+    return NextResponse.json({ ok: false, persisted: false, error: 'Expected Return Date is required for returnable outward material.' }, { status: 400 });
   }
 
   const sid = request.cookies.get(FACILITYOS_SESSION_COOKIE)?.value;
