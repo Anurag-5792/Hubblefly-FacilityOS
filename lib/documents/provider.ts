@@ -179,11 +179,27 @@ export type PrintJobSummary = {
   jobId: string;
   labelKind: string;
   itemCode?: string | null;
+  printMode?: string | null;
+  reason?: string | null;
   explicitPrintQty: number;
   approvedQty: number;
   status: string;
   createdBy?: string | null;
   modified?: string | null;
+};
+
+export type PrintJobDetail = PrintJobSummary & {
+  sourceReference?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  printedBy?: string | null;
+  printedAt?: string | null;
+  labels: Array<{
+    labelId?: string | null;
+    containerId?: string | null;
+    qrPayload: string;
+    status: string;
+  }>;
 };
 
 export async function listPrintJobs(sid?: string): Promise<{ ok: boolean; source: 'sample' | 'facilityos'; jobs: PrintJobSummary[]; error?: string }> {
@@ -195,6 +211,8 @@ export async function listPrintJobs(sid?: string): Promise<{ ok: boolean; source
         jobId: 'FOS-PRINT-PREVIEW-0001',
         labelKind: 'Box Card',
         itemCode: 'PSY-MTR-03',
+        printMode: 'Initial',
+        reason: 'Preview Box Card',
         explicitPrintQty: 1,
         approvedQty: 0,
         status: 'Previewed',
@@ -282,5 +300,82 @@ export async function approvePrintJob(
     return { ok: true, persisted: true, jobId: payload.message.jobId, status: payload.message.status };
   } catch {
     return { ok: false, persisted: false, error: 'Print job could not be approved.' };
+  }
+}
+
+
+export async function getPrintJob(
+  jobId: string,
+  sid?: string,
+): Promise<{ ok: boolean; source: 'sample' | 'facilityos'; job?: PrintJobDetail; error?: string }> {
+  if (!live()) {
+    return {
+      ok: true,
+      source: 'sample',
+      job: {
+        jobId,
+        labelKind: 'Serial',
+        itemCode: 'PSY-MTR-03',
+        printMode: 'Initial',
+        reason: 'Preview approved serial labels',
+        sourceReference: 'Preview count sheet',
+        explicitPrintQty: 2,
+        approvedQty: 2,
+        status: 'Approved',
+        createdBy: 'Preview Inventory User',
+        approvedBy: 'Preview Admin User',
+        labels: [
+          { labelId: 'PSY-MTR-03-S0042', qrPayload: 'PSY-MTR-03-S0042', status: 'Prepared' },
+          { labelId: 'PSY-MTR-03-S0043', qrPayload: 'PSY-MTR-03-S0043', status: 'Prepared' },
+        ],
+      },
+    };
+  }
+
+  if (!sid || !baseUrl()) {
+    return { ok: false, source: 'facilityos', error: 'FacilityOS session or server URL is unavailable.' };
+  }
+
+  try {
+    const url = new URL(baseUrl() + '/api/method/facility_os.api.printing.get_print_job');
+    url.searchParams.set('job_id', jobId);
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json', Cookie: 'sid=' + sid },
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error('Print job lookup failed.');
+    const payload = await response.json() as { message?: { ok?: boolean; job?: PrintJobDetail } };
+    if (!payload.message?.ok || !payload.message.job) throw new Error('Empty print job response.');
+    return { ok: true, source: 'facilityos', job: payload.message.job };
+  } catch {
+    return { ok: false, source: 'facilityos', error: 'Print job could not be loaded.' };
+  }
+}
+
+export async function markPrintJobPrinted(
+  jobId: string,
+  sid?: string,
+): Promise<{ ok: boolean; persisted: boolean; jobId?: string; status?: string; error?: string; note?: string }> {
+  if (!live()) {
+    return { ok: true, persisted: false, jobId, status: 'Printed', note: 'Preview mode: printed state was not persisted.' };
+  }
+
+  if (!sid || !baseUrl()) {
+    return { ok: false, persisted: false, error: 'FacilityOS session or server URL is unavailable.' };
+  }
+
+  try {
+    const response = await fetch(baseUrl() + '/api/method/facility_os.api.printing.mark_printed', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', Cookie: 'sid=' + sid },
+      body: JSON.stringify({ job_id: jobId }),
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error('Mark printed failed.');
+    const payload = await response.json() as { message?: { ok?: boolean; jobId?: string; status?: string } };
+    if (!payload.message?.ok) throw new Error('Mark printed failed.');
+    return { ok: true, persisted: true, jobId: payload.message.jobId, status: payload.message.status };
+  } catch {
+    return { ok: false, persisted: false, error: 'Print job could not be marked Printed.' };
   }
 }
