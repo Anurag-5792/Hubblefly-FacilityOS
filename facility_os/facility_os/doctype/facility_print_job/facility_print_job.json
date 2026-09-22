@@ -6,6 +6,9 @@
   "field_order": [
     "label_kind",
     "item_code",
+    "print_mode",
+    "reason",
+    "source_reference",
     "explicit_print_qty",
     "preview_count",
     "approved_qty",
@@ -32,6 +35,25 @@
       "fieldtype": "Link",
       "label": "Item Code",
       "options": "Item"
+    },
+    {
+      "fieldname": "print_mode",
+      "fieldtype": "Select",
+      "label": "Print Mode",
+      "options": "Initial\nReprint",
+      "default": "Initial",
+      "reqd": 1
+    },
+    {
+      "fieldname": "reason",
+      "fieldtype": "Small Text",
+      "label": "Print Reason",
+      "reqd": 1
+    },
+    {
+      "fieldname": "source_reference",
+      "fieldtype": "Data",
+      "label": "Source Reference"
     },
     {
       "fieldname": "explicit_print_qty",
