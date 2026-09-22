@@ -74,7 +74,7 @@ export default function SyncAdminPage() {
             <tbody>
               {!data ? (
                 <tr><td colSpan={5} style={{ color: 'var(--muted)' }}>Loading sync state…</td></tr>
-              ) : data.projections.map((row) => (
+              ) : (Array.isArray(data.projections) ? data.projections : []).map((row) => (
                 <tr key={row.projection}>
                   <td><strong>{row.projection}</strong></td>
                   <td>{row.status.toUpperCase()}</td>
