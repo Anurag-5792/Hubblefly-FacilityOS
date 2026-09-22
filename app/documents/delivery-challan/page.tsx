@@ -1,5 +1,5 @@
-import DocumentForm from '../document-form';
+import OutwardMovementForm from '../outward-form';
 
 export default function DeliveryChallanPage() {
-  return <DocumentForm type="DELIVERY_CHALLAN" />;
+  return <OutwardMovementForm />;
 }
