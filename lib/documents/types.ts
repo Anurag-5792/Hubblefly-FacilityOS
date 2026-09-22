@@ -17,6 +17,7 @@ export type FacilityMovementDocument = {
   id: string;
   type: FacilityDocumentType;
   status: 'draft' | 'prepared' | 'checked' | 'authorized' | 'cancelled';
+  documentDate: string;
   company: string;
   warehouse: string;
   partyName?: string;
