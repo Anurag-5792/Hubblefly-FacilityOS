@@ -13,7 +13,8 @@ export async function authorizeFacilityRequest(
   request: NextRequest,
   allowedRoles: FacilityRole[] = [],
 ): Promise<FacilityAuthorization> {
-  const session = usesFrappeAuth()
+  const frappeAuth = usesFrappeAuth();
+  const session = frappeAuth
     ? await readFrappeIdentity(request.cookies.get(FACILITYOS_SESSION_COOKIE)?.value ?? '')
     : previewSession();
 
@@ -21,7 +22,9 @@ export async function authorizeFacilityRequest(
     return { ok: false, status: 401, session: null, error: 'FacilityOS authentication is required.' };
   }
 
-  if (allowedRoles.length > 0 && session.role !== 'admin' && !allowedRoles.includes(session.role)) {
+  // Preview/sample deployments intentionally allow navigating every role workspace.
+  // Live Frappe auth still enforces the signed-in role server-side.
+  if (frappeAuth && allowedRoles.length > 0 && session.role !== 'admin' && !allowedRoles.includes(session.role)) {
     return { ok: false, status: 403, session, error: 'Your FacilityOS role is not permitted for this action.' };
   }
 
