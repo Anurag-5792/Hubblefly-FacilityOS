@@ -1,0 +1,49 @@
+{
+  "actions": [],
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "istable": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "label_id",
+    "container_id",
+    "qr_payload",
+    "status"
+  ],
+  "fields": [
+    {
+      "fieldname": "label_id",
+      "fieldtype": "Data",
+      "label": "Label ID",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "container_id",
+      "fieldtype": "Data",
+      "label": "Container ID",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "qr_payload",
+      "fieldtype": "Data",
+      "label": "QR Payload"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Prepared\nPrinted\nVoid",
+      "default": "Prepared",
+      "in_list_view": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Print Job Label",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 0
+}
