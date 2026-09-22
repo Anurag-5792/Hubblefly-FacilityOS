@@ -1,10 +1,12 @@
 import frappe
+from frappe.model.naming import make_autoname
 from frappe.utils import now_datetime
 
 from facility_os.api.security import ROLE_ADMIN, ROLE_INVENTORY, current_user, require_any_role
 
 TYPE_MAP = {
     "GRN": "GRN",
+    "OUTWARD": "Outward Movement",
     "GATE_PASS": "Gate Pass",
     "DELIVERY_CHALLAN": "Delivery Challan",
 }
@@ -15,6 +17,7 @@ def _doc_payload(doc):
         "id": doc.name,
         "type": {
             "GRN": "GRN",
+            "Outward Movement": "OUTWARD",
             "Gate Pass": "GATE_PASS",
             "Delivery Challan": "DELIVERY_CHALLAN",
         }.get(doc.document_type, doc.document_type),
@@ -30,6 +33,16 @@ def _doc_payload(doc):
         "vehicleNo": doc.vehicle_no or None,
         "returnable": bool(doc.returnable),
         "expectedReturnDate": str(doc.expected_return_date) if doc.expected_return_date else None,
+        "generateGatePass": bool(doc.generate_gate_pass),
+        "generateDeliveryChallan": bool(doc.generate_delivery_challan),
+        "gatePassNo": doc.gate_pass_no or None,
+        "deliveryChallanNo": doc.delivery_challan_no or None,
+        "erpReconciliationStatus": {
+            "Not Linked": "not_linked",
+            "ERP Draft Linked": "erp_draft_linked",
+            "Reconciled": "reconciled",
+            "Submitted": "submitted",
+        }.get(doc.erp_reconciliation_status, "not_linked"),
         "referenceType": doc.reference_doctype or None,
         "referenceName": doc.reference_name or None,
         "preparedBy": doc.prepared_by or None,
@@ -77,6 +90,9 @@ def save_document(document):
         "vehicle_no": document.get("vehicleNo"),
         "returnable": 1 if document.get("returnable") else 0,
         "expected_return_date": document.get("expectedReturnDate"),
+        "generate_gate_pass": 1 if document.get("generateGatePass") else 0,
+        "generate_delivery_challan": 1 if document.get("generateDeliveryChallan") else 0,
+        "erp_reconciliation_status": "Not Linked",
         "reference_doctype": document.get("referenceType"),
         "reference_name": document.get("referenceName"),
         "erpnext_posted": 0,
@@ -140,6 +156,12 @@ def transition(document_id, action):
         doc.status = "Authorized"
         doc.authorized_by = user
 
+        if doc.document_type == "Outward Movement":
+            if doc.generate_gate_pass and not doc.gate_pass_no:
+                doc.gate_pass_no = make_autoname("GP-.YYYY.-.#####")
+            if doc.generate_delivery_challan and not doc.delivery_challan_no:
+                doc.delivery_challan_no = make_autoname("DC-.YYYY.-.#####")
+
     else:
         frappe.throw("Unsupported document transition.")
 
@@ -153,6 +175,40 @@ def transition(document_id, action):
         "actor": user,
         "remarks": f"{doc.document_type} moved to {doc.status}.",
         "reference": doc.name,
+        "occurred_at": now_datetime(),
+    }).insert(ignore_permissions=True)
+
+    frappe.db.commit()
+    return {"ok": True, "persisted": True, "document": _doc_payload(doc), "erpNextPosted": False}
+
+
+@frappe.whitelist(methods=["POST"])
+def link_erp_draft(document_id, erp_doctype, erp_name):
+    require_any_role(ROLE_INVENTORY, ROLE_ADMIN)
+    doc = frappe.get_doc("Facility Movement Document", document_id)
+
+    if doc.status not in ("Checked", "Authorized"):
+        frappe.throw("ERP draft can be linked only after the FacilityOS document is checked.")
+
+    erp_doctype = (erp_doctype or "").strip()
+    erp_name = (erp_name or "").strip()
+    if not erp_doctype or not erp_name:
+        frappe.throw("ERP DocType and document name are required.")
+
+    doc.reference_doctype = erp_doctype
+    doc.reference_name = erp_name
+    doc.erpnext_reference = f"{erp_doctype}:{erp_name}"
+    doc.erp_reconciliation_status = "ERP Draft Linked"
+    doc.save(ignore_permissions=True)
+
+    frappe.get_doc({
+        "doctype": "Facility Operational Audit",
+        "event_type": "ERP_DRAFT_LINKED",
+        "entity_type": "Facility Movement Document",
+        "entity_id": doc.name,
+        "actor": current_user(),
+        "remarks": f"Linked ERP draft {erp_doctype} {erp_name}.",
+        "reference": doc.erpnext_reference,
         "occurred_at": now_datetime(),
     }).insert(ignore_permissions=True)
 
