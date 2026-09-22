@@ -1,5 +1,5 @@
-import DocumentForm from '../document-form';
+import OutwardMovementForm from '../outward-form';
 
 export default function GatePassPage() {
-  return <DocumentForm type="GATE_PASS" />;
+  return <OutwardMovementForm />;
 }
