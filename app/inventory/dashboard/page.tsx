@@ -12,6 +12,7 @@ const primary = [
   ['Receive', '/inventory/transaction?kind=receive', 'Prepare inward transaction'],
   ['Issue', '/inventory/transaction?kind=issue', 'Prepare outward transaction'],
   ['Return', '/inventory/transaction?kind=return', 'Prepare controlled return'],
+  ['Documents', '/documents', 'GRN, Gate Pass, Delivery Challan and labels'],
 ];
 
 export default function InventoryRoleDashboard() {
