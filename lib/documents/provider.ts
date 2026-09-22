@@ -88,15 +88,28 @@ export function previewPrintBatch(input: {
   kind: PrintLabelKind;
   explicitPrintQty: number;
   itemCode?: string;
+  labelIds?: string[];
   containerIds?: string[];
+  printMode?: 'initial' | 'reprint';
+  reason?: string;
   approvedQty?: number;
 }): PrintBatchPreview {
   const requested = Math.max(0, Math.floor(input.explicitPrintQty));
   const approved = Math.max(0, Math.floor(input.approvedQty ?? 0));
   const requiresApproval = requested > 0;
-  const blockedReason = requested <= 0
-    ? 'Print quantity must be entered explicitly. FacilityOS never infers print quantity from stock or pack size.'
-    : undefined;
+  const identities = input.kind === 'BOX_CARD' ? (input.containerIds ?? []) : (input.labelIds ?? []);
+  const identityRequired = ['SERIAL', 'BATCH', 'POSITION', 'CONTAINER', 'BOX_CARD'].includes(input.kind);
+  let blockedReason: string | undefined;
+
+  if (requested <= 0) {
+    blockedReason = 'Print quantity must be entered explicitly. FacilityOS never infers print quantity from stock or pack size.';
+  } else if (!input.reason?.trim()) {
+    blockedReason = 'Print reason is required for audit.';
+  } else if (identityRequired && identities.length !== requested) {
+    blockedReason = 'The exact identity count must match the explicit print quantity.';
+  } else if (identityRequired && new Set(identities).size !== identities.length) {
+    blockedReason = 'Duplicate label/container identities are not allowed in the same print batch.';
+  }
 
   return {
     batchId: 'PRINT-PREVIEW-0001',
@@ -107,7 +120,10 @@ export function previewPrintBatch(input: {
     approvedQty: Math.min(approved, requested),
     status: blockedReason ? 'blocked' : approved >= requested ? 'approved' : 'previewed',
     itemCode: input.itemCode,
+    labelIds: input.labelIds,
     containerIds: input.containerIds,
+    printMode: input.printMode ?? 'initial',
+    reason: input.reason,
     blockedReason,
   };
 }
@@ -202,7 +218,16 @@ export async function listPrintJobs(sid?: string): Promise<{ ok: boolean; source
 }
 
 export async function createPrintJob(
-  input: { kind: PrintLabelKind; explicitPrintQty: number; itemCode?: string; containerIds?: string[] },
+  input: {
+    kind: PrintLabelKind;
+    explicitPrintQty: number;
+    itemCode?: string;
+    labelIds?: string[];
+    containerIds?: string[];
+    printMode?: 'initial' | 'reprint';
+    reason?: string;
+    sourceReference?: string;
+  },
   sid?: string,
 ): Promise<{ ok: boolean; persisted: boolean; jobId?: string; status?: string; error?: string; note?: string }> {
   if (!live()) {
@@ -218,7 +243,11 @@ export async function createPrintJob(
         label_kind: input.kind,
         explicit_print_qty: input.explicitPrintQty,
         item_code: input.itemCode ?? '',
+        label_ids: input.labelIds ?? [],
         container_ids: input.containerIds ?? [],
+        print_mode: input.printMode === 'reprint' ? 'Reprint' : 'Initial',
+        reason: input.reason ?? '',
+        source_reference: input.sourceReference ?? '',
       }),
       cache: 'no-store',
     });
