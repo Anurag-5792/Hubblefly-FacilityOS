@@ -24,8 +24,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, persisted: false, error: 'Valid document type is required.' }, { status: 400 });
   }
 
-  if (!document.company?.trim() || !document.warehouse?.trim()) {
-    return NextResponse.json({ ok: false, persisted: false, error: 'Company and warehouse are required.' }, { status: 400 });
+  if (!document.documentDate || !document.company?.trim() || !document.warehouse?.trim()) {
+    return NextResponse.json({ ok: false, persisted: false, error: 'Document Date, Company and Warehouse are required.' }, { status: 400 });
+  }
+
+  if (
+    document.type === 'GRN'
+    && document.company === 'Hubblefly Technologies Limited'
+    && document.documentDate < '2026-08-01'
+  ) {
+    return NextResponse.json({
+      ok: false,
+      persisted: false,
+      error: 'HTL live inward starts 1 Aug 2026. Earlier receipts belong to opening-stock reconciliation and must not be entered again as GRN.',
+    }, { status: 400 });
   }
 
   if (!Array.isArray(document.lines) || document.lines.length === 0) {
