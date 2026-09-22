@@ -68,7 +68,10 @@ export type PrintBatchPreview = {
   approvedQty: number;
   status: 'draft' | 'previewed' | 'approved' | 'printed' | 'blocked';
   itemCode?: string;
+  labelIds?: string[];
   containerIds?: string[];
+  printMode?: 'initial' | 'reprint';
+  reason?: string;
   blockedReason?: string;
 };
 
