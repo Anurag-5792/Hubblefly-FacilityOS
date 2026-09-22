@@ -7,6 +7,14 @@ class FacilityMovementDocument(Document):
         self.erpnext_posted = 0
 
     def validate(self):
+        if not self.document_date:
+            frappe.throw("Document Date is required.")
+        if (
+            self.document_type == "GRN"
+            and self.company == "Hubblefly Technologies Limited"
+            and str(self.document_date) < "2026-08-01"
+        ):
+            frappe.throw("HTL live inward starts 1 Aug 2026. Earlier receipts belong to opening-stock reconciliation and must not be entered again as GRN.")
         if not self.lines:
             frappe.throw("At least one item line is required.")
         for row in self.lines:
