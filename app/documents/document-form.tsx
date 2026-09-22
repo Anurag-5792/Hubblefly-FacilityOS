@@ -17,6 +17,7 @@ export default function DocumentForm({ type }: { type: FacilityDocumentType }) {
     id: prefix(type) + '-DRAFT',
     type,
     status: 'draft',
+    documentDate: new Date().toISOString().slice(0, 10),
     company: 'Hubblefly Technologies Limited',
     warehouse: 'HFT Store',
     partyName: type === 'GRN' ? '' : undefined,
@@ -102,6 +103,7 @@ export default function DocumentForm({ type }: { type: FacilityDocumentType }) {
       <section className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-heading"><div><p className="eyebrow">Header</p><h2>Document details</h2></div><span className="status">ERP posted: No</span></div>
         <div className="workflow-grid">
+          <label><span>Document Date</span><input type="date" value={document.documentDate} onChange={(e) => patch('documentDate', e.target.value)} /></label>
           <label><span>Company</span><input value={document.company} onChange={(e) => patch('company', e.target.value)} /></label>
           <label><span>Warehouse</span><input value={document.warehouse} onChange={(e) => patch('warehouse', e.target.value)} /></label>
 
