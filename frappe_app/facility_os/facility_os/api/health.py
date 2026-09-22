@@ -21,6 +21,10 @@ REQUIRED_DOCTYPES = (
     "Facility Route Card",
     "Facility Route Operation",
     "Facility Genealogy Event",
+    "Facility Movement Document",
+    "Facility Document Line",
+    "Facility Print Job",
+    "Facility Print Job Label",
 )
 
 
