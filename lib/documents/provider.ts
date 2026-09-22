@@ -132,3 +132,126 @@ export function sampleBoxCard(containerId = 'BN-014'): BoxCardPreview {
     note: 'Preview card. Live card will use Facility Container + last four Facility Operational Audit events.',
   };
 }
+
+
+export async function getBoxCard(containerId: string, sid?: string): Promise<{ ok: boolean; source: 'sample' | 'facilityos'; card?: BoxCardPreview; error?: string }> {
+  if (!live()) {
+    return { ok: true, source: 'sample', card: sampleBoxCard(containerId) };
+  }
+
+  if (!sid || !baseUrl()) {
+    return { ok: false, source: 'facilityos', error: 'FacilityOS session or server URL is unavailable.' };
+  }
+
+  try {
+    const url = new URL(baseUrl() + '/api/method/facility_os.api.printing.box_card');
+    url.searchParams.set('container_id', containerId);
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json', Cookie: 'sid=' + sid },
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error('Box Card lookup failed.');
+    const payload = await response.json() as { message?: { ok?: boolean; source?: 'facilityos'; card?: BoxCardPreview } };
+    if (!payload.message?.ok || !payload.message.card) throw new Error('Empty Box Card response.');
+    return { ok: true, source: 'facilityos', card: payload.message.card };
+  } catch {
+    return { ok: false, source: 'facilityos', error: 'Box Card could not be loaded from FacilityOS.' };
+  }
+}
+
+export type PrintJobSummary = {
+  jobId: string;
+  labelKind: string;
+  itemCode?: string | null;
+  explicitPrintQty: number;
+  approvedQty: number;
+  status: string;
+  createdBy?: string | null;
+  modified?: string | null;
+};
+
+export async function listPrintJobs(sid?: string): Promise<{ ok: boolean; source: 'sample' | 'facilityos'; jobs: PrintJobSummary[]; error?: string }> {
+  if (!live()) {
+    return {
+      ok: true,
+      source: 'sample',
+      jobs: [{
+        jobId: 'FOS-PRINT-PREVIEW-0001',
+        labelKind: 'Box Card',
+        itemCode: 'PSY-MTR-03',
+        explicitPrintQty: 1,
+        approvedQty: 0,
+        status: 'Previewed',
+        createdBy: 'Preview Inventory User',
+      }],
+    };
+  }
+  if (!sid || !baseUrl()) return { ok: false, source: 'facilityos', jobs: [], error: 'FacilityOS session or server URL is unavailable.' };
+
+  try {
+    const response = await fetch(baseUrl() + '/api/method/facility_os.api.printing.list_print_jobs', {
+      headers: { Accept: 'application/json', Cookie: 'sid=' + sid },
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error('Print jobs failed.');
+    const payload = await response.json() as { message?: { ok?: boolean; jobs?: PrintJobSummary[] } };
+    return { ok: true, source: 'facilityos', jobs: payload.message?.jobs ?? [] };
+  } catch {
+    return { ok: false, source: 'facilityos', jobs: [], error: 'Print jobs could not be loaded.' };
+  }
+}
+
+export async function createPrintJob(
+  input: { kind: PrintLabelKind; explicitPrintQty: number; itemCode?: string; containerIds?: string[] },
+  sid?: string,
+): Promise<{ ok: boolean; persisted: boolean; jobId?: string; status?: string; error?: string; note?: string }> {
+  if (!live()) {
+    return { ok: true, persisted: false, jobId: 'FOS-PRINT-PREVIEW-NEW', status: 'Previewed', note: 'Preview mode: print job was not persisted.' };
+  }
+  if (!sid || !baseUrl()) return { ok: false, persisted: false, error: 'FacilityOS session or server URL is unavailable.' };
+
+  try {
+    const response = await fetch(baseUrl() + '/api/method/facility_os.api.printing.create_print_job', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', Cookie: 'sid=' + sid },
+      body: JSON.stringify({
+        label_kind: input.kind,
+        explicit_print_qty: input.explicitPrintQty,
+        item_code: input.itemCode ?? '',
+        container_ids: input.containerIds ?? [],
+      }),
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error('Create print job failed.');
+    const payload = await response.json() as { message?: { ok?: boolean; jobId?: string; status?: string } };
+    if (!payload.message?.ok) throw new Error('Create print job failed.');
+    return { ok: true, persisted: true, jobId: payload.message.jobId, status: payload.message.status };
+  } catch {
+    return { ok: false, persisted: false, error: 'Print job could not be created.' };
+  }
+}
+
+export async function approvePrintJob(
+  jobId: string,
+  sid?: string,
+): Promise<{ ok: boolean; persisted: boolean; jobId?: string; status?: string; error?: string; note?: string }> {
+  if (!live()) {
+    return { ok: true, persisted: false, jobId, status: 'Approved', note: 'Preview mode: approval was not persisted.' };
+  }
+  if (!sid || !baseUrl()) return { ok: false, persisted: false, error: 'FacilityOS session or server URL is unavailable.' };
+
+  try {
+    const response = await fetch(baseUrl() + '/api/method/facility_os.api.printing.approve_print_job', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', Cookie: 'sid=' + sid },
+      body: JSON.stringify({ job_id: jobId }),
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error('Approve print job failed.');
+    const payload = await response.json() as { message?: { ok?: boolean; jobId?: string; status?: string } };
+    if (!payload.message?.ok) throw new Error('Approve print job failed.');
+    return { ok: true, persisted: true, jobId: payload.message.jobId, status: payload.message.status };
+  } catch {
+    return { ok: false, persisted: false, error: 'Print job could not be approved.' };
+  }
+}
