@@ -98,6 +98,7 @@ export default function AdminWorkspace() {
           <article><strong>Master Data</strong><p>Review Item, Serial, Batch, Position and Container readiness before migration/posting.</p><Link className="mis-link" href="/inventory/reconciliation">Review Reconciliation →</Link></article>
           <article><strong>Audit Trail</strong><p>Review who counted, moved, validated, approved or resolved exceptions and when.</p><Link className="mis-link" href="/inventory/reconciliation/validation">Validation History →</Link></article>
           <article><strong>Release Gates</strong><p>Keep ERP stock writes and opening-stock posting blocked until live UAT and explicit approval.</p><Link className="mis-link" href="/admin/integrations">Review Gates →</Link></article>
+          <article><strong>Print Approvals</strong><p>Review exact label counts before production print release.</p><Link className="mis-link" href="/admin/print-jobs">Open Print Queue →</Link></article>
         </div>
       </section>
 
