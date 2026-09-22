@@ -171,3 +171,36 @@ def box_card(container_id):
             "note": "Current quantity is a live Facility Container snapshot; printed cards become snapshots at print time.",
         },
     }
+
+
+@frappe.whitelist()
+def list_print_jobs():
+    require_any_role(ROLE_ADMIN)
+    rows = frappe.get_all(
+        "Facility Print Job",
+        fields=[
+            "name",
+            "label_kind",
+            "item_code",
+            "explicit_print_qty",
+            "approved_qty",
+            "status",
+            "owner",
+            "modified",
+        ],
+        order_by="modified desc",
+        limit_page_length=100,
+    )
+    return {
+        "ok": True,
+        "jobs": [{
+            "jobId": row.name,
+            "labelKind": row.label_kind,
+            "itemCode": row.item_code or None,
+            "explicitPrintQty": int(row.explicit_print_qty or 0),
+            "approvedQty": int(row.approved_qty or 0),
+            "status": row.status,
+            "createdBy": row.owner or None,
+            "modified": str(row.modified) if row.modified else None,
+        } for row in rows],
+    }
