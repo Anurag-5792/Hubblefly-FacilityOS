@@ -21,5 +21,7 @@ export const config = {
     '/admin/:path*',
     '/shopfloor/:path*',
     '/roles/:path*',
+    '/documents/:path*',
+    '/labels/:path*',
   ],
 };
