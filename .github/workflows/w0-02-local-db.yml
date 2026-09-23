@@ -66,7 +66,11 @@ jobs:
       - name: Repository drift check
         run: |
           git diff --exit-code
-          test -z "$(git status --porcelain)"
+          status="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status"
+            exit 1
+          fi
 
       - name: Stop local Supabase
         if: always()
