@@ -15,7 +15,17 @@
     "prebuild": "tsc --noEmit && eslint .",
     "build": "next build",
     "start": "next start",
-    "prepare": "npx -y pnpm@11.27.1 install --lockfile-only --ignore-scripts && node scripts/w0-02-bootstrap.mjs"
+    "supabase:version": "node scripts/db/local-db.mjs version",
+    "supabase:start": "node scripts/db/local-db.mjs start",
+    "supabase:stop": "node scripts/db/local-db.mjs stop",
+    "db:migration:new": "node scripts/db/local-db.mjs migration-new",
+    "db:migrate": "node scripts/db/local-db.mjs migrate",
+    "db:reset": "node scripts/db/local-db.mjs reset",
+    "db:types:supabase": "node scripts/db/local-db.mjs types-supabase",
+    "db:types:kysely": "node scripts/db/local-db.mjs types-kysely",
+    "db:types": "node scripts/db/local-db.mjs types",
+    "db:verify:runtime": "node scripts/db/local-db.mjs verify-runtime",
+    "db:verify": "node scripts/db/local-db.mjs verify"
   },
   "dependencies": {
     "kysely": "0.29.6",

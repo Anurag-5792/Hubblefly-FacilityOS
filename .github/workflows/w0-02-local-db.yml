@@ -1,0 +1,75 @@
+name: W0-02 Local Database Verification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - "scripts/db/**"
+      - "src/platform/db/**"
+      - ".kysely-codegenrc.json"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/w0-02-local-db.yml"
+  push:
+    branches: [foundation/wave0-target]
+    paths:
+      - "supabase/**"
+      - "scripts/db/**"
+      - "src/platform/db/**"
+      - ".kysely-codegenrc.json"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/w0-02-local-db.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  local-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.27.1 --activate
+
+      - name: Frozen dependency install
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Supabase CLI version
+        run: pnpm supabase:version
+
+      - name: Bootstrap local database verification
+        run: pnpm db:verify:runtime
+
+      - name: Emit generated type bootstrap evidence
+        run: |
+          echo "=== W0_02_SUPABASE_TYPES_BEGIN ==="
+          cat src/platform/db/database.types.ts
+          echo "=== W0_02_SUPABASE_TYPES_END ==="
+          echo "=== W0_02_KYSELY_TYPES_BEGIN ==="
+          cat src/platform/db/kysely.types.ts
+          echo "=== W0_02_KYSELY_TYPES_END ==="
+
+      - name: TypeScript
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Next.js build
+        run: pnpm build
+
+      - name: Stop local Supabase
+        if: always()
+        run: pnpm supabase:stop || true

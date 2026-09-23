@@ -1,0 +1,10 @@
+{
+  "dialect": "postgres",
+  "camelCase": false,
+  "defaultSchemas": ["public"],
+  "includePattern": "public.*",
+  "outFile": "./src/platform/db/kysely.types.ts",
+  "runtimeEnums": false,
+  "typeOnlyImports": true,
+  "url": "env(DATABASE_URL)"
+}

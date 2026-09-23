@@ -7,6 +7,13 @@ out
 *.log
 .DS_Store
 
+# Supabase CLI local state / local secrets
+supabase/.temp/
+supabase/.branches/
+supabase/.env
+supabase/.env.*
+!supabase/.env.example
+
 # Private/local FacilityOS sample and reconciliation data
 sample-data/private/
 *.private.xlsx
