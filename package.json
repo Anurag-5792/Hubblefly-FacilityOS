@@ -12,8 +12,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prebuild": "npx -y pnpm@11.27.1 install --frozen-lockfile --ignore-scripts && npx -y node@24.21.0 node_modules/typescript/bin/tsc --noEmit && npx -y node@24.21.0 node_modules/eslint/bin/eslint.js .",
-    "build": "npx -y node@24.21.0 node_modules/next/dist/bin/next build",
+    "prebuild": "tsc --noEmit && eslint .",
+    "build": "next build",
     "start": "next start"
   },
   "dependencies": {
