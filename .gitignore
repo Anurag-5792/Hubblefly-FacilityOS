@@ -17,3 +17,7 @@ supabase/.env.*
 # Private/local FacilityOS sample and reconciliation data
 sample-data/private/
 *.private.xlsx
+
+# Generated Next.js / TypeScript build metadata
+next-env.d.ts
+*.tsbuildinfo
