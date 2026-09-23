@@ -1,3 +1,17 @@
+# FacilityOS Architecture v0.3 — SUPERSEDED / LEGACY REFERENCE
+
+> **Status: SUPERSEDED AS TARGET ARCHITECTURE.**
+>
+> This document records the earlier FacilityOS-on-Frappe production direction. It is retained
+> unchanged below as migration/history reference and must not be used as authority for new target
+> implementation decisions.
+>
+> The accepted target architecture is documented in [target-architecture.md](./target-architecture.md):
+> Next.js + TypeScript + PostgreSQL/Supabase + controlled ERPNext API integration.
+>
+> Legacy Frappe code remains present until replacement is implemented, tested, cut over and
+> explicitly approved for cleanup.
+
 # FacilityOS Architecture v0.3
 
 ## Principle

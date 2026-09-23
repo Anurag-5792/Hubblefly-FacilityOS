@@ -1,61 +1,77 @@
 # Hubblefly FacilityOS
 
-Hubblefly FacilityOS is a responsive, QR-first web application for inventory, shopfloor, container/location tracking, manufacturing genealogy, gate passes and delivery challans, with ERPNext as the stock and accounting backbone.
+FacilityOS is Hubblefly's operational layer across Sales Requirement, Manufacturing Job,
+engineering release control, PPC, physical inventory, manufacturing execution, quality/testing,
+dispatch, Installed Base and MRO.
 
-## Product roles
+## Target architecture
 
-- Inventory: count, receive, move, issue, return, search, gate pass and delivery challan
-- Shopfloor: build SFG, install/remove/replace components, consume material, route card and genealogy
-- MIS: read-only, requirement-driven dashboards with selectable filters, KPI figures, tables and graphs
-- Admin: item master, location master, container master, SFG/BOM, users/roles, print templates, ERPNext sync and audit
+The accepted production target is:
 
-## Core architecture
+`Next.js + TypeScript -> FacilityOS application/domain services -> PostgreSQL/Supabase -> controlled ERPNext APIs`
 
-`FacilityOS Web App -> FacilityOS server/business logic -> ERPNext adapter -> ERPNext`
+- FacilityOS target operational data lives in PostgreSQL/Supabase.
+- ERPNext/Frappe Cloud remains the authoritative ERP, accounting and official stock-ledger system.
+- FacilityOS never writes the ERPNext database directly.
+- The architecture is a modular monolith initially.
+- Detailed physical locations belong to FacilityOS rather than being modelled as ERP Warehouse
+  children.
+- BOM is intended configuration; genealogy is actual installed configuration.
+- As-Built is immutable; MRO creates As-Maintained history without overwriting As-Built.
 
-ERPNext remains authoritative for Item, Warehouse, Serial No, Batch, Stock Ledger and ERP-linked stock transactions. FacilityOS adds QR scanning, rack/position/container tracking, operator workflows, genealogy and printable operational documents.
+See [docs/target-architecture.md](docs/target-architecture.md).
 
-## Physical location model
+## Current repository coexistence
 
-`Warehouse -> Rack -> Level -> Position -> Stack Slot -> Container -> Item`
+The repository still contains the substantial Inventory/Shopfloor prototype and the legacy
+FacilityOS Frappe app under `frappe_app/facility_os`.
 
-Example: `R05-L2-P03-S2`.
+That Frappe backend is **SUPERSEDED as the target architecture**, but it remains intact as
+migration/reference implementation. It must not be deleted until the corresponding target module
+has been implemented, tested, migrated/cut over where required, and explicitly approved for
+cleanup.
 
-- Position QR: `R05-L2-P03`
-- S1: bottom container
-- S2: top container
+Historical details are preserved in
+[docs/architecture.md](docs/architecture.md), clearly marked **SUPERSEDED / LEGACY REFERENCE**.
 
-## Current MVP development
+## W0-01 scope
 
-Issue #1 / branch `feature/issue-1-inventory-qr-mvp` currently includes:
+The controlled target implementation branch is `foundation/wave0-target`.
 
-- responsive Orange + Dark Blue application shell
-- universal QR resolver
-- progressive camera QR scanner with manual/hardware-scanner fallback
-- Move Stock validation workflow
-- Physical Count validation workflow
-- server-only ERPNext adapter boundary with environment-based credentials
-- installable FacilityOS Frappe app scaffold with operational and read-model DocTypes
-- Frappe-backed user sessions and FacilityOS role enforcement
-- persistent physical-count sessions without automatic ERP stock adjustment
-- two-stage Inventory Person → separate Admin validation with immutable audit history
-- audited FacilityOS container-to-position moves
-- ERPNext-derived FacilityOS read-model synchronization for MIS
-- Admin connection-health and synchronization controls
-- GitHub Actions checks for Next.js build, Frappe Python syntax and DocType JSON
+W0-01 establishes repository/runtime foundations only:
 
-## ERPNext / Frappe environment
+- Node.js 24 LTS runtime intent
+- pnpm dependency authority and deterministic lockfile
+- Next.js 16 / React 19.2 / TypeScript 6 foundation
+- typecheck, lint and formatting scripts
+- target environment-validation schema foundation
+- additive `src/` target structure
+- architecture documentation alignment
 
-Copy `.env.example` to `.env.local` for local development and supply server credentials there. Never expose ERPNext API credentials through browser code or commit real credentials.
+W0-01 does **not** configure Supabase/Vercel, create PostgreSQL migrations, implement target Auth/RLS,
+post to ERPNext, perform opening stock, migrate legacy data or remove legacy code.
 
-The installable Frappe backend lives under `frappe_app/facility_os`. See `docs/frappe-deployment.md` for installation, role assignment, validation and production-gate instructions.
+## Legacy operational prototype
 
-## Release rule
+Existing routes/screens/providers for Inventory QR, physical count, locations, containers, GRN,
+Route Cards, genealogy, Delivery Challan, Gate Pass, MIS and Admin remain unchanged by W0-01 except
+for framework/toolchain compatibility required to keep the project building.
 
-No cost-generating or irreversible output is released from an assumption. Bulk labels, opening stock, serial creation and stock posting require preview/validation before production use.
+## Runtime
+
+Target development runtime:
+
+- Node.js 24 LTS
+- pnpm 11.27.1
+- dependency authority: `pnpm-lock.yaml`
+
+Use `.env.example` only as a template. Real credentials must never be committed.
 
 ## Project control
 
-ClickUp folder: `FacilityOS — ERPNext & Store Operations`
+Canonical operating rule:
 
-Development lifecycle: Backlog -> Ready -> In Development -> Code Review -> Ready for UAT -> UAT -> Ready for Release -> Production -> Closed.
+`Chat decides -> Notion documents -> ClickUp executes -> GitHub implements -> Master tracks`
+
+Implementation status must distinguish DESIGNED / PLANNED / IMPLEMENTED / TESTED / DEPLOYED /
+PRODUCTION VERIFIED / SUPERSEDED / BLOCKED.
