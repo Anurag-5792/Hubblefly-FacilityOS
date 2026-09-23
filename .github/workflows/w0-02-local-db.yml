@@ -8,6 +8,7 @@ on:
       - "scripts/db/**"
       - "src/platform/db/**"
       - ".kysely-codegenrc.json"
+      - "pnpm-workspace.yaml"
       - "package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/w0-02-local-db.yml"
@@ -18,6 +19,7 @@ on:
       - "scripts/db/**"
       - "src/platform/db/**"
       - ".kysely-codegenrc.json"
+      - "pnpm-workspace.yaml"
       - "package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/w0-02-local-db.yml"
@@ -49,17 +51,8 @@ jobs:
       - name: Verify Supabase CLI version
         run: pnpm supabase:version
 
-      - name: Bootstrap local database verification
-        run: pnpm db:verify:runtime
-
-      - name: Emit generated type bootstrap evidence
-        run: |
-          echo "=== W0_02_SUPABASE_TYPES_BEGIN ==="
-          cat src/platform/db/database.types.ts
-          echo "=== W0_02_SUPABASE_TYPES_END ==="
-          echo "=== W0_02_KYSELY_TYPES_BEGIN ==="
-          cat src/platform/db/kysely.types.ts
-          echo "=== W0_02_KYSELY_TYPES_END ==="
+      - name: Verify local database migrations and generated types
+        run: pnpm db:verify
 
       - name: TypeScript
         run: pnpm typecheck

@@ -33,6 +33,8 @@ export default defineConfig([
     "out/**",
     "node_modules/**",
     "frappe_app/**",
-    "next-env.d.ts"
+    "next-env.d.ts",
+    "src/platform/db/database.types.ts",
+    "src/platform/db/kysely.types.ts"
   ])
 ]);

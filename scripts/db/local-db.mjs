@@ -104,7 +104,7 @@ function statusEnv() {
   const output = runSupabase(["status", "-o", "env"], { label: "local Supabase status", quiet: true });
   const line = output.split(/\r?\n/).find((entry) => entry.startsWith("DB_URL="));
   if (!line) fail("Supabase status did not provide a local DB_URL.");
-  return line.slice("DB_URL=".length).replace(/^["']|["']$/g, "");
+  return line.slice("DB_URL=".length).replace(/^[\"']|[\"']$/g, "");
 }
 
 function generateSupabaseTypes(outFile = supabaseTypesFile) {
@@ -140,53 +140,51 @@ async function schemaFingerprint() {
   const client = new Client({ connectionString: statusEnv() });
   await client.connect();
   try {
-    const [tables, columns, constraints, indexes, enums, functions] = await Promise.all([
-      client.query(`
-        select table_schema, table_name, table_type
-        from information_schema.tables
-        where table_schema = 'public'
-        order by table_name, table_type
-      `),
-      client.query(`
-        select table_schema, table_name, column_name, ordinal_position, data_type,
-               udt_schema, udt_name, is_nullable, column_default
-        from information_schema.columns
-        where table_schema = 'public'
-        order by table_name, ordinal_position
-      `),
-      client.query(`
-        select n.nspname as schema_name, c.relname as table_name, con.conname as constraint_name,
-               con.contype as constraint_type, pg_get_constraintdef(con.oid, true) as definition
-        from pg_constraint con
-        join pg_class c on c.oid = con.conrelid
-        join pg_namespace n on n.oid = c.relnamespace
-        where n.nspname = 'public'
-        order by c.relname, con.conname
-      `),
-      client.query(`
-        select schemaname, tablename, indexname, indexdef
-        from pg_indexes
-        where schemaname = 'public'
-        order by tablename, indexname
-      `),
-      client.query(`
-        select n.nspname as schema_name, t.typname as type_name, e.enumsortorder, e.enumlabel
-        from pg_type t
-        join pg_namespace n on n.oid = t.typnamespace
-        join pg_enum e on e.enumtypid = t.oid
-        where n.nspname = 'public'
-        order by t.typname, e.enumsortorder
-      `),
-      client.query(`
-        select n.nspname as schema_name, p.proname as function_name,
-               pg_get_function_identity_arguments(p.oid) as identity_arguments,
-               pg_get_function_result(p.oid) as result_type
-        from pg_proc p
-        join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'public'
-        order by p.proname, identity_arguments
-      `),
-    ]);
+    const tables = await client.query(`
+      select table_schema, table_name, table_type
+      from information_schema.tables
+      where table_schema = 'public'
+      order by table_name, table_type
+    `);
+    const columns = await client.query(`
+      select table_schema, table_name, column_name, ordinal_position, data_type,
+             udt_schema, udt_name, is_nullable, column_default
+      from information_schema.columns
+      where table_schema = 'public'
+      order by table_name, ordinal_position
+    `);
+    const constraints = await client.query(`
+      select n.nspname as schema_name, c.relname as table_name, con.conname as constraint_name,
+             con.contype as constraint_type, pg_get_constraintdef(con.oid, true) as definition
+      from pg_constraint con
+      join pg_class c on c.oid = con.conrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public'
+      order by c.relname, con.conname
+    `);
+    const indexes = await client.query(`
+      select schemaname, tablename, indexname, indexdef
+      from pg_indexes
+      where schemaname = 'public'
+      order by tablename, indexname
+    `);
+    const enums = await client.query(`
+      select n.nspname as schema_name, t.typname as type_name, e.enumsortorder, e.enumlabel
+      from pg_type t
+      join pg_namespace n on n.oid = t.typnamespace
+      join pg_enum e on e.enumtypid = t.oid
+      where n.nspname = 'public'
+      order by t.typname, e.enumsortorder
+    `);
+    const functions = await client.query(`
+      select n.nspname as schema_name, p.proname as function_name,
+             pg_get_function_identity_arguments(p.oid) as identity_arguments,
+             pg_get_function_result(p.oid) as result_type
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+      order by p.proname, identity_arguments
+    `);
 
     const canonical = JSON.stringify({
       tables: tables.rows,
