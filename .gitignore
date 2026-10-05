@@ -21,3 +21,7 @@ sample-data/private/
 # Generated Next.js / TypeScript build metadata
 next-env.d.ts
 *.tsbuildinfo
+
+# Generated Python bytecode from legacy verification
+__pycache__/
+*.py[cod]
