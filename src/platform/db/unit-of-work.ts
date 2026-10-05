@@ -1,0 +1,58 @@
+import "server-only";
+
+import { AsyncLocalStorage } from "node:async_hooks";
+import type { Kysely, Transaction } from "kysely";
+
+import { translateDatabaseError } from "./errors";
+import type { RepositoryFactory } from "./repository";
+
+export class NestedTransactionError extends Error {
+  constructor() {
+    super(
+      "Nested Unit-of-Work transactions are not permitted. Pass the existing UnitOfWork to dependent application services instead.",
+    );
+    this.name = "NestedTransactionError";
+  }
+}
+
+export interface UnitOfWork<Database> {
+  readonly transaction: Transaction<Database>;
+  repository<Repository>(factory: RepositoryFactory<Database, Repository>): Repository;
+}
+
+class KyselyUnitOfWork<Database> implements UnitOfWork<Database> {
+  constructor(readonly transaction: Transaction<Database>) {}
+
+  repository<Repository>(factory: RepositoryFactory<Database, Repository>): Repository {
+    return factory(this.transaction);
+  }
+}
+
+export class UnitOfWorkManager<Database> {
+  private readonly activeTransaction = new AsyncLocalStorage<Transaction<Database>>();
+
+  constructor(private readonly database: Kysely<Database>) {}
+
+  hasActiveTransaction(): boolean {
+    return this.activeTransaction.getStore() !== undefined;
+  }
+
+  async withTransaction<Result>(
+    operation: (unitOfWork: UnitOfWork<Database>) => Promise<Result>,
+  ): Promise<Result> {
+    if (this.hasActiveTransaction()) {
+      throw new NestedTransactionError();
+    }
+
+    try {
+      return await this.database.transaction().execute(async (transaction) => {
+        return await this.activeTransaction.run(
+          transaction,
+          async () => await operation(new KyselyUnitOfWork(transaction)),
+        );
+      });
+    } catch (error) {
+      throw translateDatabaseError(error);
+    }
+  }
+}

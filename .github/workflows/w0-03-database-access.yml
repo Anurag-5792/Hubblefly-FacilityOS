@@ -1,0 +1,79 @@
+name: W0-03 Database Access Verification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/platform/db/**"
+      - "tests/unit/platform/db/**"
+      - "tests/integration/database/**"
+      - "scripts/db/**"
+      - "supabase/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "vitest.config.ts"
+      - ".github/workflows/w0-03-database-access.yml"
+  push:
+    branches: [foundation/wave0-target]
+    paths:
+      - "src/platform/db/**"
+      - "tests/unit/platform/db/**"
+      - "tests/integration/database/**"
+      - "scripts/db/**"
+      - "supabase/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "vitest.config.ts"
+      - ".github/workflows/w0-03-database-access.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  database-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.27.1 --activate
+
+      - name: Bootstrap dependency install
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Emit bootstrap lock
+        run: |
+          echo "=== W0_03_PNPM_LOCK_BEGIN ==="
+          cat pnpm-lock.yaml
+          echo "=== W0_03_PNPM_LOCK_END ==="
+
+      - name: Verify W0-02 migration foundation
+        run: pnpm db:verify
+
+      - name: Database unit tests
+        run: pnpm test:db:unit
+
+      - name: PostgreSQL integration tests
+        run: pnpm test:db:integration
+
+      - name: TypeScript
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Next.js build
+        run: pnpm build
+
+      - name: Stop local Supabase
+        if: always()
+        run: pnpm supabase:stop || true

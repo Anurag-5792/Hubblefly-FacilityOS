@@ -21,6 +21,9 @@ const supabaseBin = process.platform === "win32"
 const kyselyCodegenBin = process.platform === "win32"
   ? join(root, "node_modules", ".bin", "kysely-codegen.cmd")
   : join(root, "node_modules", ".bin", "kysely-codegen");
+const vitestBin = process.platform === "win32"
+  ? join(root, "node_modules", ".bin", "vitest.cmd")
+  : join(root, "node_modules", ".bin", "vitest");
 
 function fail(message) {
   process.stderr.write(`[db] ${message}\n`);
@@ -280,6 +283,38 @@ function verifyGeneratedFilesCommitted() {
   ], { label: "generated database type drift check" });
 }
 
+async function runDatabaseAccessTests() {
+  assertToolExists(vitestBin, "Vitest");
+  try {
+    start();
+    reset();
+    await assertMigrationApplied();
+    lintDatabase();
+
+    const databaseUrl = statusEnv();
+    run(
+      vitestBin,
+      ["run", "tests/unit/platform/db", "tests/integration/database"],
+      {
+        label: "W0-03 database access tests",
+        env: {
+          ...process.env,
+          DATABASE_URL: databaseUrl,
+          FACILITYOS_DB_POOL_MAX: "1",
+          FACILITYOS_DB_IDLE_TIMEOUT_MS: "5000",
+          FACILITYOS_DB_CONNECTION_TIMEOUT_MS: "2000",
+        },
+      },
+    );
+  } finally {
+    try {
+      stop();
+    } catch {
+      // Preserve the primary test failure if cleanup also fails.
+    }
+  }
+}
+
 function createMigration(name) {
   if (!name || !/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(name)) {
     fail("Migration name must be supplied as lower_snake_case, for example: pnpm db:migration:new -- add_sites.");
@@ -323,6 +358,9 @@ switch (operation) {
   case "verify":
     await verifyRuntime();
     verifyGeneratedFilesCommitted();
+    break;
+  case "test-access":
+    await runDatabaseAccessTests();
     break;
   default:
     fail("Unknown local database operation.");
