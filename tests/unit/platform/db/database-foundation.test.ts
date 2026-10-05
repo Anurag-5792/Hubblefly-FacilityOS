@@ -39,15 +39,15 @@ describe("optimistic concurrency helper", () => {
   const context = { aggregate: "Fixture", aggregateId: "fixture-1", expectedVersion: 3 };
 
   it("accepts exactly one updated row", () => {
-    expect(() => assertSingleVersionedUpdate(1n, context)).not.toThrow();
+    expect(() => assertSingleVersionedUpdate(1, context)).not.toThrow();
   });
 
   it("rejects a stale version deterministically", () => {
-    expect(() => assertSingleVersionedUpdate(0n, context)).toThrow(OptimisticConcurrencyError);
+    expect(() => assertSingleVersionedUpdate(0, context)).toThrow(OptimisticConcurrencyError);
   });
 
   it("rejects an invalid multi-row versioned update", () => {
-    expect(() => assertSingleVersionedUpdate(2n, context)).toThrow(
+    expect(() => assertSingleVersionedUpdate(2, context)).toThrow(
       OptimisticConcurrencyInvariantError,
     );
   });

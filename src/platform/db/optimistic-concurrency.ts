@@ -27,11 +27,11 @@ export function assertSingleVersionedUpdate(
 ): void {
   const count = typeof updatedRows === "bigint" ? updatedRows : BigInt(updatedRows ?? 0);
 
-  if (count === 0n) {
+  if (count === BigInt(0)) {
     throw new OptimisticConcurrencyError(context);
   }
 
-  if (count !== 1n) {
+  if (count !== BigInt(1)) {
     throw new OptimisticConcurrencyInvariantError(count);
   }
 }

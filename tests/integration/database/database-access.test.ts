@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { Transaction } from "kysely";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -25,12 +26,12 @@ const fixtureSql = readFileSync(
 let runtime: DatabaseRuntime<W003TestDatabase>;
 let pool: Pool;
 
-function recordRepository(transaction: Parameters<typeof RecordRepository>[0]): RecordRepository {
+function recordRepository(transaction: Transaction<W003TestDatabase>): RecordRepository {
   return new RecordRepository(transaction);
 }
 
 function sideEffectRepository(
-  transaction: Parameters<typeof SideEffectRepository>[0],
+  transaction: Transaction<W003TestDatabase>,
 ): SideEffectRepository {
   return new SideEffectRepository(transaction);
 }

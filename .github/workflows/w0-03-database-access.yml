@@ -11,7 +11,7 @@ on:
       - "supabase/**"
       - "package.json"
       - "pnpm-lock.yaml"
-      - "vitest.config.ts"
+      - "vitest.config.mts"
       - ".github/workflows/w0-03-database-access.yml"
   push:
     branches: [foundation/wave0-target]
@@ -23,7 +23,7 @@ on:
       - "supabase/**"
       - "package.json"
       - "pnpm-lock.yaml"
-      - "vitest.config.ts"
+      - "vitest.config.mts"
       - ".github/workflows/w0-03-database-access.yml"
 
 permissions:
@@ -47,14 +47,8 @@ jobs:
           corepack enable
           corepack prepare pnpm@11.27.1 --activate
 
-      - name: Bootstrap dependency install
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Emit bootstrap lock
-        run: |
-          echo "=== W0_03_PNPM_LOCK_BEGIN ==="
-          cat pnpm-lock.yaml
-          echo "=== W0_03_PNPM_LOCK_END ==="
+      - name: Frozen dependency install
+        run: pnpm install --frozen-lockfile
 
       - name: Verify W0-02 migration foundation
         run: pnpm db:verify
@@ -73,6 +67,15 @@ jobs:
 
       - name: Next.js build
         run: pnpm build
+
+      - name: Repository drift check
+        run: |
+          git diff --exit-code
+          status="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status"
+            exit 1
+          fi
 
       - name: Stop local Supabase
         if: always()
