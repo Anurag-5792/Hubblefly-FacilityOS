@@ -1,4 +1,5 @@
-import { facilityAuthSource } from './source';\nimport type { FacilitySession } from './types';
+import { facilityAuthSource } from './source';
+import type { FacilitySession } from './types';
 
 export const FACILITYOS_SESSION_COOKIE = 'facilityos_sid';
 
