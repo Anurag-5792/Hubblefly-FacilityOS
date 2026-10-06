@@ -328,7 +328,10 @@ describe("W0-07 authorization evaluator", () => {
     expect(result.matchingAssignmentIds).toEqual([recorderLoaded.assignment.id]);
 
     const deduplicated = evaluate({
-      state: state({ assignments: [recorderLoaded, recorderLoaded] }),
+      state: state({
+        requestedCapability: record,
+        assignments: [recorderLoaded, recorderLoaded],
+      }),
       capabilityCode: record.code,
       scope: { organisationId: orgA, legalEntityId: legalA },
     });
