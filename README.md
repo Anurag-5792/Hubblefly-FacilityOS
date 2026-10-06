@@ -75,3 +75,21 @@ Canonical operating rule:
 
 Implementation status must distinguish DESIGNED / PLANNED / IMPLEMENTED / TESTED / DEPLOYED /
 PRODUCTION VERIFIED / SUPERSEDED / BLOCKED.
+
+## W0-07 authorization development
+
+W0-07 adds the application-level authorization foundation under `src/domains/iam`.
+Authentication remains owned by W0-06; authorization resolves FacilityOS-controlled server-side
+Role Assignments and Capabilities on each protected operation. PostgreSQL production RLS is
+deliberately deferred to W0-08.
+
+For the authorization model, scope semantics, local bootstrap/test procedure and troubleshooting,
+see [docs/security/authorization.md](docs/security/authorization.md). The package handover record is
+[docs/handover/w0-07-authorization.md](docs/handover/w0-07-authorization.md).
+
+Run the local authorization suite with:
+
+```bash
+pnpm test:authorization:unit
+pnpm test:authorization:integration
+```

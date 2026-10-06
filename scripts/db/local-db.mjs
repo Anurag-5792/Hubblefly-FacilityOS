@@ -12,7 +12,7 @@ const supabaseDir = join(root, "supabase");
 const linkedProjectRef = join(supabaseDir, ".temp", "project-ref");
 const supabaseTypesFile = join(root, "src", "platform", "db", "database.types.ts");
 const kyselyTypesFile = join(root, "src", "platform", "db", "kysely.types.ts");
-const expectedMigrationVersions = ["20260923120000", "20261006124500", "20261006130500", "20261006132300"];
+const expectedMigrationVersions = ["20260923120000", "20261006124500", "20261006130500", "20261006132300", "20261007003000"];
 const generatedSchemas = "public,core,iam";
 const expectedCliVersion = "2.117.0";
 
@@ -259,12 +259,12 @@ async function verifyRuntime() {
     generateKyselyTypes(kyselyB);
 
     if (fingerprintA !== fingerprintB) {
-      fail("Public-schema fingerprint changed between two clean database resets.");
+      fail("Database schema fingerprint changed between two clean database resets.");
     }
     compareFiles(supabaseA, supabaseB, "Supabase generated types");
     compareFiles(kyselyA, kyselyB, "Kysely generated types");
 
-    process.stdout.write(`[db] deterministic public-schema fingerprint: ${fingerprintA}\n`);
+    process.stdout.write(`[db] deterministic database schema fingerprint: ${fingerprintA}\n`);
     process.stdout.write("[db] two-reset deterministic migration verification: ok\n");
   } finally {
     try {
@@ -374,6 +374,63 @@ async function runAuthTests() {
   }
 }
 
+
+async function runAuthorizationTests() {
+  assertToolExists(vitestBin, "Vitest");
+  try {
+    start();
+    reset();
+    await assertMigrationApplied();
+    lintDatabase();
+
+    const statusOutput = runSupabase(["status", "-o", "env"], {
+      label: "local Supabase status",
+      quiet: true,
+    });
+    const local = Object.fromEntries(
+      statusOutput
+        .split(/\r?\n/)
+        .filter((line) => line.includes("="))
+        .map((line) => {
+          const index = line.indexOf("=");
+          return [
+            line.slice(0, index),
+            line.slice(index + 1).replace(/^[\"']|[\"']$/g, ""),
+          ];
+        }),
+    );
+    const required = ["DB_URL", "API_URL", "ANON_KEY", "SERVICE_ROLE_KEY"];
+    for (const key of required) {
+      if (!local[key]) fail(`Supabase status did not provide local ${key}.`);
+    }
+
+    run(
+      vitestBin,
+      ["run", "tests/unit/authorization", "tests/integration/authorization"],
+      {
+        label: "W0-07 roles, capabilities and scoped authorization tests",
+        env: {
+          ...process.env,
+          DATABASE_URL: local.DB_URL,
+          NEXT_PUBLIC_SUPABASE_URL: local.API_URL,
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: local.ANON_KEY,
+          SUPABASE_SERVICE_ROLE_KEY: local.SERVICE_ROLE_KEY,
+          FACILITYOS_AUTH_SOURCE: "supabase",
+          FACILITYOS_DB_POOL_MAX: "5",
+          FACILITYOS_DB_IDLE_TIMEOUT_MS: "5000",
+          FACILITYOS_DB_CONNECTION_TIMEOUT_MS: "2000",
+        },
+      },
+    );
+  } finally {
+    try {
+      stop();
+    } catch {
+      // Preserve the primary test failure if cleanup also fails.
+    }
+  }
+}
+
 async function runDatabaseAccessTests() {
   assertToolExists(vitestBin, "Vitest");
   try {
@@ -458,6 +515,9 @@ switch (operation) {
     break;
   case "test-auth":
     await runAuthTests();
+    break;
+  case "test-authorization":
+    await runAuthorizationTests();
     break;
   default:
     fail("Unknown local database operation.");

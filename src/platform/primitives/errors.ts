@@ -11,7 +11,8 @@ export type ApplicationErrorCode =
   | "INFRASTRUCTURE_UNAVAILABLE"
   | "AUTHENTICATION_REQUIRED"
   | "FACILITY_USER_NOT_PROVISIONED"
-  | "FACILITY_USER_INACTIVE";
+  | "FACILITY_USER_INACTIVE"
+  | "AUTHORIZATION_DENIED";
 
 export abstract class ApplicationError extends Error {
   readonly code: ApplicationErrorCode;
