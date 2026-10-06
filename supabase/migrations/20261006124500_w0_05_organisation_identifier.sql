@@ -298,7 +298,7 @@ create table core.identifier_allocation (
   constraint identifier_allocation_sequence_value_unique
     unique (sequence_id, sequence_value),
   constraint identifier_allocation_value_scope_unique
-    unique (organisation_id, identifier_value)
+    unique (sequence_id, identifier_value)
 );
 
 create index identifier_allocation_series_time_idx

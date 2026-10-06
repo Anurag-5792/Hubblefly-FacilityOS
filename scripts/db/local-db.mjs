@@ -154,7 +154,7 @@ async function schemaFingerprint() {
       select table_schema, table_name, column_name, ordinal_position, data_type,
              udt_schema, udt_name, is_nullable, column_default
       from information_schema.columns
-      where table_schema = 'public'
+      where table_schema in ('public', 'core')
       order by table_name, ordinal_position
     `);
     const constraints = await client.query(`
@@ -177,7 +177,7 @@ async function schemaFingerprint() {
       from pg_type t
       join pg_namespace n on n.oid = t.typnamespace
       join pg_enum e on e.enumtypid = t.oid
-      where n.nspname = 'public'
+      where n.nspname in ('public', 'core')
       order by t.typname, e.enumsortorder
     `);
     const functions = await client.query(`
@@ -186,7 +186,7 @@ async function schemaFingerprint() {
              pg_get_function_result(p.oid) as result_type
       from pg_proc p
       join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public'
+      where n.nspname in ('public', 'core')
       order by p.proname, identity_arguments
     `);
 
