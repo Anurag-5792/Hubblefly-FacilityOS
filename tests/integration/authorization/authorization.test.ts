@@ -172,11 +172,6 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
       roleId: siteRole,
       scope: { organisationId: orgA, legalEntityId: legalA, siteId: sharedSite },
     }, operator);
-    await authorization.createAssignment({
-      userProfileId,
-      roleId: superRole,
-      scope: { organisationId: orgA },
-    }, operator);
   });
 
   afterAll(async () => {
@@ -330,17 +325,43 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
 
   it("SUPERUSER remains scoped and cannot bypass an explicit policy deny", async () => {
     const runtime = getApplicationDatabaseRuntime();
-    const policy = { evaluate: () => "SEGREGATION_RULE" as const };
-    const service = new AuthorizationService(runtime.unitOfWork, clock, [policy]);
-
-    const denied = await service.authorize({
-      user: currentUser,
-      capability: "dispatch.gate_pass.authorise",
+    const administration = new AuthorizationAdministrationService(
+      runtime.unitOfWork, clock, ids, operation,
+    );
+    const superAssignment = await administration.createAssignment({
+      userProfileId,
+      roleId: superRole,
       scope: { organisationId: orgA },
-    });
-    expect(denied.allowed).toBe(false);
-    expect(denied.viaSuperuser).toBe(true);
-    expect(denied.denialReason).toBe("SEGREGATION_RULE");
+    }, operator);
+
+    try {
+      const normalService = new AuthorizationService(runtime.unitOfWork, clock);
+      const outsideScope = await normalService.authorize({
+        user: currentUser,
+        capability: "dispatch.gate_pass.authorise",
+        scope: { organisationId: orgB, legalEntityId: legalOther },
+      });
+      expect(outsideScope.allowed).toBe(false);
+      expect(outsideScope.viaSuperuser).toBe(false);
+      expect(outsideScope.denialReason).toBe("SCOPE_MISMATCH");
+
+      const policy = { evaluate: () => "SEGREGATION_RULE" as const };
+      const policyService = new AuthorizationService(runtime.unitOfWork, clock, [policy]);
+      const denied = await policyService.authorize({
+        user: currentUser,
+        capability: "dispatch.gate_pass.authorise",
+        scope: { organisationId: orgA },
+      });
+      expect(denied.allowed).toBe(false);
+      expect(denied.viaSuperuser).toBe(true);
+      expect(denied.denialReason).toBe("SEGREGATION_RULE");
+    } finally {
+      await administration.setAssignmentStatus({
+        assignmentId: superAssignment,
+        expectedVersion: parseAggregateVersion(0),
+        status: "INACTIVE",
+      }, operator);
+    }
   });
 
   it("server guard raises a generic authorization error instead of exposing internals", async () => {
