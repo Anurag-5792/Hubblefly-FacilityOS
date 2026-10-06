@@ -349,7 +349,7 @@ async function runAuthTests() {
 
     run(
       vitestBin,
-      ["run", "tests/unit/auth", "tests/integration/auth"],
+      ["run", "tests/unit/auth/", "tests/integration/auth/"],
       {
         label: "W0-06 Supabase Auth and FacilityOS user tests",
         env: {
