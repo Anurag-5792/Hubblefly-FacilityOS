@@ -7,7 +7,7 @@ on:
       - ".github/workflows/w0-06-dependency-lock-preview.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate-lock:
@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: foundation/wave0-target
       - name: Setup Node 24
         uses: actions/setup-node@v4
         with:
@@ -26,14 +28,11 @@ jobs:
           corepack prepare pnpm@11.27.1 --activate
       - name: Generate Supabase auth dependency lock
         run: pnpm add --save-exact --lockfile-only @supabase/ssr@0.12.7 @supabase/supabase-js@2.117.2
-      - name: Show dependency diff
-        run: git diff -- package.json pnpm-lock.yaml
-      - name: Upload generated dependency files
-        uses: actions/upload-artifact@v4
-        with:
-          name: w0-06-dependency-lock
-          path: |
-            package.json
-            pnpm-lock.yaml
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit dependency lock
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json pnpm-lock.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m "chore(w0-06): add supabase ssr auth dependencies"
+          git push origin HEAD:foundation/wave0-target
