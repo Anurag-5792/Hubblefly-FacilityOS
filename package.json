@@ -3,9 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.27.1",
-  "engines": {
-    "node": "24.x"
-  },
+  "engines": { "node": "24.x" },
   "scripts": {
     "dev": "next dev",
     "typecheck": "tsc --noEmit",
@@ -17,6 +15,7 @@
     "start": "next start",
     "test:db:unit": "vitest run tests/unit/platform/db",
     "test:db:integration": "node scripts/db/local-db.mjs test-access",
+    "test:platform:unit": "vitest run tests/unit/platform/primitives",
     "supabase:version": "node scripts/db/local-db.mjs version",
     "supabase:start": "node scripts/db/local-db.mjs start",
     "supabase:stop": "node scripts/db/local-db.mjs stop",

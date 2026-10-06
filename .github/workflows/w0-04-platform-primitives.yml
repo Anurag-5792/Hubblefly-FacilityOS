@@ -1,0 +1,84 @@
+name: W0-04 Platform Primitives Verification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/platform/primitives/**"
+      - "tests/unit/platform/primitives/**"
+      - "docs/platform-primitives.md"
+      - "package.json"
+      - ".github/workflows/w0-04-platform-primitives.yml"
+  push:
+    branches: [foundation/wave0-target]
+    paths:
+      - "src/platform/primitives/**"
+      - "tests/unit/platform/primitives/**"
+      - "docs/platform-primitives.md"
+      - "package.json"
+      - ".github/workflows/w0-04-platform-primitives.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  platform-primitives:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.27.1 --activate
+      - name: Report tool versions
+        run: |
+          node --version
+          pnpm --version
+      - name: Frozen dependency install
+        run: pnpm install --frozen-lockfile
+      - name: W0-04 platform primitive tests
+        run: pnpm test:platform:unit
+      - name: W0-03 database unit regression
+        run: pnpm test:db:unit
+      - name: W0-02 database reset and generated-type verification
+        run: pnpm db:verify
+      - name: W0-03 PostgreSQL integration regression
+        run: pnpm test:db:integration
+      - name: TypeScript
+        run: pnpm typecheck
+      - name: Lint
+        run: pnpm lint
+      - name: Next.js build
+        run: pnpm build
+      - name: Compile legacy Frappe Python sources
+        run: python -m compileall -q frappe_app/facility_os/facility_os
+      - name: Validate 23 legacy FacilityOS DocType JSON files
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          files = list(Path("frappe_app/facility_os/facility_os").glob("facility_os/doctype/*/*.json"))
+          if len(files) != 23:
+              raise SystemExit(f"Expected 23 FacilityOS DocType JSON files, found {len(files)}")
+          for path in files:
+              with path.open("r", encoding="utf-8") as handle:
+                  json.load(handle)
+          print("Validated 23 FacilityOS DocType JSON files")
+          PY
+      - name: Repository drift check
+        run: |
+          git diff --exit-code
+          status="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status"
+            exit 1
+          fi
+      - name: Stop local Supabase
+        if: always()
+        run: pnpm supabase:stop || true
