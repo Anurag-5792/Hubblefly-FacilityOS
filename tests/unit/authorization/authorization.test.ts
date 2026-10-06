@@ -301,6 +301,43 @@ describe("W0-07 authorization evaluator", () => {
     expect(evaluate().allowed).toBe(true);
   });
 
+  it("does not let unrelated assignment state mask the relevant denial reason", () => {
+    const requested = capability("service.job.execute", "ACTIVE", "14");
+    const requestedRole = role("ACTIVE", "24");
+    const unrelated = capability("inventory.physical_count.record", "ACTIVE", "15");
+    const unrelatedRole = role("ACTIVE", "25");
+
+    const unrelatedInactive = loaded({
+      role: unrelatedRole,
+      capability: unrelated,
+      assignment: assignment({
+        roleId: unrelatedRole.id,
+        status: "INACTIVE",
+        idSuffix: "34",
+      }),
+    });
+    const relevantExpired = loaded({
+      role: requestedRole,
+      capability: requested,
+      assignment: assignment({
+        roleId: requestedRole.id,
+        validFrom: earlier,
+        validUntil: at,
+        idSuffix: "35",
+      }),
+    });
+
+    expect(
+      evaluate({
+        capabilityCode: requested.code,
+        state: state({
+          requestedCapability: requested,
+          assignments: [unrelatedInactive, relevantExpired],
+        }),
+      }).denialReason,
+    ).toBe("ASSIGNMENT_EXPIRED");
+  });
+
   it("unions positive capabilities across simultaneous assignments without overwriting roles", () => {
     const view = capability("inventory.physical_count.view", "ACTIVE", "10");
     const record = capability("inventory.physical_count.record", "ACTIVE", "11");
