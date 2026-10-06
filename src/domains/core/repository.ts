@@ -179,13 +179,13 @@ export class OrganisationRepository extends TransactionalRepository<DB> {
       .updateTable("core.organisation")
       .set((expression) => ({
         status: input.status,
-        version: expression("version", "+", 1),
+        version: sql<string>`version + 1`,
         updated_at: input.stamp.at,
         updated_actor_type: input.stamp.actor.actorType,
         updated_actor_id: actorId(input.stamp.actor),
       }))
       .where("id", "=", input.id)
-      .where("version", "=", input.expectedVersion)
+      .where("version", "=", String(input.expectedVersion))
       .executeTakeFirst();
 
     assertSingleVersionedUpdate(result.numUpdatedRows, {
@@ -377,13 +377,13 @@ export class IdentifierRepository extends TransactionalRepository<DB> {
       .updateTable("core.identifier_series")
       .set((expression) => ({
         status: input.status,
-        version: expression("version", "+", 1),
+        version: sql<string>`version + 1`,
         updated_at: input.stamp.at,
         updated_actor_type: input.stamp.actor.actorType,
         updated_actor_id: actorId(input.stamp.actor),
       }))
       .where("id", "=", input.id)
-      .where("version", "=", input.expectedVersion)
+      .where("version", "=", String(input.expectedVersion))
       .executeTakeFirst();
 
     assertSingleVersionedUpdate(result.numUpdatedRows, {
