@@ -55,7 +55,8 @@ Excluded:
 7. One human remains one human regardless of Roles/sessions/assignments.
 8. SUPERUSER is not a bypass.
 9. Revocation is evaluated from authoritative database state on the next decision.
-10. W0-07 is not database isolation; do not describe it as RLS complete.
+10. Protected mutations use `requireCapabilityWithin` / `requireWithin` inside the application-owned W0-03 Unit of Work; do not create a second transaction architecture.
+11. W0-07 is not database isolation; do not describe it as RLS complete.
 
 ## Extension guidance
 
