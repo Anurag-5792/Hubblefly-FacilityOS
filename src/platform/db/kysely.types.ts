@@ -130,6 +130,27 @@ export interface CoreSiteLegalEntity {
   version: Generated<Int8>;
 }
 
+export interface IamUserProfile {
+  /**
+   * Immutable linkage to Supabase auth.users. Auth-user deletion is restricted to preserve operational identity/history.
+   */
+  auth_user_id: string;
+  created_actor_id: string;
+  created_actor_type: string;
+  created_at: Timestamp;
+  display_name: string;
+  /**
+   * Operational/display snapshot only. Supabase auth.users remains authentication email authority.
+   */
+  email_snapshot: string | null;
+  id: string;
+  status: Generated<string>;
+  updated_actor_id: string;
+  updated_actor_type: string;
+  updated_at: Timestamp;
+  version: Generated<Int8>;
+}
+
 export interface DB {
   "core.identifier_allocation": CoreIdentifierAllocation;
   "core.identifier_sequence": CoreIdentifierSequence;
@@ -138,4 +159,5 @@ export interface DB {
   "core.organisation": CoreOrganisation;
   "core.site": CoreSite;
   "core.site_legal_entity": CoreSiteLegalEntity;
+  "iam.user_profile": IamUserProfile;
 }

@@ -464,6 +464,67 @@ export type Database = {
       [_ in never]: never
     }
   }
+  iam: {
+    Tables: {
+      user_profile: {
+        Row: {
+          auth_user_id: string
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          display_name: string
+          email_snapshot: string | null
+          id: string
+          status: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          auth_user_id: string
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          display_name: string
+          email_snapshot?: string | null
+          id: string
+          status?: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version?: number
+        }
+        Update: {
+          auth_user_id?: string
+          created_actor_id?: string
+          created_actor_type?: string
+          created_at?: string
+          display_name?: string
+          email_snapshot?: string | null
+          id?: string
+          status?: string
+          updated_actor_id?: string
+          updated_actor_type?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: []
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       [_ in never]: never
@@ -602,6 +663,9 @@ export type CompositeTypes<
 
 export const Constants = {
   core: {
+    Enums: {},
+  },
+  iam: {
     Enums: {},
   },
   public: {
