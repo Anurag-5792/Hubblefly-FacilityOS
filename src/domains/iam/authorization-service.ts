@@ -1,9 +1,9 @@
 import "server-only";
 
 import type { DB } from "../../platform/db/kysely.types";
+import { createDatabaseSecurityContext } from "../../platform/db/security-context";
 import type { UnitOfWork, UnitOfWorkManager } from "../../platform/db/unit-of-work";
 import type { Clock } from "../../platform/primitives";
-import { organisationRepository } from "../core";
 import type { AuthenticatedUser } from "./authenticated-user";
 import {
   parseCapabilityCode,
@@ -22,6 +22,10 @@ import {
 import { authorizationRepository } from "./authorization-repository";
 import { AuthorizationDeniedError } from "./errors";
 import { userProfileRepository } from "./repository";
+import {
+  databaseContextMatches,
+  databaseScopeExistsActive,
+} from "./database-security-context";
 
 function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
@@ -51,8 +55,16 @@ export class AuthorizationService {
       });
     }
 
-    return await this.unitOfWork.withTransaction(async (uow) =>
-      await this.authorizeWithin(uow, { ...input, user: input.user! }, evaluatedAt),
+    const securityContext = createDatabaseSecurityContext({
+      authUserId: input.user.authUserId,
+      requestId: input.user.operation.requestId,
+      correlationId: input.user.operation.correlationId,
+    });
+
+    return await this.unitOfWork.withRlsTransaction(
+      securityContext,
+      async (uow) =>
+        await this.authorizeWithin(uow, { ...input, user: input.user! }, evaluatedAt),
     );
   }
 
@@ -66,9 +78,23 @@ export class AuthorizationService {
     },
     evaluatedAt = this.clock.nowUtc(),
   ): Promise<AuthorizationDecision> {
+    const contextMatches = await databaseContextMatches(uow, input.user);
+    if (!contextMatches) {
+      return evaluateAuthorization({
+        ...input,
+        evaluatedAt,
+        state: {
+          profileStatus: "ACTIVE",
+          identityMatches: false,
+          scopeValid: false,
+          assignments: [],
+        },
+        policies: this.policies,
+      });
+    }
+
     const profiles = uow.repository(userProfileRepository);
     const authorization = uow.repository(authorizationRepository);
-    const organisations = uow.repository(organisationRepository);
 
     let requestedCapability: Capability | undefined;
     try {
@@ -79,43 +105,7 @@ export class AuthorizationService {
     }
 
     const profile = await profiles.findById(input.user.facilityUserId);
-
-    let scopeValid = true;
-    const organisation = await organisations.findOrganisation(input.scope.organisationId);
-    if (!organisation || organisation.status !== "ACTIVE") {
-      scopeValid = false;
-    }
-
-    if (scopeValid && input.scope.legalEntityId) {
-      const legalEntity = await organisations.findLegalEntity(input.scope.legalEntityId);
-      if (
-        !legalEntity ||
-        legalEntity.status !== "ACTIVE" ||
-        legalEntity.organisationId !== input.scope.organisationId
-      ) {
-        scopeValid = false;
-      }
-    }
-
-    if (scopeValid && input.scope.siteId) {
-      const site = await organisations.findSite(input.scope.siteId);
-      if (
-        !site ||
-        site.status !== "ACTIVE" ||
-        site.organisationId !== input.scope.organisationId
-      ) {
-        scopeValid = false;
-      }
-    }
-
-    if (
-      scopeValid &&
-      input.scope.siteId &&
-      input.scope.legalEntityId &&
-      !(await organisations.siteHasLegalEntity(input.scope.siteId, input.scope.legalEntityId))
-    ) {
-      scopeValid = false;
-    }
+    const scopeValid = await databaseScopeExistsActive(uow, input.scope);
 
     const assignments = await authorization.listAssignmentsForUser(
       input.user.facilityUserId,

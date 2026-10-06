@@ -93,3 +93,19 @@ Run the local authorization suite with:
 pnpm test:authorization:unit
 pnpm test:authorization:integration
 ```
+
+## W0-08 database RLS development
+
+W0-08 adds PostgreSQL row-level security/runtime-role defence beneath W0-07. Protected
+user-scoped persistence uses the existing UnitOfWork through `withRlsTransaction`; requested
+browser scope is never trusted as database authority.
+
+`core`, `iam` and private `facilityos_security` remain outside the Supabase Data API.
+Ordinary runtime is NOBYPASSRLS, protected Wave-0 tables use RLS + FORCE RLS, and
+`platform.superuser` never becomes PostgreSQL superuser/BYPASSRLS.
+
+See [docs/security/rls.md](docs/security/rls.md),
+[ADR-0002](docs/adr/0002-rls-runtime-context.md), and
+[docs/handover/w0-08-rls.md](docs/handover/w0-08-rls.md).
+
+Run `pnpm test:rls:unit` and `pnpm test:rls:integration`.

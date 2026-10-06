@@ -37,7 +37,8 @@ const admin = createClient(url, serviceRole, {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 });
 
-const clock = new FixedClock("2026-10-07T00:00:00.000Z");
+// Keep fixture validity safely behind the live PostgreSQL clock used by W0-08 RLS.
+const clock = new FixedClock("2026-10-06T00:00:00.000Z");
 const ids = new SystemInternalIdFactory();
 const operator = parseActorContext({ actorType: "SYSTEM", actorId: "w0-07-authz-test" });
 const operation = createOperationContext({
@@ -207,7 +208,11 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
     const runtime = getApplicationDatabaseRuntime();
     const service = new AuthorizationService(runtime.unitOfWork, clock);
 
-    const decision = await runtime.unitOfWork.withTransaction(async (uow) =>
+    const decision = await runtime.unitOfWork.withRlsTransaction({
+      authUserId: currentUser.authUserId,
+      requestId: currentUser.operation.requestId,
+      correlationId: currentUser.operation.correlationId,
+    }, async (uow) =>
       await requireCapabilityWithin(uow, {
         authorization: service,
         user: currentUser,

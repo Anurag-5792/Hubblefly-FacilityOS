@@ -1,10 +1,11 @@
 import "server-only";
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { Kysely, Transaction } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 
 import { translateDatabaseError } from "./errors";
 import type { RepositoryFactory } from "./repository";
+import type { DatabaseSecurityContext } from "./security-context";
 
 export class NestedTransactionError extends Error {
   constructor() {
@@ -46,6 +47,37 @@ export class UnitOfWorkManager<Database> {
 
     try {
       return await this.database.transaction().execute(async (transaction) => {
+        return await this.activeTransaction.run(
+          transaction,
+          async () => await operation(new KyselyUnitOfWork(transaction)),
+        );
+      });
+    } catch (error) {
+      throw translateDatabaseError(error);
+    }
+  }
+
+  async withRlsTransaction<Result>(
+    context: Readonly<DatabaseSecurityContext>,
+    operation: (unitOfWork: UnitOfWork<Database>) => Promise<Result>,
+  ): Promise<Result> {
+    if (this.hasActiveTransaction()) {
+      throw new NestedTransactionError();
+    }
+
+    try {
+      return await this.database.transaction().execute(async (transaction) => {
+        // The role identifier is fixed application code, never request data.
+        await sql`set local role facilityos_user_runtime`.execute(transaction);
+        await sql`set local row_security = on`.execute(transaction);
+        await sql`
+          select facilityos_security.establish_authenticated_context(
+            ${context.authUserId}::uuid,
+            ${context.requestId},
+            ${context.correlationId}::uuid
+          )
+        `.execute(transaction);
+
         return await this.activeTransaction.run(
           transaction,
           async () => await operation(new KyselyUnitOfWork(transaction)),

@@ -35,7 +35,9 @@
     "test:auth:integration": "node scripts/db/local-db.mjs test-auth",
     "auth:bootstrap:local": "node scripts/auth/bootstrap-local-user.mjs",
     "test:authorization:unit": "vitest run tests/unit/authorization",
-    "test:authorization:integration": "node scripts/db/local-db.mjs test-authorization"
+    "test:authorization:integration": "node scripts/db/local-db.mjs test-authorization",
+    "test:rls:unit": "vitest run tests/unit/platform/db/rls-context.test.ts",
+    "test:rls:integration": "node scripts/db/local-db.mjs test-rls"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
