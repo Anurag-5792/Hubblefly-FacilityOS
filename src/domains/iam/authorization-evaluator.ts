@@ -78,7 +78,7 @@ export function evaluateAuthorization(input: {
     return denied({ user, capability, scope, at: evaluatedAt, reason: "UNAUTHENTICATED" });
   }
 
-  if (user.actor.actorType !== "HUMAN" || user.actor.actorId !== user.facilityUserId) {
+  if (user.actor.actorType !== "HUMAN" || String(user.actor.actorId) !== String(user.facilityUserId)) {
     return denied({ user, capability, scope, at: evaluatedAt, reason: "IDENTITY_MISMATCH" });
   }
 
