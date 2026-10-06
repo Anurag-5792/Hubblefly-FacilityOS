@@ -1,14 +1,16 @@
 import "server-only";
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type User } from "@supabase/supabase-js";
 import type { Database } from "../../src/platform/db/database.types";
 import { getSupabasePublicConfig } from "./config";
 
-export function createSupabaseAdminClient() {
+function createProvisioningAdminClient() {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceRoleKey) throw new Error("Supabase service-role credential is not configured.");
-  const { url } = getSupabasePublicConfig();
+  if (!serviceRoleKey) {
+    throw new Error("Supabase provisioning credential is not configured.");
+  }
 
+  const { url } = getSupabasePublicConfig();
   return createClient<Database>(url, serviceRoleKey, {
     auth: {
       persistSession: false,
@@ -16,4 +18,15 @@ export function createSupabaseAdminClient() {
       detectSessionInUrl: false,
     },
   });
+}
+
+export async function getAuthUserForProvisioning(authUserId: string): Promise<User> {
+  const admin = createProvisioningAdminClient();
+  const { data, error } = await admin.auth.admin.getUserById(authUserId);
+
+  if (error || !data.user) {
+    throw new Error("Supabase auth user could not be resolved for provisioning.");
+  }
+
+  return data.user;
 }

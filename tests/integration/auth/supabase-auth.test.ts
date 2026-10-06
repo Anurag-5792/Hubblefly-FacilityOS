@@ -109,6 +109,34 @@ describe("W0-06 local Supabase Auth integration", () => {
       .toThrow(FacilityUserInactiveError);
   });
 
+  it("prevents committed FacilityOS profiles from being remapped to another auth user", async () => {
+    const first = await createAuthUser("link-first");
+    const second = await createAuthUser("link-second");
+    const runtime = getApplicationDatabaseRuntime();
+    const service = new UserProfileService(
+      runtime.unitOfWork,
+      new FixedClock("2026-10-06T00:00:00.000Z"),
+      new SystemInternalIdFactory(),
+    );
+    const profileId = await service.provision({
+      authUserId: first.user.id,
+      displayName: "Immutable Link User",
+      emailSnapshot: first.email,
+    }, operator);
+
+    await expect(
+      runtime.database.updateTable("iam.user_profile")
+        .set({ auth_user_id: second.user.id })
+        .where("id", "=", profileId)
+        .execute(),
+    ).rejects.toThrow("immutable");
+
+    const profile = await runtime.unitOfWork.withTransaction(async (uow) =>
+      await uow.repository(userProfileRepository).findById(profileId),
+    );
+    expect(profile?.authUserId).toBe(first.user.id);
+  });
+
   it("prevents auth-user deletion from erasing an operational profile", async () => {
     const { user, email } = await createAuthUser("delete");
     const runtime = getApplicationDatabaseRuntime();

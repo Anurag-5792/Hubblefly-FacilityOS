@@ -12,7 +12,7 @@ const supabaseDir = join(root, "supabase");
 const linkedProjectRef = join(supabaseDir, ".temp", "project-ref");
 const supabaseTypesFile = join(root, "src", "platform", "db", "database.types.ts");
 const kyselyTypesFile = join(root, "src", "platform", "db", "kysely.types.ts");
-const expectedMigrationVersions = ["20260923120000", "20261006124500", "20261006130500"];
+const expectedMigrationVersions = ["20260923120000", "20261006124500", "20261006130500", "20261006132300"];
 const generatedSchemas = "public,core,iam";
 const expectedCliVersion = "2.117.0";
 

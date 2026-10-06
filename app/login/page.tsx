@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import { safeInternalRedirectPath } from '../../lib/auth/redirect';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -23,15 +24,20 @@ export default function LoginPage() {
         setError(payload.error ?? 'Login failed.');
         return;
       }
-      const requested = new URLSearchParams(window.location.search).get('next');
-      if (requested && requested.startsWith('/')) {
+
+      const requested = safeInternalRedirectPath(
+        new URLSearchParams(window.location.search).get('next'),
+      );
+      if (requested) {
         window.location.href = requested;
         return;
       }
+
       if (payload.source === 'supabase') {
         window.location.href = '/';
         return;
       }
+
       const routeByRole: Record<string, string> = {
         inventory: '/inventory/dashboard',
         shopfloor: '/shopfloor',
