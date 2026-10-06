@@ -2,24 +2,53 @@
 -- W0-07 application authorization remains mandatory.
 -- W0-09 approvals/holds/audit are intentionally not implemented here.
 
-do $$
+do $
+declare
+  v_role record;
 begin
   if not exists (select 1 from pg_roles where rolname = 'facilityos_user_runtime') then
     create role facilityos_user_runtime
       nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+  else
+    select rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin,
+           rolreplication, rolbypassrls
+      into v_role
+    from pg_roles
+    where rolname = 'facilityos_user_runtime';
+
+    if v_role.rolsuper
+       or v_role.rolinherit
+       or v_role.rolcreaterole
+       or v_role.rolcreatedb
+       or v_role.rolcanlogin
+       or v_role.rolreplication
+       or v_role.rolbypassrls then
+      raise exception 'Existing facilityos_user_runtime role has unsafe attributes';
+    end if;
   end if;
 
   if not exists (select 1 from pg_roles where rolname = 'facilityos_security_admin') then
     create role facilityos_security_admin
       nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+  else
+    select rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin,
+           rolreplication, rolbypassrls
+      into v_role
+    from pg_roles
+    where rolname = 'facilityos_security_admin';
+
+    if v_role.rolsuper
+       or v_role.rolinherit
+       or v_role.rolcreaterole
+       or v_role.rolcreatedb
+       or v_role.rolcanlogin
+       or v_role.rolreplication
+       or v_role.rolbypassrls then
+      raise exception 'Existing facilityos_security_admin role has unsafe attributes';
+    end if;
   end if;
 end;
-$$;
-
-alter role facilityos_user_runtime
-  nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
-alter role facilityos_security_admin
-  nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+$;
 
 create schema if not exists facilityos_security authorization postgres;
 
