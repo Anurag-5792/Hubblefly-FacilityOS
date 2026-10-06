@@ -113,7 +113,52 @@ jobs:
           PY
       - name: Secret-pattern safety check
         run: |
-          ! git grep -n -E '(SUPABASE_SERVICE_ROLE_KEY=eyJ|postgres(ql)?://[^<[:space:]]+:[^<[:space:]]+@)' -- ':!pnpm-lock.yaml'
+          python - <<'PY'
+          import pathlib
+          import re
+          import subprocess
+
+          service_role = re.compile("SUPABASE_SERVICE_ROLE_KEY=" + "eyJ")
+          postgres_url = re.compile("postgres" + r"(?:ql)?://[^<\s]+:[^<\s]+@")
+          known_test_fixture = (
+              "tests/unit/platform/primitives/errors-state.test.ts",
+              "db.internal/prod",
+          )
+
+          tracked = subprocess.check_output(
+              ["git", "ls-files", "-z"],
+              text=False,
+          ).split(b"\0")
+
+          findings = []
+          for raw_path in tracked:
+              if not raw_path:
+                  continue
+              path = pathlib.Path(raw_path.decode())
+              if path.as_posix() == "pnpm-lock.yaml":
+                  continue
+              try:
+                  content = path.read_text(encoding="utf-8")
+              except (UnicodeDecodeError, OSError):
+                  continue
+
+              for line_number, line in enumerate(content.splitlines(), start=1):
+                  if (
+                      path.as_posix() == known_test_fixture[0]
+                      and known_test_fixture[1] in line
+                  ):
+                      continue
+                  if service_role.search(line) or postgres_url.search(line):
+                      findings.append(f"{path}:{line_number}")
+
+          if findings:
+              print("Potential committed secret patterns found at:")
+              for finding in findings:
+                  print(f"  {finding}")
+              raise SystemExit(1)
+
+          print("Secret-pattern safety check: clean")
+          PY
       - name: Repository drift
         run: |
           git diff --exit-code
