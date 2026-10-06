@@ -10,6 +10,7 @@ import {
   UserProfileService,
   buildAuthenticatedHuman,
   parseSupabaseAuthUserId,
+  requireCapabilityWithin,
   userProfileRepository,
 } from "../../../src/domains/iam";
 import { OrganisationService } from "../../../src/domains/core";
@@ -201,6 +202,23 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
     });
     expect(denied.allowed).toBe(false);
     expect(denied.denialReason).toBe("SCOPE_MISMATCH");
+  });
+
+  it("supports authorization inside an application-owned UnitOfWork", async () => {
+    const runtime = getApplicationDatabaseRuntime();
+    const service = new AuthorizationService(runtime.unitOfWork, clock);
+
+    const decision = await runtime.unitOfWork.withTransaction(async (uow) =>
+      await requireCapabilityWithin(uow, {
+        authorization: service,
+        user: currentUser,
+        capability: "inventory.physical_count.view",
+        scope: { organisationId: orgA, legalEntityId: legalB },
+      }),
+    );
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.outcome).toBe("ALLOW");
   });
 
   it("does not turn a shared Site into unrelated Legal Entity access", async () => {
