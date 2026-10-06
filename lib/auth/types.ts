@@ -2,7 +2,7 @@ export type FacilityRole = 'inventory' | 'shopfloor' | 'mis' | 'admin' | 'unknow
 
 export type FacilitySession = {
   ok: boolean;
-  source: 'preview' | 'frappe';
+  source: 'preview' | 'frappe' | 'supabase';
   authenticated: boolean;
   user: string | null;
   fullName: string | null;

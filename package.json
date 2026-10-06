@@ -30,7 +30,10 @@
     "db:verify:runtime": "node scripts/db/local-db.mjs verify-runtime",
     "db:verify": "node scripts/db/local-db.mjs verify",
     "test:core:unit": "vitest run tests/unit/core",
-    "test:core:integration": "node scripts/db/local-db.mjs test-core"
+    "test:core:integration": "node scripts/db/local-db.mjs test-core",
+    "test:auth:unit": "vitest run tests/unit/auth",
+    "test:auth:integration": "node scripts/db/local-db.mjs test-auth",
+    "auth:bootstrap:local": "node scripts/auth/bootstrap-local-user.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",

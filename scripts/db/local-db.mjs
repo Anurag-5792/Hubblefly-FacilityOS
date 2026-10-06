@@ -12,8 +12,8 @@ const supabaseDir = join(root, "supabase");
 const linkedProjectRef = join(supabaseDir, ".temp", "project-ref");
 const supabaseTypesFile = join(root, "src", "platform", "db", "database.types.ts");
 const kyselyTypesFile = join(root, "src", "platform", "db", "kysely.types.ts");
-const expectedMigrationVersions = ["20260923120000", "20261006124500"];
-const generatedSchemas = "public,core";
+const expectedMigrationVersions = ["20260923120000", "20261006124500", "20261006130500"];
+const generatedSchemas = "public,core,iam";
 const expectedCliVersion = "2.117.0";
 
 const supabaseBin = process.platform === "win32"
@@ -127,7 +127,7 @@ function generateKyselyTypes(outFile = kyselyTypesFile) {
   const databaseUrl = statusEnv();
   run(
     kyselyCodegenBin,
-    [`--out-file=${outFile}`, "--include-pattern={public,core}.*"],
+    [`--out-file=${outFile}`, "--include-pattern={public,core,iam}.*"],
     {
       label: "Kysely type generation",
       env: { ...process.env, DATABASE_URL: databaseUrl },
@@ -147,14 +147,14 @@ async function schemaFingerprint() {
     const tables = await client.query(`
       select table_schema, table_name, table_type
       from information_schema.tables
-      where table_schema in ('public', 'core')
+      where table_schema in ('public', 'core', 'iam')
       order by table_name, table_type
     `);
     const columns = await client.query(`
       select table_schema, table_name, column_name, ordinal_position, data_type,
              udt_schema, udt_name, is_nullable, column_default
       from information_schema.columns
-      where table_schema in ('public', 'core')
+      where table_schema in ('public', 'core', 'iam')
       order by table_name, ordinal_position
     `);
     const constraints = await client.query(`
@@ -163,13 +163,13 @@ async function schemaFingerprint() {
       from pg_constraint con
       join pg_class c on c.oid = con.conrelid
       join pg_namespace n on n.oid = c.relnamespace
-      where n.nspname in ('public', 'core')
+      where n.nspname in ('public', 'core', 'iam')
       order by c.relname, con.conname
     `);
     const indexes = await client.query(`
       select schemaname, tablename, indexname, indexdef
       from pg_indexes
-      where schemaname in ('public', 'core')
+      where schemaname in ('public', 'core', 'iam')
       order by tablename, indexname
     `);
     const enums = await client.query(`
@@ -177,7 +177,7 @@ async function schemaFingerprint() {
       from pg_type t
       join pg_namespace n on n.oid = t.typnamespace
       join pg_enum e on e.enumtypid = t.oid
-      where n.nspname in ('public', 'core')
+      where n.nspname in ('public', 'core', 'iam')
       order by t.typname, e.enumsortorder
     `);
     const functions = await client.query(`
@@ -186,7 +186,7 @@ async function schemaFingerprint() {
              pg_get_function_result(p.oid) as result_type
       from pg_proc p
       join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname in ('public', 'core')
+      where n.nspname in ('public', 'core', 'iam')
       order by p.proname, identity_arguments
     `);
 
@@ -318,6 +318,62 @@ async function runCoreTests() {
   }
 }
 
+async function runAuthTests() {
+  assertToolExists(vitestBin, "Vitest");
+  try {
+    start();
+    reset();
+    await assertMigrationApplied();
+    lintDatabase();
+
+    const statusOutput = runSupabase(["status", "-o", "env"], {
+      label: "local Supabase status",
+      quiet: true,
+    });
+    const local = Object.fromEntries(
+      statusOutput
+        .split(/\r?\n/)
+        .filter((line) => line.includes("="))
+        .map((line) => {
+          const index = line.indexOf("=");
+          return [
+            line.slice(0, index),
+            line.slice(index + 1).replace(/^[\"']|[\"']$/g, ""),
+          ];
+        }),
+    );
+    const required = ["DB_URL", "API_URL", "ANON_KEY", "SERVICE_ROLE_KEY"];
+    for (const key of required) {
+      if (!local[key]) fail(`Supabase status did not provide local ${key}.`);
+    }
+
+    run(
+      vitestBin,
+      ["run", "tests/unit/auth", "tests/integration/auth"],
+      {
+        label: "W0-06 Supabase Auth and FacilityOS user tests",
+        env: {
+          ...process.env,
+          DATABASE_URL: local.DB_URL,
+          NEXT_PUBLIC_SUPABASE_URL: local.API_URL,
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: local.ANON_KEY,
+          SUPABASE_SERVICE_ROLE_KEY: local.SERVICE_ROLE_KEY,
+          FACILITYOS_AUTH_SOURCE: "supabase",
+          FACILITYOS_DB_POOL_MAX: "5",
+          FACILITYOS_DB_IDLE_TIMEOUT_MS: "5000",
+          FACILITYOS_DB_CONNECTION_TIMEOUT_MS: "2000",
+        },
+      },
+    );
+  } finally {
+    try {
+      stop();
+    } catch {
+      // Preserve the primary test failure if cleanup also fails.
+    }
+  }
+}
+
 async function runDatabaseAccessTests() {
   assertToolExists(vitestBin, "Vitest");
   try {
@@ -399,6 +455,9 @@ switch (operation) {
     break;
   case "test-core":
     await runCoreTests();
+    break;
+  case "test-auth":
+    await runAuthTests();
     break;
   default:
     fail("Unknown local database operation.");

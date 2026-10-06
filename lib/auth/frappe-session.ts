@@ -1,4 +1,4 @@
-import type { FacilitySession } from './types';
+import { facilityAuthSource } from './source';\nimport type { FacilitySession } from './types';
 
 export const FACILITYOS_SESSION_COOKIE = 'facilityos_sid';
 
@@ -6,12 +6,8 @@ function baseUrl() {
   return process.env.ERPNEXT_BASE_URL?.replace(/\/$/, '') ?? '';
 }
 
-function authSource() {
-  return process.env.FACILITYOS_AUTH_SOURCE === 'frappe' ? 'frappe' : 'preview';
-}
-
 export function usesFrappeAuth() {
-  return authSource() === 'frappe';
+  return facilityAuthSource() === 'frappe';
 }
 
 export function previewSession(): FacilitySession {

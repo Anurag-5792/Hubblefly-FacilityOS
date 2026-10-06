@@ -18,7 +18,7 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      const payload = await response.json() as { ok?: boolean; error?: string; role?: string };
+      const payload = await response.json() as { ok?: boolean; error?: string; role?: string; source?: string };
       if (!response.ok || payload.ok === false) {
         setError(payload.error ?? 'Login failed.');
         return;
@@ -26,6 +26,10 @@ export default function LoginPage() {
       const requested = new URLSearchParams(window.location.search).get('next');
       if (requested && requested.startsWith('/')) {
         window.location.href = requested;
+        return;
+      }
+      if (payload.source === 'supabase') {
+        window.location.href = '/';
         return;
       }
       const routeByRole: Record<string, string> = {
@@ -48,7 +52,7 @@ export default function LoginPage() {
         <div>
           <p className="eyebrow">Hubblefly FacilityOS</p>
           <h1>Sign in</h1>
-          <p className="lead">Use your FacilityOS / Frappe user account. Roles and validation authority are taken from the authenticated server session.</p>
+          <p className="lead">Use your FacilityOS account. Authentication is verified by the configured server-side identity provider; business permissions are handled separately.</p>
         </div>
       </header>
 

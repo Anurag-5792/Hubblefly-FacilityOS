@@ -8,7 +8,7 @@ export type ApplicationErrorCode =
   | "CONCURRENCY_CONFLICT"
   | "INVALID_STATE_TRANSITION"
   | "IDEMPOTENCY_CONFLICT"
-  | "INFRASTRUCTURE_UNAVAILABLE";
+  | "INFRASTRUCTURE_UNAVAILABLE"\n  | "AUTHENTICATION_REQUIRED"\n  | "FACILITY_USER_NOT_PROVISIONED"\n  | "FACILITY_USER_INACTIVE";
 
 export abstract class ApplicationError extends Error {
   readonly code: ApplicationErrorCode;
