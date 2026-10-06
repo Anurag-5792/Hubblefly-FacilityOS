@@ -47,6 +47,12 @@ jobs:
           corepack enable
           corepack prepare pnpm@11.27.1 --activate
 
+      - name: Report tool versions
+        run: |
+          node --version
+          pnpm --version
+          pnpm supabase:version
+
       - name: Frozen dependency install
         run: pnpm install --frozen-lockfile
 
