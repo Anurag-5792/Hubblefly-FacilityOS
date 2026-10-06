@@ -1,4 +1,4 @@
-import type { Transaction } from "kysely";
+import { sql, type Transaction } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { DB } from "../../../src/platform/db/kysely.types";
@@ -75,13 +75,17 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await runtime.database.deleteFrom("core.identifier_allocation").execute();
-  await runtime.database.deleteFrom("core.identifier_sequence").execute();
-  await runtime.database.deleteFrom("core.identifier_series").execute();
-  await runtime.database.deleteFrom("core.site_legal_entity").execute();
-  await runtime.database.deleteFrom("core.site").execute();
-  await runtime.database.deleteFrom("core.legal_entity").execute();
-  await runtime.database.deleteFrom("core.organisation").execute();
+  await sql`
+    truncate table
+      core.identifier_allocation,
+      core.identifier_sequence,
+      core.identifier_series,
+      core.site_legal_entity,
+      core.site,
+      core.legal_entity,
+      core.organisation
+    restart identity cascade
+  `.execute(runtime.database);
   ids = new SequentialUuidFactory();
 });
 

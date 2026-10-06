@@ -133,6 +133,8 @@ export function translateDatabaseError(error: unknown): Error {
     return error instanceof Error ? error : new DatabaseOperationError(undefined, error);
   }
 
+  const sqlStatePattern = /^[0-9A-Z]{5}$/;
+
   switch (code) {
     case "23505":
       return new DatabaseUniqueViolationError(code, error);
@@ -147,6 +149,11 @@ export function translateDatabaseError(error: unknown): Error {
       if (unavailableCodes.has(code) || code.startsWith("08")) {
         return new DatabaseUnavailableError(error, code);
       }
-      return new DatabaseOperationError(code, error);
+
+      if (sqlStatePattern.test(code)) {
+        return new DatabaseOperationError(code, error);
+      }
+
+      return error instanceof Error ? error : new DatabaseOperationError(undefined, error);
   }
 }

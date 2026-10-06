@@ -32,6 +32,12 @@ describe("database error translation", () => {
   it("preserves application errors that are not PostgreSQL failures", () => {
     const applicationError = new Error("application validation failed");
     expect(translateDatabaseError(applicationError)).toBe(applicationError);
+
+    const codedApplicationError = Object.assign(
+      new Error("domain validation failed"),
+      { code: "VALIDATION_ERROR" },
+    );
+    expect(translateDatabaseError(codedApplicationError)).toBe(codedApplicationError);
   });
 });
 
