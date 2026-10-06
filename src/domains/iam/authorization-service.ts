@@ -166,6 +166,23 @@ export class AuthorizationService {
     });
   }
 
+  async requireWithin(
+    uow: UnitOfWork<DB>,
+    input: {
+      user: Readonly<AuthenticatedUser>;
+      capability: string;
+      scope: Readonly<AuthorizationScope>;
+      resourceContext?: Readonly<Record<string, unknown>>;
+    },
+    evaluatedAt = this.clock.nowUtc(),
+  ): Promise<AuthorizationDecision> {
+    const decision = await this.authorizeWithin(uow, input, evaluatedAt);
+    if (!decision.allowed) {
+      throw new AuthorizationDeniedError(decision.denialReason);
+    }
+    return decision;
+  }
+
   async require(input: {
     user?: Readonly<AuthenticatedUser>;
     capability: string;
