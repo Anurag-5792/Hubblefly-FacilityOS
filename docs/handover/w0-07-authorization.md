@@ -1,6 +1,6 @@
 # W0-07 handover — Roles / Capabilities / Scoped Authorization
 
-Status: **IMPLEMENTED pending TESTED gate evidence**
+Status: **TESTED — NOT DEPLOYED — NOT PRODUCTION VERIFIED**
 
 ## Package boundary
 
@@ -96,6 +96,28 @@ The dedicated W0-07 GitHub workflow additionally validates legacy Frappe Python 
 legacy DocType JSON files, checks committed secret patterns, generated-type drift and repository
 drift.
 
+## Verification evidence
+
+Tested implementation SHA: `10f20f4085d4a25bb2eaa9c0bb26c14ebf0932e3`
+
+Dedicated W0-07 verification completed successfully with:
+
+- deterministic database schema fingerprint `434156af2a7a8fb7c1f2308e172e46d0b0d72102e2e320cde80e98b25c9c95df`;
+- 11/11 authorization unit tests passing;
+- PostgreSQL authorization integration and security-negative suite passing, including application-owned UnitOfWork authorization;
+- W0-06 Auth regression passing;
+- W0-05 core regression passing;
+- W0-03 database unit/integration regressions passing;
+- W0-04 platform regression passing;
+- generated database type drift check passing;
+- TypeScript, lint and Next.js production build passing;
+- legacy Frappe Python compile passing;
+- exactly 23 legacy FacilityOS DocType JSON definitions validated;
+- handover documentation, secret-pattern, repository diff and repository drift checks passing.
+
+This evidence establishes the W0-07 **TESTED** gate only. It does not establish deployment or
+production verification.
+
 ## Handover readiness checklist
 
 - [x] Authorization architecture is documented without ChatGPT dependency.
@@ -107,7 +129,7 @@ drift.
 - [x] W0-08, W0-09, ERP and legacy boundaries are explicit.
 - [x] Local developer test/onboarding steps are documented.
 - [x] Troubleshooting guidance exists.
-- [ ] Full CI evidence attached to the final W0-07 status.
+- [x] Full CI evidence attached to the final W0-07 status.
 - [ ] Deployment/production verification — intentionally outside this package.
 
 A new engineering team should treat `docs/security/authorization.md` as the canonical detailed
