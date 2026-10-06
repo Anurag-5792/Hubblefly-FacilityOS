@@ -17,7 +17,9 @@ export function createRouteSupabaseClient(
   return createServerClient<Database>(url, publishableKey, {
     cookies: {
       getAll: () => request.cookies.getAll(),
-      setAll: (cookiesToSet) => mutations.push(...cookiesToSet),
+      setAll(cookiesToSet) {
+        mutations.push(...cookiesToSet);
+      },
     },
   });
 }
