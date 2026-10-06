@@ -185,12 +185,18 @@ assignment IDs for safe internal use, SUPERUSER provenance, denial reason and ev
 
 ## 11. Server-side enforcement and UI hints
 
-Protected application mutations must follow:
+Protected application mutations must keep authorization inside the application-owned W0-03
+Unit of Work:
 
-`trusted authenticated user -> AuthorizationService.require -> application service`.
+`trusted authenticated user -> application UnitOfWork -> AuthorizationService.requireWithin -> domain mutation`.
 
-`requireCapability` is a reusable server-side guard. UI code may consume the safe
-`toAuthorizationHint` projection to hide or enable actions, but that hint is never enforcement.
+`requireCapabilityWithin` is the reusable guard for that path. It reuses the caller's transaction
+instead of starting a second transaction. `requireCapability` / `AuthorizationService.require`
+remain available for protected server operations that do not already own a Unit of Work. Do not
+call the transaction-opening guard from inside another application transaction.
+
+UI code may consume the safe `toAuthorizationHint` projection to hide or enable actions, but that
+hint is never enforcement.
 Buttons, navigation and client-side route guards cannot replace the server check.
 
 Request-supplied role, capability, user ID or scope does not itself grant access. The server treats
