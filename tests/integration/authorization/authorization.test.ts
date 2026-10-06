@@ -325,43 +325,62 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
 
   it("SUPERUSER remains scoped and cannot bypass an explicit policy deny", async () => {
     const runtime = getApplicationDatabaseRuntime();
+    const profiles = new UserProfileService(runtime.unitOfWork, clock, ids);
     const administration = new AuthorizationAdministrationService(
       runtime.unitOfWork, clock, ids, operation,
     );
-    const superAssignment = await administration.createAssignment({
-      userProfileId,
+
+    const email = `w007-super-${randomUUID()}@example.invalid`;
+    const created = await admin.auth.admin.createUser({
+      email,
+      password: "W0-07-Super-Test-Password-123!",
+      email_confirm: true,
+    });
+    if (created.error || !created.data.user) {
+      throw created.error ?? new Error("SUPERUSER test auth user not created.");
+    }
+
+    const superUserProfileId = await profiles.provision({
+      authUserId: created.data.user.id,
+      displayName: "Authorization Superuser Test",
+      emailSnapshot: email,
+    }, operator);
+    const profile = await runtime.unitOfWork.withTransaction(async (uow) =>
+      await uow.repository(userProfileRepository).findById(superUserProfileId),
+    );
+    const superUser = buildAuthenticatedHuman({
+      authUserId: parseSupabaseAuthUserId(created.data.user.id),
+      authEmail: email,
+      profile,
+      operation,
+    });
+
+    await administration.createAssignment({
+      userProfileId: superUserProfileId,
       roleId: superRole,
       scope: { organisationId: orgA },
     }, operator);
 
-    try {
-      const normalService = new AuthorizationService(runtime.unitOfWork, clock);
-      const outsideScope = await normalService.authorize({
-        user: currentUser,
-        capability: "dispatch.gate_pass.authorise",
-        scope: { organisationId: orgB, legalEntityId: legalOther },
-      });
-      expect(outsideScope.allowed).toBe(false);
-      expect(outsideScope.viaSuperuser).toBe(false);
-      expect(outsideScope.denialReason).toBe("SCOPE_MISMATCH");
+    const normalService = new AuthorizationService(runtime.unitOfWork, clock);
+    const outsideScope = await normalService.authorize({
+      user: superUser,
+      capability: "dispatch.gate_pass.authorise",
+      scope: { organisationId: orgB, legalEntityId: legalOther },
+    });
+    expect(outsideScope.allowed).toBe(false);
+    expect(outsideScope.viaSuperuser).toBe(false);
+    expect(outsideScope.denialReason).toBe("SCOPE_MISMATCH");
 
-      const policy = { evaluate: () => "SEGREGATION_RULE" as const };
-      const policyService = new AuthorizationService(runtime.unitOfWork, clock, [policy]);
-      const denied = await policyService.authorize({
-        user: currentUser,
-        capability: "dispatch.gate_pass.authorise",
-        scope: { organisationId: orgA },
-      });
-      expect(denied.allowed).toBe(false);
-      expect(denied.viaSuperuser).toBe(true);
-      expect(denied.denialReason).toBe("SEGREGATION_RULE");
-    } finally {
-      await administration.setAssignmentStatus({
-        assignmentId: superAssignment,
-        expectedVersion: parseAggregateVersion(0),
-        status: "INACTIVE",
-      }, operator);
-    }
+    const policy = { evaluate: () => "SEGREGATION_RULE" as const };
+    const policyService = new AuthorizationService(runtime.unitOfWork, clock, [policy]);
+    const denied = await policyService.authorize({
+      user: superUser,
+      capability: "dispatch.gate_pass.authorise",
+      scope: { organisationId: orgA },
+    });
+    expect(denied.allowed).toBe(false);
+    expect(denied.viaSuperuser).toBe(true);
+    expect(denied.denialReason).toBe("SEGREGATION_RULE");
   });
 
   it("server guard raises a generic authorization error instead of exposing internals", async () => {
