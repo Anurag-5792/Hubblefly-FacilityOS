@@ -12,6 +12,7 @@ import {
   type Clock,
   type InternalId,
   type InternalIdFactory,
+  type OperationContext,
   type UtcTimestamp,
 } from "../../platform/primitives";
 import { organisationRepository } from "../core";
@@ -43,11 +44,23 @@ function cleanDescription(value?: string): string | undefined {
   return result;
 }
 
+function assertOperationBinding(
+  actor: Readonly<ActorContext>,
+  operation: Readonly<OperationContext>,
+): void {
+  if (actor.requestId && actor.requestId !== operation.requestId) {
+    throw new ValidationError(
+      "Authorization administration actor/request context does not match the operation context.",
+    );
+  }
+}
+
 export class AuthorizationAdministrationService {
   constructor(
     private readonly unitOfWork: UnitOfWorkManager<DB>,
     private readonly clock: Clock,
     private readonly ids: InternalIdFactory,
+    private readonly operation: Readonly<OperationContext>,
   ) {}
 
   async createRole(input: {
@@ -56,6 +69,7 @@ export class AuthorizationAdministrationService {
     description?: string;
     kind?: AuthorizationKind;
   }, actor: Readonly<ActorContext>): Promise<InternalId> {
+    assertOperationBinding(actor, this.operation);
     const code = parseRoleCode(input.code);
     return await this.unitOfWork.withTransaction(async (uow) => {
       const id = this.ids.next();
@@ -77,6 +91,7 @@ export class AuthorizationAdministrationService {
     description?: string;
     kind?: AuthorizationKind;
   }, actor: Readonly<ActorContext>): Promise<InternalId> {
+    assertOperationBinding(actor, this.operation);
     const code = parseCapabilityCode(input.code);
     return await this.unitOfWork.withTransaction(async (uow) => {
       const id = this.ids.next();
@@ -96,6 +111,7 @@ export class AuthorizationAdministrationService {
     roleId: InternalId;
     capabilityId: InternalId;
   }, actor: Readonly<ActorContext>): Promise<InternalId> {
+    assertOperationBinding(actor, this.operation);
     return await this.unitOfWork.withTransaction(async (uow) => {
       const repository = uow.repository(authorizationRepository);
       if (!(await repository.findRole(input.roleId))) throw new NotFoundError("Role");
@@ -120,6 +136,7 @@ export class AuthorizationAdministrationService {
     validFrom?: UtcTimestamp;
     validUntil?: UtcTimestamp;
   }, actor: Readonly<ActorContext>): Promise<InternalId> {
+    assertOperationBinding(actor, this.operation);
     const validFrom = input.validFrom ?? this.clock.nowUtc();
     if (input.validUntil && input.validUntil <= validFrom) {
       throw new ValidationError("Role Assignment valid_until must be later than valid_from.");
@@ -203,6 +220,7 @@ export class AuthorizationAdministrationService {
     expectedVersion: AggregateVersion;
     status: AuthorizationStatus;
   }, actor: Readonly<ActorContext>): Promise<void> {
+    assertOperationBinding(actor, this.operation);
     await this.versioned(async () => {
       await this.unitOfWork.withTransaction(async (uow) => {
         const repository = uow.repository(authorizationRepository);
@@ -222,6 +240,7 @@ export class AuthorizationAdministrationService {
     expectedVersion: AggregateVersion;
     status: AuthorizationStatus;
   }, actor: Readonly<ActorContext>): Promise<void> {
+    assertOperationBinding(actor, this.operation);
     await this.versioned(async () => {
       await this.unitOfWork.withTransaction(async (uow) => {
         const repository = uow.repository(authorizationRepository);
@@ -243,6 +262,7 @@ export class AuthorizationAdministrationService {
     expectedVersion: AggregateVersion;
     status: AuthorizationStatus;
   }, actor: Readonly<ActorContext>): Promise<void> {
+    assertOperationBinding(actor, this.operation);
     await this.versioned(async () => {
       await this.unitOfWork.withTransaction(async (uow) => {
         const repository = uow.repository(authorizationRepository);
@@ -264,6 +284,7 @@ export class AuthorizationAdministrationService {
     expectedVersion: AggregateVersion;
     status: AuthorizationStatus;
   }, actor: Readonly<ActorContext>): Promise<void> {
+    assertOperationBinding(actor, this.operation);
     await this.versioned(async () => {
       await this.unitOfWork.withTransaction(async (uow) => {
         const repository = uow.repository(authorizationRepository);

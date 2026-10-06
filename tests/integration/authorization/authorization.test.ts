@@ -70,7 +70,7 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
     const runtime = getApplicationDatabaseRuntime();
     const profiles = new UserProfileService(runtime.unitOfWork, clock, ids);
     const organisations = new OrganisationService(runtime.unitOfWork, clock, ids);
-    const authorization = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids);
+    const authorization = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids, operation);
 
     const email = `w007-${randomUUID()}@example.invalid`;
     const created = await admin.auth.admin.createUser({
@@ -227,7 +227,7 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
 
   it("enforces assignment revocation immediately without stale grants", async () => {
     const runtime = getApplicationDatabaseRuntime();
-    const administration = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids);
+    const administration = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids, operation);
     const service = new AuthorizationService(runtime.unitOfWork, clock);
 
     await administration.setAssignmentStatus({
@@ -247,7 +247,7 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
 
   it("enforces future and expired validity windows", async () => {
     const runtime = getApplicationDatabaseRuntime();
-    const administration = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids);
+    const administration = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids, operation);
     const futureCap = await administration.registerCapability({
       code: "service.job.execute", displayName: "Execute service job",
     }, operator);
@@ -305,6 +305,16 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
       scope: { organisationId: orgA },
     })).denialReason).toBe("IDENTITY_MISMATCH");
 
+    const forgedAuthLink = {
+      ...currentUser,
+      authUserId: parseSupabaseAuthUserId("123e4567-e89b-42d3-a456-426614179999"),
+    };
+    expect((await service.authorize({
+      user: forgedAuthLink,
+      capability: "inventory.physical_count.view",
+      scope: { organisationId: orgA },
+    })).denialReason).toBe("IDENTITY_MISMATCH");
+
     expect((await service.authorize({
       user: currentUser,
       capability: "admin.everything",
@@ -343,12 +353,85 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
     })).rejects.toBeInstanceOf(AuthorizationDeniedError);
   });
 
+
+  it("revokes grants when Role or Capability is deactivated", async () => {
+    const runtime = getApplicationDatabaseRuntime();
+    const administration = new AuthorizationAdministrationService(
+      runtime.unitOfWork, clock, ids, operation,
+    );
+    const service = new AuthorizationService(runtime.unitOfWork, clock);
+
+    const roleCap = await administration.registerCapability({
+      code: "inventory.stock.move", displayName: "Move stock",
+    }, operator);
+    const roleToDeactivate = await administration.createRole({
+      code: "STOCK_MOVER", displayName: "Stock Mover",
+    }, operator);
+    await administration.mapCapability({
+      roleId: roleToDeactivate, capabilityId: roleCap,
+    }, operator);
+    await administration.createAssignment({
+      userProfileId, roleId: roleToDeactivate, scope: { organisationId: orgA },
+    }, operator);
+    expect((await service.authorize({
+      user: currentUser,
+      capability: "inventory.stock.move",
+      scope: { organisationId: orgA },
+    })).allowed).toBe(true);
+    await administration.setRoleStatus({
+      roleId: roleToDeactivate,
+      expectedVersion: parseAggregateVersion(0),
+      status: "INACTIVE",
+    }, operator);
+    expect((await service.authorize({
+      user: currentUser,
+      capability: "inventory.stock.move",
+      scope: { organisationId: orgA },
+    })).denialReason).toBe("ROLE_INACTIVE");
+
+    const capabilityToDeactivate = await administration.registerCapability({
+      code: "quality.inspection.submit", displayName: "Submit inspection",
+    }, operator);
+    const capabilityRole = await administration.createRole({
+      code: "QUALITY_SUBMITTER", displayName: "Quality Submitter",
+    }, operator);
+    await administration.mapCapability({
+      roleId: capabilityRole, capabilityId: capabilityToDeactivate,
+    }, operator);
+    await administration.createAssignment({
+      userProfileId, roleId: capabilityRole, scope: { organisationId: orgA },
+    }, operator);
+    expect((await service.authorize({
+      user: currentUser,
+      capability: "quality.inspection.submit",
+      scope: { organisationId: orgA },
+    })).allowed).toBe(true);
+    await administration.setCapabilityStatus({
+      capabilityId: capabilityToDeactivate,
+      expectedVersion: parseAggregateVersion(0),
+      status: "INACTIVE",
+    }, operator);
+    expect((await service.authorize({
+      user: currentUser,
+      capability: "quality.inspection.submit",
+      scope: { organisationId: orgA },
+    })).denialReason).toBe("CAPABILITY_INACTIVE");
+  });
+
   it("database rejects duplicate mappings, invalid cross-Organisation scope and invalid validity", async () => {
     const runtime = getApplicationDatabaseRuntime();
-    const administration = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids);
+    const administration = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids, operation);
 
     await expect(
       administration.mapCapability({ roleId: viewerRole, capabilityId: viewCapability }, operator),
+    ).rejects.toThrow();
+
+    await expect(
+      administration.createAssignment({
+        userProfileId,
+        roleId: viewerRole,
+        scope: { organisationId: orgA },
+      }, operator),
     ).rejects.toThrow();
 
     await expect(runtime.database.insertInto("iam.role_assignment").values({
@@ -399,7 +482,7 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
       .where("id", "=", viewerRole)
       .execute()).rejects.toThrow("immutable");
 
-    const administration = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids);
+    const administration = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids, operation);
     await administration.setRoleStatus({
       roleId: viewerRole,
       expectedVersion: parseAggregateVersion(0),

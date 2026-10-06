@@ -157,6 +157,7 @@ export class AuthorizationService {
       evaluatedAt,
       state: {
         profileStatus: profile?.status,
+        identityMatches: profile?.authUserId === input.user.authUserId,
         requestedCapability,
         scopeValid,
         assignments: loadedAssignments,

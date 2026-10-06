@@ -130,6 +130,75 @@ export interface CoreSiteLegalEntity {
   version: Generated<Int8>;
 }
 
+export interface IamCapability {
+  code: string;
+  created_actor_id: string;
+  created_actor_type: string;
+  created_at: Timestamp;
+  description: string | null;
+  display_name: string;
+  id: string;
+  kind: Generated<string>;
+  status: Generated<string>;
+  updated_actor_id: string;
+  updated_actor_type: string;
+  updated_at: Timestamp;
+  version: Generated<Int8>;
+}
+
+export interface IamRole {
+  code: string;
+  created_actor_id: string;
+  created_actor_type: string;
+  created_at: Timestamp;
+  description: string | null;
+  display_name: string;
+  id: string;
+  kind: Generated<string>;
+  status: Generated<string>;
+  updated_actor_id: string;
+  updated_actor_type: string;
+  updated_at: Timestamp;
+  version: Generated<Int8>;
+}
+
+export interface IamRoleAssignment {
+  created_actor_id: string;
+  created_actor_type: string;
+  created_at: Timestamp;
+  id: string;
+  legal_entity_id: string | null;
+  organisation_id: string;
+  role_id: string;
+  scope_level: string;
+  /**
+   * A Site is physical scope only. Site-only assignments do not imply Legal Entity authority.
+   */
+  site_id: string | null;
+  status: Generated<string>;
+  updated_actor_id: string;
+  updated_actor_type: string;
+  updated_at: Timestamp;
+  user_profile_id: string;
+  valid_from: Timestamp;
+  valid_until: Timestamp | null;
+  version: Generated<Int8>;
+}
+
+export interface IamRoleCapability {
+  capability_id: string;
+  created_actor_id: string;
+  created_actor_type: string;
+  created_at: Timestamp;
+  id: string;
+  role_id: string;
+  status: Generated<string>;
+  updated_actor_id: string;
+  updated_actor_type: string;
+  updated_at: Timestamp;
+  version: Generated<Int8>;
+}
+
 export interface IamUserProfile {
   /**
    * Immutable linkage to Supabase auth.users. Auth-user deletion is restricted to preserve operational identity/history.
@@ -159,5 +228,9 @@ export interface DB {
   "core.organisation": CoreOrganisation;
   "core.site": CoreSite;
   "core.site_legal_entity": CoreSiteLegalEntity;
+  "iam.capability": IamCapability;
+  "iam.role": IamRole;
+  "iam.role_assignment": IamRoleAssignment;
+  "iam.role_capability": IamRoleCapability;
   "iam.user_profile": IamUserProfile;
 }

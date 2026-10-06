@@ -231,8 +231,9 @@ is no global `if superuser return true` path.
 
 ## 14. Optimistic concurrency and lifecycle
 
-Administrative mutations use W0-03 UnitOfWork and optimistic concurrency plus W0-04 Clock and
-ActorContext. Stale versions raise the standard application concurrency conflict.
+Administrative mutations use W0-03 UnitOfWork and optimistic concurrency plus W0-04 Clock,
+ActorContext and a request-scoped OperationContext. The administration service binds ActorContext
+request identity to that OperationContext before changing security state. Stale versions raise the standard application concurrency conflict.
 
 Assignments are deactivated rather than physically deleted. Role/Capability codes are protected by
 database triggers against renaming after use.

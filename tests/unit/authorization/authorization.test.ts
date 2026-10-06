@@ -162,12 +162,14 @@ function state(input?: {
   requestedCapability?: Capability;
   assignments?: readonly LoadedRoleAssignment[];
   scopeValid?: boolean;
+  identityMatches?: boolean;
 }): AuthorizationEvaluationState {
   return {
     profileStatus: input && "profileStatus" in input ? input.profileStatus : "ACTIVE",
-    requestedCapability: input?.requestedCapability ?? capability(),
+    requestedCapability: input && "requestedCapability" in input ? input.requestedCapability : capability(),
     assignments: input?.assignments ?? [loaded()],
     scopeValid: input?.scopeValid ?? true,
+    identityMatches: input?.identityMatches ?? true,
   };
 }
 
@@ -195,6 +197,8 @@ describe("W0-07 authorization evaluator", () => {
       .toBe("USER_NOT_PROVISIONED");
     expect(evaluate({ state: state({ profileStatus: "INACTIVE" }) }).denialReason)
       .toBe("USER_INACTIVE");
+    expect(evaluate({ state: state({ assignments: [] }) }).denialReason)
+      .toBe("NO_ASSIGNMENT");
   });
 
   it("rejects forged trusted-human identity", () => {
@@ -203,6 +207,10 @@ describe("W0-07 authorization evaluator", () => {
       actor: parseActorContext({ actorType: "HUMAN", actorId: "someone-else" }),
     };
     expect(evaluate({ user: forged }).denialReason).toBe("IDENTITY_MISMATCH");
+
+    expect(
+      evaluate({ state: state({ identityMatches: false }) }).denialReason,
+    ).toBe("IDENTITY_MISMATCH");
   });
 
   it("allows only an active capability granted by an active role and assignment", () => {
@@ -318,6 +326,13 @@ describe("W0-07 authorization evaluator", () => {
     });
     expect(result.allowed).toBe(true);
     expect(result.matchingAssignmentIds).toEqual([recorderLoaded.assignment.id]);
+
+    const deduplicated = evaluate({
+      state: state({ assignments: [recorderLoaded, recorderLoaded] }),
+      capabilityCode: record.code,
+      scope: { organisationId: orgA },
+    });
+    expect(deduplicated.matchingAssignmentIds).toEqual([recorderLoaded.assignment.id]);
   });
 
   it("implements explicit Organisation, Legal Entity and Site scope matching", () => {

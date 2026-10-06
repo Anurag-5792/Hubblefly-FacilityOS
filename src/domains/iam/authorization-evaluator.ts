@@ -24,6 +24,7 @@ export interface LoadedRoleAssignment {
 
 export interface AuthorizationEvaluationState {
   readonly profileStatus?: UserProfileStatus;
+  readonly identityMatches?: boolean;
   readonly requestedCapability?: Capability;
   readonly scopeValid: boolean;
   readonly assignments: readonly LoadedRoleAssignment[];
@@ -83,6 +84,10 @@ export function evaluateAuthorization(input: {
 
   if (state.profileStatus === undefined) {
     return denied({ user, capability, scope, at: evaluatedAt, reason: "USER_NOT_PROVISIONED" });
+  }
+
+  if (state.identityMatches === false) {
+    return denied({ user, capability, scope, at: evaluatedAt, reason: "IDENTITY_MISMATCH" });
   }
 
   if (state.profileStatus !== "ACTIVE") {

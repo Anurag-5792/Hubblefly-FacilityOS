@@ -466,6 +466,234 @@ export type Database = {
   }
   iam: {
     Tables: {
+      capability: {
+        Row: {
+          code: string
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          description: string | null
+          display_name: string
+          id: string
+          kind: string
+          status: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          code: string
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          description?: string | null
+          display_name: string
+          id: string
+          kind?: string
+          status?: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version?: number
+        }
+        Update: {
+          code?: string
+          created_actor_id?: string
+          created_actor_type?: string
+          created_at?: string
+          description?: string | null
+          display_name?: string
+          id?: string
+          kind?: string
+          status?: string
+          updated_actor_id?: string
+          updated_actor_type?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: []
+      }
+      role: {
+        Row: {
+          code: string
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          description: string | null
+          display_name: string
+          id: string
+          kind: string
+          status: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          code: string
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          description?: string | null
+          display_name: string
+          id: string
+          kind?: string
+          status?: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version?: number
+        }
+        Update: {
+          code?: string
+          created_actor_id?: string
+          created_actor_type?: string
+          created_at?: string
+          description?: string | null
+          display_name?: string
+          id?: string
+          kind?: string
+          status?: string
+          updated_actor_id?: string
+          updated_actor_type?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: []
+      }
+      role_assignment: {
+        Row: {
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          id: string
+          legal_entity_id: string | null
+          organisation_id: string
+          role_id: string
+          scope_level: string
+          site_id: string | null
+          status: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          user_profile_id: string
+          valid_from: string
+          valid_until: string | null
+          version: number
+        }
+        Insert: {
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          id: string
+          legal_entity_id?: string | null
+          organisation_id: string
+          role_id: string
+          scope_level: string
+          site_id?: string | null
+          status?: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          user_profile_id: string
+          valid_from: string
+          valid_until?: string | null
+          version?: number
+        }
+        Update: {
+          created_actor_id?: string
+          created_actor_type?: string
+          created_at?: string
+          id?: string
+          legal_entity_id?: string | null
+          organisation_id?: string
+          role_id?: string
+          scope_level?: string
+          site_id?: string | null
+          status?: string
+          updated_actor_id?: string
+          updated_actor_type?: string
+          updated_at?: string
+          user_profile_id?: string
+          valid_from?: string
+          valid_until?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_assignment_role_fk"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "role"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "role_assignment_user_fk"
+            columns: ["user_profile_id"]
+            isOneToOne: false
+            referencedRelation: "user_profile"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      role_capability: {
+        Row: {
+          capability_id: string
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          id: string
+          role_id: string
+          status: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          capability_id: string
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          id: string
+          role_id: string
+          status?: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version?: number
+        }
+        Update: {
+          capability_id?: string
+          created_actor_id?: string
+          created_actor_type?: string
+          created_at?: string
+          id?: string
+          role_id?: string
+          status?: string
+          updated_actor_id?: string
+          updated_actor_type?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_capability_capability_fk"
+            columns: ["capability_id"]
+            isOneToOne: false
+            referencedRelation: "capability"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "role_capability_role_fk"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "role"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_profile: {
         Row: {
           auth_user_id: string
