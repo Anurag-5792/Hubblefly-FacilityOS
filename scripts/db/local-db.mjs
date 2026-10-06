@@ -12,7 +12,8 @@ const supabaseDir = join(root, "supabase");
 const linkedProjectRef = join(supabaseDir, ".temp", "project-ref");
 const supabaseTypesFile = join(root, "src", "platform", "db", "database.types.ts");
 const kyselyTypesFile = join(root, "src", "platform", "db", "kysely.types.ts");
-const expectedMigrationVersion = "20260923120000";
+const expectedMigrationVersions = ["20260923120000", "20261006124500"];
+const generatedSchemas = "public,core";
 const expectedCliVersion = "2.117.0";
 
 const supabaseBin = process.platform === "win32"
@@ -113,7 +114,7 @@ function statusEnv() {
 function generateSupabaseTypes(outFile = supabaseTypesFile) {
   mkdirSync(dirname(outFile), { recursive: true });
   const output = runSupabase(
-    ["gen", "types", "typescript", "--local", "--schema", "public"],
+    ["gen", "types", "typescript", "--local", "--schema", generatedSchemas],
     { label: "Supabase TypeScript type generation", quiet: true },
   );
   writeFileSync(outFile, output);
@@ -126,7 +127,7 @@ function generateKyselyTypes(outFile = kyselyTypesFile) {
   const databaseUrl = statusEnv();
   run(
     kyselyCodegenBin,
-    [`--out-file=${outFile}`, "--include-pattern=public.*"],
+    [`--out-file=${outFile}`, "--include-pattern={public,core}.*"],
     {
       label: "Kysely type generation",
       env: { ...process.env, DATABASE_URL: databaseUrl },
@@ -146,7 +147,7 @@ async function schemaFingerprint() {
     const tables = await client.query(`
       select table_schema, table_name, table_type
       from information_schema.tables
-      where table_schema = 'public'
+      where table_schema in ('public', 'core')
       order by table_name, table_type
     `);
     const columns = await client.query(`
@@ -162,13 +163,13 @@ async function schemaFingerprint() {
       from pg_constraint con
       join pg_class c on c.oid = con.conrelid
       join pg_namespace n on n.oid = c.relnamespace
-      where n.nspname = 'public'
+      where n.nspname in ('public', 'core')
       order by c.relname, con.conname
     `);
     const indexes = await client.query(`
       select schemaname, tablename, indexname, indexdef
       from pg_indexes
-      where schemaname = 'public'
+      where schemaname in ('public', 'core')
       order by tablename, indexname
     `);
     const enums = await client.query(`
@@ -210,16 +211,18 @@ async function assertMigrationApplied() {
     const result = await client.query(
       "select version, name from supabase_migrations.schema_migrations order by version",
     );
-    const match = result.rows.find((row) => String(row.version) === expectedMigrationVersion);
-    if (!match) fail(`Expected W0-02 migration ${expectedMigrationVersion} is not recorded as applied.`);
-    process.stdout.write(`[db] migration ${expectedMigrationVersion}: applied\n`);
+    for (const version of expectedMigrationVersions) {
+      const match = result.rows.find((row) => String(row.version) === version);
+      if (!match) fail(`Expected migration ${version} is not recorded as applied.`);
+      process.stdout.write(`[db] migration ${version}: applied\n`);
+    }
   } finally {
     await client.end();
   }
 }
 
 function lintDatabase() {
-  runSupabase(["db", "lint", "--schema", "public", "--level", "error"], {
+  runSupabase(["db", "lint", "--schema", generatedSchemas, "--level", "error"], {
     label: "local database lint",
   });
 }
@@ -281,6 +284,38 @@ function verifyGeneratedFilesCommitted() {
     "src/platform/db/database.types.ts",
     "src/platform/db/kysely.types.ts",
   ], { label: "generated database type drift check" });
+}
+
+async function runCoreTests() {
+  assertToolExists(vitestBin, "Vitest");
+  try {
+    start();
+    reset();
+    await assertMigrationApplied();
+    lintDatabase();
+
+    const databaseUrl = statusEnv();
+    run(
+      vitestBin,
+      ["run", "tests/unit/core", "tests/integration/core"],
+      {
+        label: "W0-05 core organisation and identifier tests",
+        env: {
+          ...process.env,
+          DATABASE_URL: databaseUrl,
+          FACILITYOS_DB_POOL_MAX: "10",
+          FACILITYOS_DB_IDLE_TIMEOUT_MS: "5000",
+          FACILITYOS_DB_CONNECTION_TIMEOUT_MS: "2000",
+        },
+      },
+    );
+  } finally {
+    try {
+      stop();
+    } catch {
+      // Preserve the primary test failure if cleanup also fails.
+    }
+  }
 }
 
 async function runDatabaseAccessTests() {
@@ -361,6 +396,9 @@ switch (operation) {
     break;
   case "test-access":
     await runDatabaseAccessTests();
+    break;
+  case "test-core":
+    await runCoreTests();
     break;
   default:
     fail("Unknown local database operation.");

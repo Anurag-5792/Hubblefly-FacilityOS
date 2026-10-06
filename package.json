@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.27.1",
-  "engines": { "node": "24.x" },
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "next dev",
     "typecheck": "tsc --noEmit",
@@ -26,7 +28,9 @@
     "db:types:kysely": "node scripts/db/local-db.mjs types-kysely",
     "db:types": "node scripts/db/local-db.mjs types",
     "db:verify:runtime": "node scripts/db/local-db.mjs verify-runtime",
-    "db:verify": "node scripts/db/local-db.mjs verify"
+    "db:verify": "node scripts/db/local-db.mjs verify",
+    "test:core:unit": "vitest run tests/unit/core",
+    "test:core:integration": "node scripts/db/local-db.mjs test-core"
   },
   "dependencies": {
     "kysely": "0.29.6",
