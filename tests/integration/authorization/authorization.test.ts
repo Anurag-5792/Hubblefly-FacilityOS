@@ -57,7 +57,6 @@ let sharedSite: ReturnType<typeof ids.next>;
 let viewCapability: ReturnType<typeof ids.next>;
 let recordCapability: ReturnType<typeof ids.next>;
 let siteCapability: ReturnType<typeof ids.next>;
-let dispatchCapability: ReturnType<typeof ids.next>;
 let superCapability: ReturnType<typeof ids.next>;
 let viewerRole: ReturnType<typeof ids.next>;
 let recorderRole: ReturnType<typeof ids.next>;
@@ -131,7 +130,7 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
       code: "quality.inspection.record",
       displayName: "Record inspection",
     }, operator);
-    dispatchCapability = await authorization.registerCapability({
+    await authorization.registerCapability({
       code: "dispatch.gate_pass.authorise",
       displayName: "Authorise gate pass",
     }, operator);
