@@ -116,6 +116,26 @@ export function evaluateAuthorization(input: {
 
   for (const candidate of state.assignments) {
     const assignment = candidate.assignment;
+    const direct = candidate.grants.some(
+      ({ mapping, capability: granted }) =>
+        mapping.status === "ACTIVE" &&
+        granted?.status === "ACTIVE" &&
+        granted.code === state.requestedCapability?.code,
+    );
+    const superuser = candidate.grants.some(
+      ({ mapping, capability: granted }) =>
+        mapping.status === "ACTIVE" &&
+        granted?.status === "ACTIVE" &&
+        granted.code === SUPERUSER_CAPABILITY,
+    );
+
+    // Only a Role that can positively satisfy this request may contribute
+    // lifecycle/scope diagnostics. Unrelated assignments must not mask the
+    // reason the relevant grant failed.
+    if (!direct && !superuser) {
+      observedReasons.push("CAPABILITY_NOT_GRANTED");
+      continue;
+    }
 
     if (assignment.status !== "ACTIVE") {
       observedReasons.push("ASSIGNMENT_INACTIVE");
@@ -135,24 +155,6 @@ export function evaluateAuthorization(input: {
     }
     if (!candidate.role || candidate.role.status !== "ACTIVE") {
       observedReasons.push("ROLE_INACTIVE");
-      continue;
-    }
-
-    const direct = candidate.grants.some(
-      ({ mapping, capability: granted }) =>
-        mapping.status === "ACTIVE" &&
-        granted?.status === "ACTIVE" &&
-        granted.code === state.requestedCapability?.code,
-    );
-    const superuser = candidate.grants.some(
-      ({ mapping, capability: granted }) =>
-        mapping.status === "ACTIVE" &&
-        granted?.status === "ACTIVE" &&
-        granted.code === SUPERUSER_CAPABILITY,
-    );
-
-    if (!direct && !superuser) {
-      observedReasons.push("CAPABILITY_NOT_GRANTED");
       continue;
     }
 
