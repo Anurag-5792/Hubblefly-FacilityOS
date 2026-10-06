@@ -7,6 +7,463 @@ export type Json =
   | Json[]
 
 export type Database = {
+  core: {
+    Tables: {
+      identifier_allocation: {
+        Row: {
+          allocated_actor_id: string
+          allocated_actor_type: string
+          allocated_at: string
+          causation_id: string | null
+          command_id: string
+          correlation_id: string
+          id: string
+          identifier_value: string
+          legal_entity_id: string | null
+          organisation_id: string
+          period_key: string | null
+          period_token: string | null
+          request_id: string
+          sequence_id: string
+          sequence_value: number
+          series_id: string
+          site_id: string | null
+        }
+        Insert: {
+          allocated_actor_id: string
+          allocated_actor_type: string
+          allocated_at: string
+          causation_id?: string | null
+          command_id: string
+          correlation_id: string
+          id: string
+          identifier_value: string
+          legal_entity_id?: string | null
+          organisation_id: string
+          period_key?: string | null
+          period_token?: string | null
+          request_id: string
+          sequence_id: string
+          sequence_value: number
+          series_id: string
+          site_id?: string | null
+        }
+        Update: {
+          allocated_actor_id?: string
+          allocated_actor_type?: string
+          allocated_at?: string
+          causation_id?: string | null
+          command_id?: string
+          correlation_id?: string
+          id?: string
+          identifier_value?: string
+          legal_entity_id?: string | null
+          organisation_id?: string
+          period_key?: string | null
+          period_token?: string | null
+          request_id?: string
+          sequence_id?: string
+          sequence_value?: number
+          series_id?: string
+          site_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "identifier_allocation_legal_scope_fk"
+            columns: ["legal_entity_id", "organisation_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entity"
+            referencedColumns: ["id", "organisation_id"]
+          },
+          {
+            foreignKeyName: "identifier_allocation_sequence_fk"
+            columns: ["sequence_id"]
+            isOneToOne: false
+            referencedRelation: "identifier_sequence"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "identifier_allocation_series_scope_fk"
+            columns: ["series_id", "organisation_id"]
+            isOneToOne: false
+            referencedRelation: "identifier_series"
+            referencedColumns: ["id", "organisation_id"]
+          },
+          {
+            foreignKeyName: "identifier_allocation_site_scope_fk"
+            columns: ["site_id", "organisation_id"]
+            isOneToOne: false
+            referencedRelation: "site"
+            referencedColumns: ["id", "organisation_id"]
+          },
+        ]
+      }
+      identifier_sequence: {
+        Row: {
+          created_at: string
+          id: string
+          legal_entity_id: string | null
+          next_value: number
+          organisation_id: string
+          period_key: string | null
+          period_token: string | null
+          series_id: string
+          site_id: string | null
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          created_at: string
+          id: string
+          legal_entity_id?: string | null
+          next_value?: number
+          organisation_id: string
+          period_key?: string | null
+          period_token?: string | null
+          series_id: string
+          site_id?: string | null
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          legal_entity_id?: string | null
+          next_value?: number
+          organisation_id?: string
+          period_key?: string | null
+          period_token?: string | null
+          series_id?: string
+          site_id?: string | null
+          updated_actor_id?: string
+          updated_actor_type?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "identifier_sequence_legal_scope_fk"
+            columns: ["legal_entity_id", "organisation_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entity"
+            referencedColumns: ["id", "organisation_id"]
+          },
+          {
+            foreignKeyName: "identifier_sequence_series_scope_fk"
+            columns: ["series_id", "organisation_id"]
+            isOneToOne: false
+            referencedRelation: "identifier_series"
+            referencedColumns: ["id", "organisation_id"]
+          },
+          {
+            foreignKeyName: "identifier_sequence_site_scope_fk"
+            columns: ["site_id", "organisation_id"]
+            isOneToOne: false
+            referencedRelation: "site"
+            referencedColumns: ["id", "organisation_id"]
+          },
+        ]
+      }
+      identifier_series: {
+        Row: {
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          description: string | null
+          format_template: string
+          id: string
+          organisation_id: string
+          requires_period: boolean
+          scope_legal_entity: boolean
+          scope_site: boolean
+          sequence_width: number
+          series_key: string
+          status: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          description?: string | null
+          format_template: string
+          id: string
+          organisation_id: string
+          requires_period?: boolean
+          scope_legal_entity?: boolean
+          scope_site?: boolean
+          sequence_width: number
+          series_key: string
+          status?: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version?: number
+        }
+        Update: {
+          created_actor_id?: string
+          created_actor_type?: string
+          created_at?: string
+          description?: string | null
+          format_template?: string
+          id?: string
+          organisation_id?: string
+          requires_period?: boolean
+          scope_legal_entity?: boolean
+          scope_site?: boolean
+          sequence_width?: number
+          series_key?: string
+          status?: string
+          updated_actor_id?: string
+          updated_actor_type?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "identifier_series_organisation_fk"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisation"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      legal_entity: {
+        Row: {
+          code: string
+          country_code: string | null
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          display_name: string | null
+          id: string
+          legal_name: string
+          organisation_id: string
+          status: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          code: string
+          country_code?: string | null
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          display_name?: string | null
+          id: string
+          legal_name: string
+          organisation_id: string
+          status?: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version?: number
+        }
+        Update: {
+          code?: string
+          country_code?: string | null
+          created_actor_id?: string
+          created_actor_type?: string
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          legal_name?: string
+          organisation_id?: string
+          status?: string
+          updated_actor_id?: string
+          updated_actor_type?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legal_entity_organisation_fk"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisation"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organisation: {
+        Row: {
+          code: string
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          id: string
+          name: string
+          status: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          code: string
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          id: string
+          name: string
+          status?: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version?: number
+        }
+        Update: {
+          code?: string
+          created_actor_id?: string
+          created_actor_type?: string
+          created_at?: string
+          id?: string
+          name?: string
+          status?: string
+          updated_actor_id?: string
+          updated_actor_type?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: []
+      }
+      site: {
+        Row: {
+          code: string
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          id: string
+          name: string
+          organisation_id: string
+          status: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          code: string
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          id: string
+          name: string
+          organisation_id: string
+          status?: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version?: number
+        }
+        Update: {
+          code?: string
+          created_actor_id?: string
+          created_actor_type?: string
+          created_at?: string
+          id?: string
+          name?: string
+          organisation_id?: string
+          status?: string
+          updated_actor_id?: string
+          updated_actor_type?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "site_organisation_fk"
+            columns: ["organisation_id"]
+            isOneToOne: false
+            referencedRelation: "organisation"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      site_legal_entity: {
+        Row: {
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          id: string
+          legal_entity_id: string
+          organisation_id: string
+          site_id: string
+          status: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          created_actor_id: string
+          created_actor_type: string
+          created_at: string
+          id: string
+          legal_entity_id: string
+          organisation_id: string
+          site_id: string
+          status?: string
+          updated_actor_id: string
+          updated_actor_type: string
+          updated_at: string
+          version?: number
+        }
+        Update: {
+          created_actor_id?: string
+          created_actor_type?: string
+          created_at?: string
+          id?: string
+          legal_entity_id?: string
+          organisation_id?: string
+          site_id?: string
+          status?: string
+          updated_actor_id?: string
+          updated_actor_type?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "site_legal_entity_legal_scope_fk"
+            columns: ["legal_entity_id", "organisation_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entity"
+            referencedColumns: ["id", "organisation_id"]
+          },
+          {
+            foreignKeyName: "site_legal_entity_site_scope_fk"
+            columns: ["site_id", "organisation_id"]
+            isOneToOne: false
+            referencedRelation: "site"
+            referencedColumns: ["id", "organisation_id"]
+          },
+        ]
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       [_ in never]: never
@@ -144,6 +601,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  core: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

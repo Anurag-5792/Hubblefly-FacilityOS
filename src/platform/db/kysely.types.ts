@@ -3,4 +3,139 @@
  * Please do not edit it manually.
  */
 
-export interface DB {}
+import type { ColumnType } from "kysely";
+
+export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
+  ? ColumnType<S, I | undefined, U>
+  : ColumnType<T, T | undefined, T>;
+
+export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
+
+export type Timestamp = ColumnType<Date, Date | string, Date | string>;
+
+export interface CoreIdentifierAllocation {
+  allocated_actor_id: string;
+  allocated_actor_type: string;
+  allocated_at: Timestamp;
+  causation_id: string | null;
+  command_id: string;
+  correlation_id: string;
+  id: string;
+  identifier_value: string;
+  legal_entity_id: string | null;
+  organisation_id: string;
+  period_key: string | null;
+  period_token: string | null;
+  request_id: string;
+  sequence_id: string;
+  sequence_value: Int8;
+  series_id: string;
+  site_id: string | null;
+}
+
+export interface CoreIdentifierSequence {
+  created_at: Timestamp;
+  id: string;
+  legal_entity_id: string | null;
+  next_value: Generated<Int8>;
+  organisation_id: string;
+  period_key: string | null;
+  period_token: string | null;
+  series_id: string;
+  site_id: string | null;
+  updated_actor_id: string;
+  updated_actor_type: string;
+  updated_at: Timestamp;
+  version: Generated<Int8>;
+}
+
+export interface CoreIdentifierSeries {
+  created_actor_id: string;
+  created_actor_type: string;
+  created_at: Timestamp;
+  description: string | null;
+  format_template: string;
+  id: string;
+  organisation_id: string;
+  requires_period: Generated<boolean>;
+  scope_legal_entity: Generated<boolean>;
+  scope_site: Generated<boolean>;
+  sequence_width: number;
+  series_key: string;
+  status: Generated<string>;
+  updated_actor_id: string;
+  updated_actor_type: string;
+  updated_at: Timestamp;
+  version: Generated<Int8>;
+}
+
+export interface CoreLegalEntity {
+  code: string;
+  country_code: string | null;
+  created_actor_id: string;
+  created_actor_type: string;
+  created_at: Timestamp;
+  display_name: string | null;
+  id: string;
+  legal_name: string;
+  organisation_id: string;
+  status: Generated<string>;
+  updated_actor_id: string;
+  updated_actor_type: string;
+  updated_at: Timestamp;
+  version: Generated<Int8>;
+}
+
+export interface CoreOrganisation {
+  code: string;
+  created_actor_id: string;
+  created_actor_type: string;
+  created_at: Timestamp;
+  id: string;
+  name: string;
+  status: Generated<string>;
+  updated_actor_id: string;
+  updated_actor_type: string;
+  updated_at: Timestamp;
+  version: Generated<Int8>;
+}
+
+export interface CoreSite {
+  code: string;
+  created_actor_id: string;
+  created_actor_type: string;
+  created_at: Timestamp;
+  id: string;
+  name: string;
+  organisation_id: string;
+  status: Generated<string>;
+  updated_actor_id: string;
+  updated_actor_type: string;
+  updated_at: Timestamp;
+  version: Generated<Int8>;
+}
+
+export interface CoreSiteLegalEntity {
+  created_actor_id: string;
+  created_actor_type: string;
+  created_at: Timestamp;
+  id: string;
+  legal_entity_id: string;
+  organisation_id: string;
+  site_id: string;
+  status: Generated<string>;
+  updated_actor_id: string;
+  updated_actor_type: string;
+  updated_at: Timestamp;
+  version: Generated<Int8>;
+}
+
+export interface DB {
+  "core.identifier_allocation": CoreIdentifierAllocation;
+  "core.identifier_sequence": CoreIdentifierSequence;
+  "core.identifier_series": CoreIdentifierSeries;
+  "core.legal_entity": CoreLegalEntity;
+  "core.organisation": CoreOrganisation;
+  "core.site": CoreSite;
+  "core.site_legal_entity": CoreSiteLegalEntity;
+}
