@@ -1,0 +1,122 @@
+name: W0-08 RLS Runtime Enforcement Verification
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [foundation/wave0-target]
+
+permissions:
+  contents: read
+
+jobs:
+  rls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.27.1 --activate
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile
+      - name: Versions
+        run: |
+          node --version
+          pnpm --version
+          pnpm supabase:version
+      - name: Clean migrations, generated types and security-aware fingerprint
+        run: pnpm db:verify:runtime
+      - name: W0-08 context helper unit tests
+        run: pnpm test:rls:unit
+      - name: W0-08 PostgreSQL RLS/direct-SQL/pool tests
+        run: pnpm test:rls:integration
+      - name: W0-07 Authorization regression
+        run: pnpm test:authorization:integration
+      - name: W0-06 Auth regression
+        run: pnpm test:auth:integration
+      - name: W0-05 core regression
+        run: pnpm test:core:integration
+      - name: W0-03 DB unit regression
+        run: pnpm test:db:unit
+      - name: W0-03 DB integration regression
+        run: pnpm test:db:integration
+      - name: W0-04 platform regression
+        run: pnpm test:platform:unit
+      - name: Generated DB type drift
+        run: git diff --exit-code -- src/platform/db/database.types.ts src/platform/db/kysely.types.ts
+      - name: TypeScript
+        run: pnpm typecheck
+      - name: Lint
+        run: pnpm lint
+      - name: Next.js production build
+        run: pnpm build
+      - name: Legacy Frappe Python compile
+        run: python -m compileall -q frappe_app/facility_os/facility_os
+      - name: Validate 23 legacy FacilityOS DocTypes
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          files = list(Path("frappe_app/facility_os/facility_os").glob("facility_os/doctype/*/*.json"))
+          if len(files) != 23:
+              raise SystemExit(f"Expected 23 FacilityOS DocType JSON files, found {len(files)}")
+          for path in files:
+              with path.open("r", encoding="utf-8") as handle:
+                  json.load(handle)
+          print("Validated 23 FacilityOS DocType JSON files")
+          PY
+      - name: W0-08 docs checks
+        run: |
+          test -s docs/security/rls.md
+          test -s docs/adr/0002-rls-runtime-context.md
+          test -s docs/handover/w0-08-rls.md
+          grep -q "NOBYPASSRLS" docs/security/rls.md
+          grep -q "FORCE ROW LEVEL SECURITY" docs/security/rls.md
+          grep -q "shared-Site" docs/security/rls.md
+          grep -q "Data API" docs/security/rls.md
+          grep -q "W0-09" docs/security/rls.md
+      - name: Secret-pattern safety check
+        run: |
+          python - <<'PY'
+          import pathlib
+          import re
+          import subprocess
+          service_role = re.compile("SUPABASE_SERVICE_ROLE_KEY=" + "eyJ")
+          postgres_url = re.compile("postgres" + r"(?:ql)?://[^<\s]+:[^<\s]+@")
+          known_test_fixture = ("tests/unit/platform/primitives/errors-state.test.ts","db.internal/prod")
+          tracked = subprocess.check_output(["git","ls-files","-z"],text=False).split(b"\0")
+          findings = []
+          for raw_path in tracked:
+              if not raw_path:
+                  continue
+              path = pathlib.Path(raw_path.decode())
+              if path.as_posix() == "pnpm-lock.yaml":
+                  continue
+              try:
+                  content = path.read_text(encoding="utf-8")
+              except (UnicodeDecodeError,OSError):
+                  continue
+              for line_number,line in enumerate(content.splitlines(),start=1):
+                  if path.as_posix() == known_test_fixture[0] and known_test_fixture[1] in line:
+                      continue
+                  if service_role.search(line) or postgres_url.search(line):
+                      findings.append(f"{path}:{line_number}")
+          if findings:
+              print("Potential committed secret patterns found at:")
+              for finding in findings:
+                  print(f"  {finding}")
+              raise SystemExit(1)
+          print("Secret-pattern safety check: clean")
+          PY
+      - name: Repository drift
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Stop local Supabase
+        if: always()
+        run: pnpm supabase:stop || true
