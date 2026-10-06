@@ -31,7 +31,7 @@ on:
       - ".github/workflows/w0-05-organisation-identifier.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   organisation-identifier:
@@ -68,17 +68,6 @@ jobs:
             src/platform/db/kysely.types.ts
           if-no-files-found: error
           retention-days: 3
-
-      - name: Commit generated DB types once
-        if: github.event_name == 'push' && github.ref == 'refs/heads/foundation/wave0-target'
-        run: |
-          if ! git diff --quiet -- src/platform/db/database.types.ts src/platform/db/kysely.types.ts; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src/platform/db/database.types.ts src/platform/db/kysely.types.ts
-            git commit -m "chore(w0-05): regenerate database types"
-            git push origin HEAD:foundation/wave0-target
-          fi
 
       - name: Generated DB type drift
         run: |
