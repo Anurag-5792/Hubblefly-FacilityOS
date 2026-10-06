@@ -27,7 +27,7 @@ A Supabase account without a FacilityOS profile is not a FacilityOS user. An INA
 
 ## Provisioning
 
-There is no public signup route and local Supabase signup is disabled.
+There is no public signup route. Local Supabase keeps the email/password provider enabled for controlled pre-created accounts while global new-user signup is disabled. The integration test verifies that a public signup attempt creates neither a session nor an auth user.
 
 Controlled server provisioning verifies an existing `auth.users` record through the isolated admin client, then creates one `iam.user_profile`.
 

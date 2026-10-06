@@ -147,11 +147,21 @@ describe("W0-06 local Supabase Auth integration", () => {
   });
 
   it("keeps public self-signup disabled in the local FacilityOS auth policy", async () => {
-    const client = createClient(url, publishable, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+    const client = createClient(url, publishable, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    });
+    const signupEmail = `w006-signup-${randomUUID()}@example.invalid`;
     const result = await client.auth.signUp({
-      email: `w006-signup-${randomUUID()}@example.invalid`,
+      email: signupEmail,
       password: "W0-06-Test-Password-123!",
     });
-    expect(result.error).not.toBeNull();
+
+    expect(result.data.session).toBeNull();
+
+    const listed = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    if (listed.error) throw listed.error;
+    expect(
+      listed.data.users.some((user) => user.email?.toLowerCase() === signupEmail.toLowerCase()),
+    ).toBe(false);
   });
 });

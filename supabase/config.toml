@@ -216,8 +216,9 @@ web3 = 30
 # secret = ""
 
 [auth.email]
-# FacilityOS operational auth does not permit public email self-signup.
-enable_signup = false
+# Keep the email/password provider enabled for pre-created FacilityOS accounts.
+# Global auth.enable_signup=false remains the no-public-signup policy.
+enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
