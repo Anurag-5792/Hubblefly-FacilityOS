@@ -1,0 +1,39 @@
+name: W0-06 Dependency Lock Preview
+
+on:
+  push:
+    branches: [foundation/wave0-target]
+    paths:
+      - ".github/workflows/w0-06-dependency-lock-preview.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  generate-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.27.1 --activate
+      - name: Generate Supabase auth dependency lock
+        run: pnpm add --save-exact --lockfile-only @supabase/ssr@0.12.7 @supabase/supabase-js@2.117.2
+      - name: Show dependency diff
+        run: git diff -- package.json pnpm-lock.yaml
+      - name: Upload generated dependency files
+        uses: actions/upload-artifact@v4
+        with:
+          name: w0-06-dependency-lock
+          path: |
+            package.json
+            pnpm-lock.yaml
+          if-no-files-found: error
+          retention-days: 1
