@@ -1,19 +1,18 @@
 import { ApplicationError } from "./errors";
 import type { JsonObject, JsonValue } from "./json";
 
-export interface PublicErrorPayload extends JsonObject {
-  readonly code: string;
-  readonly message: string;
-  readonly details?: JsonObject;
-}
+export type PublicErrorPayload = JsonObject;
 
 export function serializePublicError(error: unknown): PublicErrorPayload {
   if (error instanceof ApplicationError) {
-    return Object.freeze({
+    const payload: Record<string, JsonValue> = {
       code: error.code,
       message: error.publicMessage,
-      ...(error.publicDetails ? { details: error.publicDetails } : {}),
-    });
+    };
+    if (error.publicDetails) {
+      payload.details = error.publicDetails;
+    }
+    return Object.freeze(payload);
   }
   return Object.freeze({ code: "INTERNAL_ERROR", message: "An internal error occurred." });
 }

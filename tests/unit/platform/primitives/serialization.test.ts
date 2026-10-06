@@ -6,7 +6,7 @@ describe("safe serialization", () => {
     const value = serializeForTransport({
       id: parseInternalId("123e4567-e89b-42d3-a456-426614174000"),
       createdAt: new Date("2026-10-06T07:15:00.000Z"),
-      count: BigInt(9007199254740993n),
+      count: BigInt("9007199254740993"),
       nested: [true, null, "value"],
     });
     expect(value).toEqual({
