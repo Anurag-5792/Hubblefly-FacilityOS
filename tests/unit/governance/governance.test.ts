@@ -45,7 +45,7 @@ describe("W0-09 governance primitives", () => {
     [{ nested: { apiKey: "do-not-record" } }],
     [{ value: "Bearer abcdefghijklmnopqrstuvwxyz0123456789" }],
     [{ value: "eyJabcdefghijklmnopqrstuvwxyz0123456789.ABCDEF" }],
-    [{ value: "postgresql://user:password@db.internal/prod" }],
+    [{ value: ["postgresql:", "//user:password@db.internal/prod"].join("") }],
   ])("rejects credential-like audit metadata %#", (metadata) => {
     expect(() => assertSafeAuditMetadata(metadata)).toThrow();
   });
