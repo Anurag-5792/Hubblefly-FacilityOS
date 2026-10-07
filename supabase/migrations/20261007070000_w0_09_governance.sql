@@ -1060,6 +1060,8 @@ grant execute on function facilityos_security.current_user_has_capability(text,u
   to facilityos_user_runtime, facilityos_governance_executor;
 grant execute on function facilityos_security.current_user_has_any_capability(text[],uuid,uuid,uuid)
   to facilityos_user_runtime, facilityos_governance_executor;
+grant execute on function facilityos_security.current_active_profile_id()
+  to facilityos_governance_executor;
 grant execute on function facilityos_security.scope_exists_active(uuid,uuid,uuid)
   to facilityos_governance_executor;
 grant execute on function facilityos_security.can_access_scope(uuid,uuid,uuid)
