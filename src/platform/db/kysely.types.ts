@@ -11,6 +11,18 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
 
 export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
 
+export type Json = JsonValue;
+
+export type JsonArray = JsonValue[];
+
+export type JsonObject = {
+  [x: string]: JsonValue | undefined;
+};
+
+export type JsonPrimitive = boolean | number | string | null;
+
+export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
+
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export interface CoreIdentifierAllocation {
@@ -130,6 +142,115 @@ export interface CoreSiteLegalEntity {
   version: Generated<Int8>;
 }
 
+export interface GovernanceApprovalDecision {
+  approval_request_id: string;
+  approver_user_id: string;
+  capability_code: string;
+  causation_id: string | null;
+  command_id: string;
+  correlation_id: string;
+  decided_at: Timestamp;
+  decision: string;
+  id: string;
+  legal_entity_id: string | null;
+  organisation_id: string;
+  reason: string | null;
+  request_id: string;
+  site_id: string | null;
+}
+
+export interface GovernanceApprovalRequest {
+  causation_id: string | null;
+  command_id: string;
+  correlation_id: string;
+  id: string;
+  legal_entity_id: string | null;
+  organisation_id: string;
+  policy_code: string;
+  request_capability_code: string;
+  request_id: string;
+  requested_action: string;
+  requested_at: Timestamp;
+  requester_user_id: string;
+  require_distinct_humans: Generated<boolean>;
+  required_approval_count: number;
+  required_capability_codes: string[];
+  resource_id: string;
+  resource_type: string;
+  self_approval_allowed: Generated<boolean>;
+  site_id: string | null;
+  status: Generated<string>;
+  version: Generated<Int8>;
+}
+
+export interface GovernanceAuditEvent {
+  action: string;
+  actor_id: string;
+  actor_type: string;
+  authenticated_user_id: string | null;
+  authorizing_capability: string | null;
+  causation_id: string | null;
+  command_id: string | null;
+  correlation_id: string;
+  creation_txid: string;
+  event_type: string;
+  event_version: number;
+  id: string;
+  legal_entity_id: string | null;
+  metadata: Generated<Json>;
+  occurred_at: Timestamp;
+  organisation_id: string;
+  outcome: string;
+  reason: string | null;
+  recorded_at: Timestamp;
+  request_id: string;
+  resource_id: string;
+  resource_type: string;
+  site_id: string | null;
+  source_module: string;
+}
+
+export interface GovernanceHold {
+  blocked_action: string | null;
+  hold_type: string;
+  id: string;
+  legal_entity_id: string | null;
+  organisation_id: string;
+  placed_at: Timestamp;
+  placed_by_user_id: string;
+  placement_capability_code: string;
+  placement_command_id: string;
+  reason: string;
+  release_approval_request_id: string | null;
+  release_capability_code: string;
+  release_reason: string | null;
+  release_requires_approval: Generated<boolean>;
+  released_at: Timestamp | null;
+  released_by_user_id: string | null;
+  resource_id: string;
+  resource_type: string;
+  site_id: string | null;
+  status: Generated<string>;
+  version: Generated<Int8>;
+}
+
+export interface GovernanceHoldAction {
+  acted_at: Timestamp;
+  action: string;
+  actor_user_id: string;
+  approval_request_id: string | null;
+  causation_id: string | null;
+  command_id: string;
+  correlation_id: string;
+  hold_id: string;
+  id: string;
+  legal_entity_id: string | null;
+  organisation_id: string;
+  reason: string;
+  request_id: string;
+  site_id: string | null;
+}
+
 export interface IamCapability {
   code: string;
   created_actor_id: string;
@@ -228,6 +349,11 @@ export interface DB {
   "core.organisation": CoreOrganisation;
   "core.site": CoreSite;
   "core.site_legal_entity": CoreSiteLegalEntity;
+  "governance.approval_decision": GovernanceApprovalDecision;
+  "governance.approval_request": GovernanceApprovalRequest;
+  "governance.audit_event": GovernanceAuditEvent;
+  "governance.hold": GovernanceHold;
+  "governance.hold_action": GovernanceHoldAction;
   "iam.capability": IamCapability;
   "iam.role": IamRole;
   "iam.role_assignment": IamRoleAssignment;
