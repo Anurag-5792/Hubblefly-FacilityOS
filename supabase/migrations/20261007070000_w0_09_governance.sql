@@ -5,7 +5,7 @@
 
 create schema if not exists governance authorization postgres;
 
-do $
+do $governance_role$
 declare
   v_role record;
 begin
@@ -30,7 +30,8 @@ begin
     end if;
   end if;
 end;
-$;
+$governance_role$;
+
 revoke all on schema governance from public, anon, authenticated, service_role;
 revoke all privileges on all tables in schema governance
   from public, anon, authenticated, service_role, facilityos_user_runtime,
