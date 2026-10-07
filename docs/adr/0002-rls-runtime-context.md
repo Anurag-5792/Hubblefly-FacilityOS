@@ -2,6 +2,7 @@
 
 - Status: Accepted for W0-08
 - Date: 2026-10-07
+- Verification: TESTED — W0-08 GitHub Actions run #20, 2026-10-07
 
 ## Context
 
