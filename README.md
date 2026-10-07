@@ -96,6 +96,8 @@ pnpm test:authorization:integration
 
 ## W0-08 database RLS development
 
+W0-08 status: **TESTED** (GitHub Actions run #20, 2026-10-07). It is not DEPLOYED or PRODUCTION VERIFIED.
+
 W0-08 adds PostgreSQL row-level security/runtime-role defence beneath W0-07. Protected
 user-scoped persistence uses the existing UnitOfWork through `withRlsTransaction`; requested
 browser scope is never trusted as database authority.
