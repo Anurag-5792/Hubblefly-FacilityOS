@@ -2,7 +2,7 @@
 -- W0-07 application authorization remains mandatory.
 -- W0-09 approvals/holds/audit are intentionally not implemented here.
 
-do $
+do $$
 declare
   v_role record;
 begin
@@ -48,7 +48,7 @@ begin
     end if;
   end if;
 end;
-$;
+$$;
 
 create schema if not exists facilityos_security authorization postgres;
 
