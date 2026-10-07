@@ -305,6 +305,18 @@ describe("W0-08 PostgreSQL RLS and runtime-role enforcement", () => {
   });
 
   it("creates non-owner NOLOGIN/NOBYPASSRLS roles and FORCE RLS tables", async () => {
+    const runtimeMembership = await pool.query(`
+      select exists (
+        select 1
+        from pg_auth_members am
+        join pg_roles granted_role on granted_role.oid = am.roleid
+        join pg_roles member_role on member_role.oid = am.member
+        where granted_role.rolname = 'facilityos_user_runtime'
+          and member_role.rolname = 'postgres'
+      ) as can_assume_runtime
+    `);
+    expect(runtimeMembership.rows[0]?.can_assume_runtime).toBe(true);
+
     const roles = await pool.query(
       `select rolname, rolsuper, rolbypassrls, rolcanlogin, rolcreatedb, rolcreaterole
        from pg_roles
@@ -345,17 +357,19 @@ describe("W0-08 PostgreSQL RLS and runtime-role enforcement", () => {
   });
 
   it("denies anon/authenticated direct DB access and missing runtime context", async () => {
-    for (const role of ["anon", "authenticated"]) {
-      const client = await pool.connect();
-      try {
-        await client.query("begin");
-        await client.query("set local role " + role);
-        await expect(client.query("select id from core.organisation")).rejects.toThrow();
-      } finally {
-        await client.query("rollback");
-        client.release();
-      }
-    }
+    const privileges = await pool.query(`
+      select
+        has_schema_privilege('anon','core','USAGE') as anon_core,
+        has_schema_privilege('authenticated','core','USAGE') as authenticated_core,
+        has_table_privilege('anon','core.organisation','SELECT') as anon_org_select,
+        has_table_privilege('authenticated','core.organisation','SELECT') as authenticated_org_select
+    `);
+    expect(privileges.rows[0]).toEqual({
+      anon_core: false,
+      authenticated_core: false,
+      anon_org_select: false,
+      authenticated_org_select: false,
+    });
 
     const client = await pool.connect();
     try {
