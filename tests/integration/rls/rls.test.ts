@@ -249,8 +249,8 @@ async function seed() {
         (id, series_id, organisation_id, legal_entity_id, site_id, next_value, version,
          created_at, updated_at, updated_actor_type, updated_actor_id)
        values
-        ($1,$2,$3,$4,$5,1,0,now(),now(),'SYSTEM',$10),
-        ($6,$7,$8,null,null,1,0,now(),now(),'SYSTEM',$10)`,
+        ($1,$2,$3,$4,$5,1,0,now(),now(),'SYSTEM',$9),
+        ($6,$7,$8,null,null,1,0,now(),now(),'SYSTEM',$9)`,
       [
         ids.sequenceA, ids.seriesA, ids.orgA, ids.legalA, ids.sharedSite,
         ids.sequenceB, ids.seriesB, ids.orgB, actor,
