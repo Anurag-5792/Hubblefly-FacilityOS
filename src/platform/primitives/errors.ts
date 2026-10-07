@@ -12,7 +12,10 @@ export type ApplicationErrorCode =
   | "AUTHENTICATION_REQUIRED"
   | "FACILITY_USER_NOT_PROVISIONED"
   | "FACILITY_USER_INACTIVE"
-  | "AUTHORIZATION_DENIED";
+  | "AUTHORIZATION_DENIED"
+  | "GOVERNANCE_POLICY_DENIED"
+  | "GOVERNANCE_RECORD_NOT_FOUND"
+  | "BLOCKING_HOLD_ACTIVE";
 
 export abstract class ApplicationError extends Error {
   readonly code: ApplicationErrorCode;

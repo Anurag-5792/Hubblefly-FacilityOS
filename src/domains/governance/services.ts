@@ -57,7 +57,6 @@ async function requireDirectCapability(
   if (decision.viaSuperuser) {
     throw new GovernancePolicyError(
       `Explicit capability ${input.capability} is required; platform.superuser is not sufficient for this governed action.`,
-      "EXPLICIT_GOVERNANCE_CAPABILITY_REQUIRED",
     );
   }
 }

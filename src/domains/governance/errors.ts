@@ -1,9 +1,9 @@
 import { ApplicationError } from "../../platform/primitives";
 
 export class GovernancePolicyError extends ApplicationError {
-  constructor(message: string, code = "GOVERNANCE_POLICY_DENIED") {
+  constructor(message: string) {
     super({
-      code,
+      code: "GOVERNANCE_POLICY_DENIED",
       message,
       publicMessage: "This governed action is not permitted.",
     });
