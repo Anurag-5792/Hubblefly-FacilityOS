@@ -30,16 +30,12 @@ import {
   closeApplicationDatabaseRuntime,
   getApplicationDatabaseRuntime,
 } from "../../../src/platform/db/server";
-import type { DB } from "../../../src/platform/db/kysely.types";
-import { createPostgresPool } from "../../../src/platform/db/pool";
-import { createDatabaseRuntime, type DatabaseRuntime } from "../../../src/platform/db/runtime";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const admin = createClient(url, serviceRole, {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 });
-const adminDatabaseUrl = process.env.FACILITYOS_TEST_ADMIN_DATABASE_URL!;
 
 // Keep fixture validity safely behind the live PostgreSQL clock used by W0-08 RLS.
 const clock = new FixedClock("2026-10-06T00:00:00.000Z");
@@ -68,24 +64,14 @@ let recorderRole: ReturnType<typeof ids.next>;
 let siteRole: ReturnType<typeof ids.next>;
 let superRole: ReturnType<typeof ids.next>;
 let recordAssignment: ReturnType<typeof ids.next>;
-let adminRuntime: DatabaseRuntime<DB>;
 
 describe("W0-07 PostgreSQL scoped authorization integration", () => {
   beforeAll(async () => {
     expect(url).toMatch(/^http:\/\/(127\.0\.0\.1|localhost):/);
-    expect(adminDatabaseUrl).toMatch(/^postgres(?:ql)?:\/\//);
-    adminRuntime = createDatabaseRuntime<DB>(createPostgresPool({
-      connectionString: adminDatabaseUrl,
-      maxConnections: 5,
-      idleTimeoutMs: 5000,
-      connectionTimeoutMs: 2000,
-      applicationName: "facilityos-w0-07-admin-test",
-    }));
-    const profiles = new UserProfileService(adminRuntime.unitOfWork, clock, ids);
-    const organisations = new OrganisationService(adminRuntime.unitOfWork, clock, ids);
-    const authorization = new AuthorizationAdministrationService(
-      adminRuntime.unitOfWork, clock, ids, operation,
-    );
+    const runtime = getApplicationDatabaseRuntime();
+    const profiles = new UserProfileService(runtime.unitOfWork, clock, ids);
+    const organisations = new OrganisationService(runtime.unitOfWork, clock, ids);
+    const authorization = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids, operation);
 
     const email = `w007-${randomUUID()}@example.invalid`;
     const created = await admin.auth.admin.createUser({
@@ -103,7 +89,7 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
       emailSnapshot: email,
     }, operator);
 
-    const profile = await adminRuntime.unitOfWork.withTransaction(async (uow) =>
+    const profile = await runtime.unitOfWork.withTransaction(async (uow) =>
       await uow.repository(userProfileRepository).findByAuthUserId(
         parseSupabaseAuthUserId(created.data.user!.id),
       ),
@@ -191,7 +177,6 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
 
   afterAll(async () => {
     await closeApplicationDatabaseRuntime();
-    await adminRuntime.destroy();
   });
 
   it("unions simultaneous roles while preserving scope boundaries", async () => {
@@ -259,7 +244,7 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
 
   it("enforces assignment revocation immediately without stale grants", async () => {
     const runtime = getApplicationDatabaseRuntime();
-    const administration = new AuthorizationAdministrationService(adminRuntime.unitOfWork, clock, ids, operation);
+    const administration = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids, operation);
     const service = new AuthorizationService(runtime.unitOfWork, clock);
 
     await administration.setAssignmentStatus({
@@ -279,7 +264,7 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
 
   it("enforces future and expired validity windows", async () => {
     const runtime = getApplicationDatabaseRuntime();
-    const administration = new AuthorizationAdministrationService(adminRuntime.unitOfWork, clock, ids, operation);
+    const administration = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids, operation);
     const futureCap = await administration.registerCapability({
       code: "service.job.execute", displayName: "Execute service job",
     }, operator);
@@ -362,9 +347,9 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
 
   it("SUPERUSER remains scoped and cannot bypass an explicit policy deny", async () => {
     const runtime = getApplicationDatabaseRuntime();
-    const profiles = new UserProfileService(adminRuntime.unitOfWork, clock, ids);
+    const profiles = new UserProfileService(runtime.unitOfWork, clock, ids);
     const administration = new AuthorizationAdministrationService(
-      adminRuntime.unitOfWork, clock, ids, operation,
+      runtime.unitOfWork, clock, ids, operation,
     );
 
     const email = `w007-super-${randomUUID()}@example.invalid`;
@@ -382,7 +367,7 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
       displayName: "Authorization Superuser Test",
       emailSnapshot: email,
     }, operator);
-    const profile = await adminRuntime.unitOfWork.withTransaction(async (uow) =>
+    const profile = await runtime.unitOfWork.withTransaction(async (uow) =>
       await uow.repository(userProfileRepository).findById(superUserProfileId),
     );
     const superUser = buildAuthenticatedHuman({
@@ -434,7 +419,7 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
   it("revokes grants when Role or Capability is deactivated", async () => {
     const runtime = getApplicationDatabaseRuntime();
     const administration = new AuthorizationAdministrationService(
-      adminRuntime.unitOfWork, clock, ids, operation,
+      runtime.unitOfWork, clock, ids, operation,
     );
     const service = new AuthorizationService(runtime.unitOfWork, clock);
 
@@ -496,8 +481,8 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
   });
 
   it("database rejects duplicate mappings, invalid cross-Organisation scope and invalid validity", async () => {
-    const runtime = adminRuntime;
-    const administration = new AuthorizationAdministrationService(adminRuntime.unitOfWork, clock, ids, operation);
+    const runtime = getApplicationDatabaseRuntime();
+    const administration = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids, operation);
 
     await expect(
       administration.mapCapability({ roleId: viewerRole, capabilityId: viewCapability }, operator),
@@ -553,13 +538,13 @@ describe("W0-07 PostgreSQL scoped authorization integration", () => {
   });
 
   it("keeps role/capability codes immutable and enforces optimistic concurrency", async () => {
-    const runtime = adminRuntime;
+    const runtime = getApplicationDatabaseRuntime();
     await expect(runtime.database.updateTable("iam.role")
       .set({ code: "RENAMED" })
       .where("id", "=", viewerRole)
       .execute()).rejects.toThrow("immutable");
 
-    const administration = new AuthorizationAdministrationService(adminRuntime.unitOfWork, clock, ids, operation);
+    const administration = new AuthorizationAdministrationService(runtime.unitOfWork, clock, ids, operation);
     await administration.setRoleStatus({
       roleId: viewerRole,
       expectedVersion: parseAggregateVersion(0),

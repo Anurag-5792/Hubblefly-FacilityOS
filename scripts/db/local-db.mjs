@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -112,68 +112,6 @@ function statusEnv() {
   return line.slice("DB_URL=".length).replace(/^[\"']|[\"']$/g, "");
 }
 
-async function provisionLocalRuntimeLogin(adminDatabaseUrl) {
-  const roleName = "facilityos_local_runtime_login";
-  const password = randomBytes(24).toString("hex");
-  const client = new Client({ connectionString: adminDatabaseUrl });
-
-  await client.connect();
-  try {
-    await client.query(`
-      do $facilityos_test$
-      begin
-        if not exists (select 1 from pg_roles where rolname = 'facilityos_local_runtime_login') then
-          create role facilityos_local_runtime_login
-            login noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
-        end if;
-      end;
-      $facilityos_test$;
-    `);
-    await client.query(`
-      alter role facilityos_local_runtime_login
-        login noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls
-    `);
-    await client.query(`alter role facilityos_local_runtime_login password '${password}'`);
-    await client.query("grant facilityos_user_runtime to facilityos_local_runtime_login");
-    await client.query("revoke facilityos_security_admin from facilityos_local_runtime_login");
-
-    const check = await client.query(`
-      select r.rolsuper, r.rolinherit, r.rolcreaterole, r.rolcreatedb,
-             r.rolcanlogin, r.rolreplication, r.rolbypassrls,
-             exists (
-               select 1 from pg_auth_members am
-               join pg_roles granted_role on granted_role.oid = am.roleid
-               join pg_roles member_role on member_role.oid = am.member
-               where granted_role.rolname = 'facilityos_user_runtime'
-                 and member_role.rolname = r.rolname
-             ) as runtime_member,
-             exists (
-               select 1 from pg_auth_members am
-               join pg_roles granted_role on granted_role.oid = am.roleid
-               join pg_roles member_role on member_role.oid = am.member
-               where granted_role.rolname = 'facilityos_security_admin'
-                 and member_role.rolname = r.rolname
-             ) as security_admin_member
-      from pg_roles r
-      where r.rolname = 'facilityos_local_runtime_login'
-    `);
-    const role = check.rows[0];
-    if (!role || role.rolsuper || role.rolinherit || role.rolcreaterole || role.rolcreatedb
-        || !role.rolcanlogin || role.rolreplication || role.rolbypassrls
-        || !role.runtime_member || role.security_admin_member) {
-      throw new Error("Local FacilityOS runtime login has unsafe role attributes or membership.");
-    }
-
-    const runtimeUrl = new URL(adminDatabaseUrl);
-    runtimeUrl.username = roleName;
-    runtimeUrl.password = password;
-    process.stdout.write("[db] local non-owner runtime login provisioned: ok\n");
-    return { connectionString: runtimeUrl.toString(), roleName };
-  } finally {
-    await client.end();
-  }
-}
-
 function generateSupabaseTypes(outFile = supabaseTypesFile) {
   mkdirSync(dirname(outFile), { recursive: true });
   const output = runSupabase(
@@ -281,6 +219,16 @@ async function schemaFingerprint() {
       where rolname in ('facilityos_user_runtime', 'facilityos_security_admin')
       order by rolname
     `);
+    const securityRoleMemberships = await client.query(`
+      select granted_role.rolname as granted_role,
+             member_role.rolname as member_role,
+             am.admin_option
+      from pg_auth_members am
+      join pg_roles granted_role on granted_role.oid = am.roleid
+      join pg_roles member_role on member_role.oid = am.member
+      where granted_role.rolname in ('facilityos_user_runtime', 'facilityos_security_admin')
+      order by granted_role.rolname, member_role.rolname
+    `);
     const schemaAcls = await client.query(`
       select n.nspname as schema_name, n.nspacl
       from pg_namespace n
@@ -298,6 +246,7 @@ async function schemaFingerprint() {
       rls: rls.rows,
       policies: policies.rows,
       securityRoles: securityRoles.rows,
+      securityRoleMemberships: securityRoleMemberships.rows,
       schemaAcls: schemaAcls.rows,
     });
     return createHash("sha256").update(canonical).digest("hex");
@@ -506,8 +455,6 @@ async function runAuthorizationTests() {
       if (!local[key]) fail(`Supabase status did not provide local ${key}.`);
     }
 
-    const localRuntime = await provisionLocalRuntimeLogin(local.DB_URL);
-
     run(
       vitestBin,
       ["run", "tests/unit/authorization", "tests/integration/authorization"],
@@ -515,9 +462,7 @@ async function runAuthorizationTests() {
         label: "W0-07 roles, capabilities and scoped authorization tests",
         env: {
           ...process.env,
-          DATABASE_URL: localRuntime.connectionString,
-          FACILITYOS_TEST_ADMIN_DATABASE_URL: local.DB_URL,
-          FACILITYOS_TEST_RUNTIME_LOGIN: localRuntime.roleName,
+          DATABASE_URL: local.DB_URL,
           NEXT_PUBLIC_SUPABASE_URL: local.API_URL,
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: local.ANON_KEY,
           SUPABASE_SERVICE_ROLE_KEY: local.SERVICE_ROLE_KEY,
@@ -566,8 +511,6 @@ async function runRlsTests() {
       if (!local[key]) fail(`Supabase status did not provide local ${key}.`);
     }
 
-    const localRuntime = await provisionLocalRuntimeLogin(local.DB_URL);
-
     run(
       vitestBin,
       ["run", "tests/integration/rls"],
@@ -575,9 +518,7 @@ async function runRlsTests() {
         label: "W0-08 PostgreSQL RLS and runtime-role tests",
         env: {
           ...process.env,
-          DATABASE_URL: localRuntime.connectionString,
-          FACILITYOS_TEST_ADMIN_DATABASE_URL: local.DB_URL,
-          FACILITYOS_TEST_RUNTIME_LOGIN: localRuntime.roleName,
+          DATABASE_URL: local.DB_URL,
           NEXT_PUBLIC_SUPABASE_URL: local.API_URL,
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: local.ANON_KEY,
           SUPABASE_SERVICE_ROLE_KEY: local.SERVICE_ROLE_KEY,

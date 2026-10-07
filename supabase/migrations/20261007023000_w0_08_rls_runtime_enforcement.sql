@@ -54,6 +54,10 @@ create schema if not exists facilityos_security authorization postgres;
 
 revoke all on schema core from public, anon, authenticated, service_role;
 revoke all on schema iam from public, anon, authenticated, service_role;
+-- Migration/test authority may assume the restricted runtime role for verification.
+-- Production FacilityOS application credentials remain separately provisioned and must not use postgres.
+grant facilityos_user_runtime to postgres;
+
 revoke all on schema facilityos_security from public, anon, authenticated, service_role;
 
 revoke all privileges on all tables in schema core
