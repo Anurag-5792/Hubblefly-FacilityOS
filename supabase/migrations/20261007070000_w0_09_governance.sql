@@ -32,6 +32,10 @@ begin
 end;
 $governance_role$;
 
+-- Migration/test authority needs temporary SET ROLE ability only while transferring function ownership.
+-- This membership is revoked before the migration completes.
+grant facilityos_governance_executor to postgres;
+
 revoke all on schema governance from public, anon, authenticated, service_role;
 revoke all privileges on all tables in schema governance
   from public, anon, authenticated, service_role, facilityos_user_runtime,
@@ -1200,3 +1204,6 @@ comment on table governance.approval_decision is
   'Immutable human approval/rejection evidence. Reconsideration creates new governed history.';
 comment on table governance.hold_action is
   'Immutable Hold placement/release action history; current Hold state is preserved separately.';
+
+-- Do not leave the migration/test authority as a member of the governance executor role.
+revoke facilityos_governance_executor from postgres;
