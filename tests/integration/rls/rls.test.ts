@@ -25,6 +25,8 @@ import {
 
 const { Pool } = pg;
 const databaseUrl = process.env.DATABASE_URL!;
+const adminDatabaseUrl = process.env.FACILITYOS_TEST_ADMIN_DATABASE_URL!;
+const runtimeLogin = process.env.FACILITYOS_TEST_RUNTIME_LOGIN!;
 const apiUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -32,7 +34,13 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const admin = createClient(apiUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 });
-const pool = new Pool({
+const adminPool = new Pool({
+  connectionString: adminDatabaseUrl,
+  max: 2,
+  idleTimeoutMillis: 5000,
+  connectionTimeoutMillis: 2000,
+});
+const runtimePool = new Pool({
   connectionString: databaseUrl,
   max: 1,
   idleTimeoutMillis: 5000,
@@ -89,7 +97,7 @@ async function seed() {
     await createAuthUser(entry, label);
   }
 
-  const client = await pool.connect();
+  const client = await adminPool.connect();
   try {
     await client.query("begin");
     const actor = "w0-08-rls-test";
@@ -267,7 +275,7 @@ async function seed() {
 }
 
 async function beginAsUser(authUserId: string) {
-  const client = await pool.connect();
+  const client = await runtimePool.connect();
   await client.query("begin");
   await client.query("set local role facilityos_user_runtime");
   await client.query("set local row_security = on");
@@ -295,17 +303,46 @@ async function deniedRuntimeSql(
 describe("W0-08 PostgreSQL RLS and runtime-role enforcement", () => {
   beforeAll(async () => {
     expect(databaseUrl).toMatch(/^postgres(?:ql)?:\/\//);
+    expect(adminDatabaseUrl).toMatch(/^postgres(?:ql)?:\/\//);
+    expect(runtimeLogin).toBe("facilityos_local_runtime_login");
     expect(apiUrl).toMatch(/^http:\/\/(127\.0\.0\.1|localhost):/);
     await seed();
   });
 
   afterAll(async () => {
     await closeApplicationDatabaseRuntime();
-    await pool.end();
+    await runtimePool.end();
+    await adminPool.end();
   });
 
   it("creates non-owner NOLOGIN/NOBYPASSRLS roles and FORCE RLS tables", async () => {
-    const roles = await pool.query(
+    const login = await adminPool.query(
+      `select rolname, rolsuper, rolinherit, rolbypassrls, rolcanlogin, rolcreatedb, rolcreaterole
+       from pg_roles where rolname=$1`,
+      [runtimeLogin],
+    );
+    expect(login.rows).toHaveLength(1);
+    expect(login.rows[0]).toMatchObject({
+      rolname: runtimeLogin,
+      rolsuper: false,
+      rolinherit: false,
+      rolbypassrls: false,
+      rolcanlogin: true,
+      rolcreatedb: false,
+      rolcreaterole: false,
+    });
+    const memberships = await adminPool.query(
+      `select granted_role.rolname as granted_role
+       from pg_auth_members am
+       join pg_roles granted_role on granted_role.oid=am.roleid
+       join pg_roles member_role on member_role.oid=am.member
+       where member_role.rolname=$1
+       order by granted_role.rolname`,
+      [runtimeLogin],
+    );
+    expect(memberships.rows.map((row) => row.granted_role)).toEqual(["facilityos_user_runtime"]);
+
+    const roles = await adminPool.query(
       `select rolname, rolsuper, rolbypassrls, rolcanlogin, rolcreatedb, rolcreaterole
        from pg_roles
        where rolname in ('facilityos_user_runtime','facilityos_security_admin')
@@ -320,7 +357,7 @@ describe("W0-08 PostgreSQL RLS and runtime-role enforcement", () => {
       expect(role.rolcreaterole).toBe(false);
     }
 
-    const tables = await pool.query(
+    const tables = await adminPool.query(
       `select n.nspname as schema_name, c.relname as table_name,
               owner.rolname as owner_name, c.relrowsecurity, c.relforcerowsecurity
        from pg_class c
@@ -345,24 +382,25 @@ describe("W0-08 PostgreSQL RLS and runtime-role enforcement", () => {
   });
 
   it("denies anon/authenticated direct DB access and missing runtime context", async () => {
-    for (const role of ["anon", "authenticated"]) {
-      const client = await pool.connect();
-      try {
-        await client.query("begin");
-        await client.query("set local role " + role);
-        await expect(client.query("select id from core.organisation")).rejects.toThrow();
-      } finally {
-        await client.query("rollback");
-        client.release();
-      }
-    }
+    const privileges = await adminPool.query(`
+      select
+        has_schema_privilege('anon','core','USAGE') as anon_core,
+        has_schema_privilege('authenticated','core','USAGE') as authenticated_core,
+        has_table_privilege('anon','core.organisation','SELECT') as anon_org_select,
+        has_table_privilege('authenticated','core.organisation','SELECT') as authenticated_org_select
+    `);
+    expect(privileges.rows[0]).toEqual({
+      anon_core: false,
+      authenticated_core: false,
+      anon_org_select: false,
+      authenticated_org_select: false,
+    });
 
-    const client = await pool.connect();
+    const client = await runtimePool.connect();
     try {
       await client.query("begin");
       await client.query("set local role facilityos_user_runtime");
-      expect((await client.query("select id from core.organisation")).rows)
-        .toHaveLength(0);
+      expect((await client.query("select id from core.organisation")).rows).toHaveLength(0);
       await client.query("commit");
     } finally {
       client.release();
@@ -455,7 +493,7 @@ describe("W0-08 PostgreSQL RLS and runtime-role enforcement", () => {
       client.release();
     }
 
-    await pool.query(
+    await adminPool.query(
       "update iam.role_assignment set status='INACTIVE', version=version+1 where id=$1",
       [ids.assignmentA],
     );
@@ -469,7 +507,7 @@ describe("W0-08 PostgreSQL RLS and runtime-role enforcement", () => {
       client.release();
     }
 
-    await pool.query(
+    await adminPool.query(
       "update iam.role_assignment set status='ACTIVE', version=version+1 where id=$1",
       [ids.assignmentA],
     );
@@ -527,7 +565,7 @@ describe("W0-08 PostgreSQL RLS and runtime-role enforcement", () => {
   });
 
   it("does not leak identity across pooled connection reuse or rollback", async () => {
-    let client = await pool.connect();
+    let client = await runtimePool.connect();
     let firstPid = 0;
     try {
       firstPid = Number(
@@ -546,7 +584,7 @@ describe("W0-08 PostgreSQL RLS and runtime-role enforcement", () => {
       client.release();
     }
 
-    client = await pool.connect();
+    client = await runtimePool.connect();
     try {
       expect(Number(
         (await client.query("select pg_backend_pid() as pid")).rows[0]?.pid,
@@ -647,7 +685,7 @@ describe("W0-08 PostgreSQL RLS and runtime-role enforcement", () => {
     expect((await userClient.schema("core").from("organisation").select("id")).error)
       .not.toBeNull();
 
-    const privileges = await pool.query(
+    const privileges = await adminPool.query(
       `select
          has_schema_privilege('anon','core','USAGE') as anon_core,
          has_schema_privilege('authenticated','core','USAGE') as authenticated_core,
