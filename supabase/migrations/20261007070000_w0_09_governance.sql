@@ -42,6 +42,8 @@ revoke all privileges on all tables in schema governance
        facilityos_security_admin, facilityos_governance_executor;
 grant usage on schema governance to
   facilityos_user_runtime, facilityos_security_admin, facilityos_governance_executor;
+-- Required only so PostgreSQL permits function ownership transfer to the executor.
+grant create on schema governance to facilityos_governance_executor;
 grant usage on schema core, iam, facilityos_security to facilityos_governance_executor;
 grant select on
   core.organisation,
@@ -1205,5 +1207,6 @@ comment on table governance.approval_decision is
 comment on table governance.hold_action is
   'Immutable Hold placement/release action history; current Hold state is preserved separately.';
 
--- Do not leave the migration/test authority as a member of the governance executor role.
+-- Remove migration-only ownership-transfer authority before completion.
+revoke create on schema governance from facilityos_governance_executor;
 revoke facilityos_governance_executor from postgres;
