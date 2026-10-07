@@ -111,3 +111,31 @@ See [docs/security/rls.md](docs/security/rls.md),
 [docs/handover/w0-08-rls.md](docs/handover/w0-08-rls.md).
 
 Run `pnpm test:rls:unit` and `pnpm test:rls:integration`.
+
+
+## W0-09 governance foundation
+
+W0-09 status: **IMPLEMENTED — TEST VERIFICATION PENDING**. It is not DEPLOYED or PRODUCTION VERIFIED.
+
+W0-09 adds reusable canonical Audit, Approval and operational Hold foundations in the private
+`governance` PostgreSQL schema. Canonical history is append-only/immutable at the database
+boundary, approval decisions preserve human identity and segregation-of-duty rules, and Holds are
+enforced through server/database policy rather than UI state.
+
+The package builds on W0-07 Authorization and W0-08 FORCE-RLS/runtime context. Direct
+`platform.superuser` alone does not satisfy approval or Hold authority.
+
+See [Audit](docs/security/audit.md),
+[Approvals](docs/governance/approvals.md),
+[Holds](docs/governance/holds.md),
+[ADR-0003](docs/adr/0003-governance-audit-approval-holds.md), and
+[W0-09 handover](docs/handover/w0-09-audit-approval-holds.md).
+
+Run:
+
+```bash
+pnpm test:governance:unit
+pnpm test:governance:integration
+```
+
+W0-10 is not authorised by W0-09 completion and must not start automatically.

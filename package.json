@@ -37,7 +37,9 @@
     "test:authorization:unit": "vitest run tests/unit/authorization",
     "test:authorization:integration": "node scripts/db/local-db.mjs test-authorization",
     "test:rls:unit": "vitest run tests/unit/platform/db/rls-context.test.ts",
-    "test:rls:integration": "node scripts/db/local-db.mjs test-rls"
+    "test:rls:integration": "node scripts/db/local-db.mjs test-rls",
+    "test:governance:unit": "vitest run tests/unit/governance",
+    "test:governance:integration": "node scripts/db/local-db.mjs test-governance"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
