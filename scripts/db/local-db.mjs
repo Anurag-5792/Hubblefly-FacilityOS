@@ -120,14 +120,14 @@ async function provisionLocalRuntimeLogin(adminDatabaseUrl) {
   await client.connect();
   try {
     await client.query(`
-      do $
+      do $facilityos_test$
       begin
         if not exists (select 1 from pg_roles where rolname = 'facilityos_local_runtime_login') then
           create role facilityos_local_runtime_login
             login noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
         end if;
       end;
-      $;
+      $facilityos_test$;
     `);
     await client.query(`
       alter role facilityos_local_runtime_login
