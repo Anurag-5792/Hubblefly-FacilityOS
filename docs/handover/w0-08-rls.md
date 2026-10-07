@@ -1,6 +1,6 @@
 # W0-08 handover — RLS / Runtime Database Enforcement
 
-Status: **IMPLEMENTED pending TESTED gate evidence**
+Status: **TESTED**
 
 Included: explicit NOLOGIN/NOBYPASSRLS runtime/admin roles; ENABLE + FORCE RLS on protected current
 Wave-0 tables; transaction-local verified identity; Organisation/Legal Entity/Site/shared-Site
@@ -42,5 +42,17 @@ Verification commands:
 - [x] Data API/service_role boundary documented.
 - [x] Future-domain adoption guide documented.
 - [x] W0-09/ERP/legacy/deployment boundaries documented.
-- [ ] Dedicated W0-08 CI evidence attached after TESTED gate.
+- [x] Dedicated W0-08 CI evidence: GitHub Actions W0-08 run #20 (run 37582388328), 2026-10-07.
 - [ ] Production verification — outside this package.
+
+
+## Final TESTED evidence
+
+- Authorised W0-08 starting SHA: `de07c7a939228fb86a5b7fc7da0752edf4a52842`.
+- TESTED gate commit before closure docs: `ca9a744704830af15125e86fb46e9c1d7653899e`.
+- GitHub Actions: W0-08 run #20 / run id `37582388328` — SUCCESS.
+- Deterministic schema fingerprint: `3eb80fc3cdd6f10a66e63a01a114fa46e68c34571512264f507de1f7bbdea400`.
+- All W0-03/W0-04/W0-05/W0-06/W0-07 regression steps inside the W0-08 gate passed.
+- Generated type drift, TypeScript, lint, production build, legacy Python compile, 23 legacy
+  DocTypes, docs checks, secret-pattern scan and repository drift passed.
+- Deployment status: NOT DEPLOYED by W0-08; production verification remains outside this package.
