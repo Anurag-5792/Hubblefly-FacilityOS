@@ -1,6 +1,6 @@
 # FacilityOS database RLS and runtime-role enforcement — W0-08
 
-Status: **IMPLEMENTED pending TESTED gate evidence**
+Status: **TESTED**
 
 W0-08 adds PostgreSQL defence in depth beneath W0-07:
 
@@ -145,3 +145,17 @@ service_role, ownership or BYPASSRLS.
 
 No hosted Supabase/Vercel change, production login/password provisioning, ERP work, legacy Frappe
 permission migration/deletion or W0-09 Audit/Approval/Hold implementation is included.
+
+
+## Verification evidence
+
+W0-08 TESTED gate passed on 2026-10-07 via GitHub Actions W0-08 run #20 (run 37582388328).
+The gate covered clean migrations and two-reset reapply, generated Supabase/Kysely types,
+security-aware schema fingerprinting, W0-08 unit/integration/adversarial RLS tests, W0-07 through
+W0-03 regressions, W0-04 platform regression, TypeScript, lint, production build, legacy Frappe
+Python compile, all 23 legacy DocTypes, documentation checks, secret-pattern scan and repository
+drift.
+
+Deterministic database schema fingerprint: `3eb80fc3cdd6f10a66e63a01a114fa46e68c34571512264f507de1f7bbdea400`.
+
+This is TESTED only. No hosted deployment or production verification is claimed.
