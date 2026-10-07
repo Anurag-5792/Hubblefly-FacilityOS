@@ -359,15 +359,26 @@ describe("W0-09 immutable Audit, Approval and Hold governance", () => {
       expect(table.owner_name).not.toBe("facilityos_user_runtime");
     }
 
-    const role = await pool.query(
-      `select rolbypassrls,rolsuper,rolcanlogin
-       from pg_roles where rolname='facilityos_user_runtime'`,
+    const roles = await pool.query(
+      `select rolname,rolbypassrls,rolsuper,rolcanlogin,rolinherit
+       from pg_roles
+       where rolname in ('facilityos_user_runtime','facilityos_governance_executor')
+       order by rolname`,
     );
-    expect(role.rows[0]).toEqual({
-      rolbypassrls: false,
-      rolsuper: false,
-      rolcanlogin: false,
-    });
+    expect(roles.rows).toHaveLength(2);
+    for (const role of roles.rows) {
+      expect(role.rolbypassrls).toBe(false);
+      expect(role.rolsuper).toBe(false);
+      expect(role.rolcanlogin).toBe(false);
+      expect(role.rolinherit).toBe(false);
+    }
+    const executorMembership = await pool.query(
+      `select count(*)::int count
+       from pg_auth_members am
+       join pg_roles granted_role on granted_role.oid=am.roleid
+       where granted_role.rolname='facilityos_governance_executor'`,
+    );
+    expect(executorMembership.rows[0]?.count).toBe(0);
 
     const dataApi = await anon.schema("governance").from("audit_event").select("id").limit(1);
     expect(dataApi.error).not.toBeNull();
@@ -502,6 +513,42 @@ describe("W0-09 immutable Audit, Approval and Hold governance", () => {
       outcome: "SUCCESS",
       sourceModule: "governance.test",
     });
+
+    await expectDeniedRuntimeSql(
+      users.requester,
+      `insert into governance.audit_event
+        (id,event_type,event_version,recorded_at,occurred_at,actor_type,actor_id,
+         authenticated_user_id,request_id,correlation_id,organisation_id,resource_type,
+         resource_id,action,outcome,metadata,source_module,creation_txid)
+       values ($1,'governance.test.fabricated',1,now(),now(),'HUMAN',$2,$2,
+               'req-fabricated',$3,$4,'manufacturing.job',$5,'FABRICATED','SUCCESS',
+               '{}'::jsonb,'governance.test','0')`,
+      [randomUUID(), users.requester.profileId, randomUUID(), fixture.orgA, resourceId],
+    );
+
+    const unsafeClient = await beginAsUser(users.requester, "req-audit-db-sensitive");
+    try {
+      await expect(
+        unsafeClient.query(
+          `select governance.append_human_audit_event(
+             $1::uuid,'governance.approval.request','governance.test.db_sensitive',1,
+             now(),now(),'req-audit-db-sensitive',$2::uuid,$3::uuid,null,
+             $4::uuid,null,null,'manufacturing.job',$5::uuid,'DB_SENSITIVE','SUCCESS',
+             $6::jsonb,'governance.test',null)`,
+          [
+            randomUUID(),
+            randomUUID(),
+            randomUUID(),
+            fixture.orgA,
+            resourceId,
+            JSON.stringify({ api_token: "must-not-be-recorded" }),
+          ],
+        ),
+      ).rejects.toThrow();
+    } finally {
+      await unsafeClient.query("rollback");
+      unsafeClient.release();
+    }
 
     await expectDeniedRuntimeSql(
       users.auditor,

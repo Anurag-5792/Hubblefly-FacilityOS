@@ -46,6 +46,36 @@ Use `withRlsTransaction`, `AuthorizationService.requireWithin`, governance polic
 primitives and one shared UnitOfWork. Never begin a second normal-path transaction just to append
 Audit.
 
+## SECURITY DEFINER inventory
+
+W0-09 uses a dedicated `facilityos_governance_executor` NOLOGIN/NOINHERIT/NOBYPASSRLS role as
+the owner of governance SECURITY DEFINER functions. It is not granted to runtime users or login
+roles. The role receives only explicit SELECT/INSERT/UPDATE rights required by controlled
+transitions; it receives no DELETE on canonical governance data and no UPDATE on immutable Audit,
+Approval Decision or Hold Action tables.
+
+Reviewed SECURITY DEFINER functions:
+
+- `governance.append_human_audit_event` — HUMAN append only; resolves current active profile,
+  verifies exact scoped Capability, validates scope and inserts Audit.
+- `governance.append_system_audit_event` — SERVICE/SYSTEM/MIGRATION append only; callable through
+  the separately restricted security-admin path.
+- `governance.create_approval_request` — exact request Capability, command-id retry/conflict
+  handling and request creation.
+- `governance.decide_approval` — row-locks request, exact decision Capability, self/distinct-human
+  policy, immutable decision insert and terminal/current-state transition.
+- `governance.place_hold` — exact placement Capability, idempotency, current Hold + immutable
+  placement action.
+- `governance.release_hold` — row-locks active Hold, exact release Capability, optional approved
+  release evidence, current state + immutable release action.
+- `governance.has_blocking_hold` — fail-closed scoped blocking query.
+
+All use fixed `search_path = pg_catalog, pg_temp`, schema-qualified protected objects, no dynamic
+SQL, and no caller-supplied security context. W0-09 also adds
+`facilityos_security.current_user_has_capability` and `current_user_has_any_capability` as
+read-only scoped identity/Capability helpers; these follow the existing W0-08 security-function
+trust boundary.
+
 ## Verification command set
 
 The dedicated `.github/workflows/w0-09-governance.yml` gate runs frozen install/tool versions,

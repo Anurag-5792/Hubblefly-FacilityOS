@@ -216,7 +216,7 @@ async function schemaFingerprint() {
       select rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb,
              rolcanlogin, rolreplication, rolbypassrls
       from pg_roles
-      where rolname in ('facilityos_user_runtime', 'facilityos_security_admin')
+      where rolname in ('facilityos_user_runtime', 'facilityos_security_admin', 'facilityos_governance_executor')
       order by rolname
     `);
     const securityRoleMemberships = await client.query(`
@@ -226,7 +226,7 @@ async function schemaFingerprint() {
       from pg_auth_members am
       join pg_roles granted_role on granted_role.oid = am.roleid
       join pg_roles member_role on member_role.oid = am.member
-      where granted_role.rolname in ('facilityos_user_runtime', 'facilityos_security_admin')
+      where granted_role.rolname in ('facilityos_user_runtime', 'facilityos_security_admin', 'facilityos_governance_executor')
       order by granted_role.rolname, member_role.rolname
     `);
     const schemaAcls = await client.query(`

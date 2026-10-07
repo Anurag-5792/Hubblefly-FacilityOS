@@ -24,6 +24,9 @@ segregation of duty; and W0-08 RLS alone does not express Holds.
    independently verify direct scoped Capabilities. `platform.superuser` is not a substitute for
    approval/Hold authority.
 6. All protected governance tables adopt W0-08 runtime-role, FORCE RLS and private-Data-API rules.
+   Governance SECURITY DEFINER functions use a dedicated NOLOGIN/NOINHERIT/NOBYPASSRLS
+   `facilityos_governance_executor` with only the exact table/helper privileges needed; runtime
+   and login roles do not inherit it.
 7. Governed state mutation and required canonical Audit share the existing W0-03 UnitOfWork.
 8. Audit, Approval/Hold state and future W0-11 event/outbox transport remain separate concepts.
 

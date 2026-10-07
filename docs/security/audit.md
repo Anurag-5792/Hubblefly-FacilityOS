@@ -32,6 +32,11 @@ fabricating arbitrary history.
 A PostgreSQL trigger rejects UPDATE and DELETE even for paths that otherwise acquire table DML.
 There is no SUPERUSER delete/repair path.
 
+Governance SECURITY DEFINER functions are owned by the dedicated
+`facilityos_governance_executor` role, not by the application runtime. That role is
+NOLOGIN/NOINHERIT/NOBYPASSRLS, is not granted to runtime/login roles, and receives only the
+specific SELECT/INSERT/UPDATE privileges required by controlled governance transitions.
+
 Audit read is separate from append. `governance.audit.read` plus matching scope is required for
 ordinary runtime enumeration. Being authorised to perform an audited business action does not
 grant broad Audit read access.

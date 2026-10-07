@@ -5,10 +5,51 @@
 
 create schema if not exists governance authorization postgres;
 
+do $
+declare
+  v_role record;
+begin
+  if not exists (select 1 from pg_roles where rolname = 'facilityos_governance_executor') then
+    create role facilityos_governance_executor
+      nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+  else
+    select rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin,
+           rolreplication, rolbypassrls
+      into v_role
+    from pg_roles
+    where rolname = 'facilityos_governance_executor';
+
+    if v_role.rolsuper
+       or v_role.rolinherit
+       or v_role.rolcreaterole
+       or v_role.rolcreatedb
+       or v_role.rolcanlogin
+       or v_role.rolreplication
+       or v_role.rolbypassrls then
+      raise exception 'Existing facilityos_governance_executor role has unsafe attributes';
+    end if;
+  end if;
+end;
+$;
+
 revoke all on schema governance from public, anon, authenticated, service_role;
 revoke all privileges on all tables in schema governance
-  from public, anon, authenticated, service_role, facilityos_user_runtime, facilityos_security_admin;
-grant usage on schema governance to facilityos_user_runtime, facilityos_security_admin;
+  from public, anon, authenticated, service_role, facilityos_user_runtime,
+       facilityos_security_admin, facilityos_governance_executor;
+grant usage on schema governance to
+  facilityos_user_runtime, facilityos_security_admin, facilityos_governance_executor;
+grant usage on schema core, iam, facilityos_security to facilityos_governance_executor;
+grant select on
+  core.organisation,
+  core.legal_entity,
+  core.site,
+  core.site_legal_entity,
+  iam.user_profile,
+  iam.role,
+  iam.capability,
+  iam.role_capability,
+  iam.role_assignment
+to facilityos_governance_executor;
 
 -- Minimal W0-09 capability registry. No Role is implicitly granted any capability.
 insert into iam.capability (
@@ -380,6 +421,12 @@ create index hold_action_hold_idx
   on governance.hold_action (hold_id, acted_at, id);
 create index hold_action_scope_idx
   on governance.hold_action (organisation_id, legal_entity_id, site_id, acted_at desc, id);
+
+grant select, insert on governance.audit_event to facilityos_governance_executor;
+grant select, insert, update on governance.approval_request to facilityos_governance_executor;
+grant select, insert on governance.approval_decision to facilityos_governance_executor;
+grant select, insert, update on governance.hold to facilityos_governance_executor;
+grant select, insert on governance.hold_action to facilityos_governance_executor;
 
 create or replace function governance.reject_immutable_mutation()
 returns trigger
@@ -982,13 +1029,19 @@ $$;
 
 alter function facilityos_security.current_user_has_capability(text,uuid,uuid,uuid) owner to postgres;
 alter function facilityos_security.current_user_has_any_capability(text[],uuid,uuid,uuid) owner to postgres;
-alter function governance.append_human_audit_event(uuid,text,text,integer,timestamptz,timestamptz,text,uuid,uuid,uuid,uuid,uuid,uuid,text,uuid,text,text,jsonb,text,text) owner to postgres;
-alter function governance.append_system_audit_event(uuid,text,text,text,integer,timestamptz,timestamptz,text,uuid,uuid,uuid,uuid,uuid,uuid,text,uuid,text,text,jsonb,text,text) owner to postgres;
-alter function governance.create_approval_request(uuid,text,uuid,text,text,timestamptz,uuid,uuid,uuid,smallint,boolean,boolean,text[],text,text,uuid,uuid,uuid) owner to postgres;
-alter function governance.decide_approval(uuid,uuid,text,text,timestamptz,text,text,uuid,uuid,uuid) owner to postgres;
-alter function governance.place_hold(uuid,uuid,text,uuid,text,text,text,timestamptz,uuid,uuid,uuid,text,text,boolean,text,uuid,uuid,uuid) owner to postgres;
-alter function governance.release_hold(uuid,uuid,timestamptz,text,uuid,text,uuid,uuid,uuid) owner to postgres;
-alter function governance.has_blocking_hold(uuid,uuid,uuid,text,uuid,text) owner to postgres;
+
+alter function governance.valid_code(text,integer) owner to facilityos_governance_executor;
+alter function governance.valid_resource_type(text) owner to facilityos_governance_executor;
+alter function governance.unique_safe_codes(text[]) owner to facilityos_governance_executor;
+alter function governance.audit_metadata_is_safe(jsonb) owner to facilityos_governance_executor;
+alter function governance.reject_immutable_mutation() owner to facilityos_governance_executor;
+alter function governance.append_human_audit_event(uuid,text,text,integer,timestamptz,timestamptz,text,uuid,uuid,uuid,uuid,uuid,uuid,text,uuid,text,text,jsonb,text,text) owner to facilityos_governance_executor;
+alter function governance.append_system_audit_event(uuid,text,text,text,integer,timestamptz,timestamptz,text,uuid,uuid,uuid,uuid,uuid,uuid,text,uuid,text,text,jsonb,text,text) owner to facilityos_governance_executor;
+alter function governance.create_approval_request(uuid,text,uuid,text,text,timestamptz,uuid,uuid,uuid,smallint,boolean,boolean,text[],text,text,uuid,uuid,uuid) owner to facilityos_governance_executor;
+alter function governance.decide_approval(uuid,uuid,text,text,timestamptz,text,text,uuid,uuid,uuid) owner to facilityos_governance_executor;
+alter function governance.place_hold(uuid,uuid,text,uuid,text,text,text,timestamptz,uuid,uuid,uuid,text,text,boolean,text,uuid,uuid,uuid) owner to facilityos_governance_executor;
+alter function governance.release_hold(uuid,uuid,timestamptz,text,uuid,text,uuid,uuid,uuid) owner to facilityos_governance_executor;
+alter function governance.has_blocking_hold(uuid,uuid,uuid,text,uuid,text) owner to facilityos_governance_executor;
 
 revoke all privileges on all functions in schema governance
   from public, anon, authenticated, service_role, facilityos_user_runtime, facilityos_security_admin;
@@ -998,9 +1051,13 @@ revoke all privileges on function facilityos_security.current_user_has_any_capab
   from public, anon, authenticated, service_role, facilityos_security_admin;
 
 grant execute on function facilityos_security.current_user_has_capability(text,uuid,uuid,uuid)
-  to facilityos_user_runtime;
+  to facilityos_user_runtime, facilityos_governance_executor;
 grant execute on function facilityos_security.current_user_has_any_capability(text[],uuid,uuid,uuid)
-  to facilityos_user_runtime;
+  to facilityos_user_runtime, facilityos_governance_executor;
+grant execute on function facilityos_security.scope_exists_active(uuid,uuid,uuid)
+  to facilityos_governance_executor;
+grant execute on function facilityos_security.can_access_scope(uuid,uuid,uuid)
+  to facilityos_governance_executor;
 grant execute on function governance.append_human_audit_event(uuid,text,text,integer,timestamptz,timestamptz,text,uuid,uuid,uuid,uuid,uuid,uuid,text,uuid,text,text,jsonb,text,text)
   to facilityos_user_runtime;
 grant execute on function governance.create_approval_request(uuid,text,uuid,text,text,timestamptz,uuid,uuid,uuid,smallint,boolean,boolean,text[],text,text,uuid,uuid,uuid)
@@ -1034,6 +1091,35 @@ alter table governance.hold enable row level security;
 alter table governance.hold force row level security;
 alter table governance.hold_action enable row level security;
 alter table governance.hold_action force row level security;
+
+create policy audit_event_executor_select on governance.audit_event
+for select to facilityos_governance_executor using (true);
+create policy audit_event_executor_insert on governance.audit_event
+for insert to facilityos_governance_executor with check (true);
+
+create policy approval_request_executor_select on governance.approval_request
+for select to facilityos_governance_executor using (true);
+create policy approval_request_executor_insert on governance.approval_request
+for insert to facilityos_governance_executor with check (true);
+create policy approval_request_executor_update on governance.approval_request
+for update to facilityos_governance_executor using (true) with check (true);
+
+create policy approval_decision_executor_select on governance.approval_decision
+for select to facilityos_governance_executor using (true);
+create policy approval_decision_executor_insert on governance.approval_decision
+for insert to facilityos_governance_executor with check (true);
+
+create policy hold_executor_select on governance.hold
+for select to facilityos_governance_executor using (true);
+create policy hold_executor_insert on governance.hold
+for insert to facilityos_governance_executor with check (true);
+create policy hold_executor_update on governance.hold
+for update to facilityos_governance_executor using (true) with check (true);
+
+create policy hold_action_executor_select on governance.hold_action
+for select to facilityos_governance_executor using (true);
+create policy hold_action_executor_insert on governance.hold_action
+for insert to facilityos_governance_executor with check (true);
 
 create policy audit_event_runtime_read on governance.audit_event
 for select to facilityos_user_runtime
