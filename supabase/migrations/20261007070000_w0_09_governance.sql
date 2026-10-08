@@ -606,7 +606,7 @@ language plpgsql
 stable
 security definer
 set search_path = pg_catalog, pg_temp
-as $
+as $system_scope$
 begin
   if not exists (
     select 1
@@ -652,7 +652,7 @@ begin
 
   return true;
 end;
-$;
+$system_scope$;
 
 alter function facilityos_security.system_scope_exists_active(uuid,uuid,uuid) owner to postgres;
 revoke all privileges on function facilityos_security.system_scope_exists_active(uuid,uuid,uuid)
