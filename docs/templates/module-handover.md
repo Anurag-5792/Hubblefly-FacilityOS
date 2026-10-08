@@ -38,7 +38,7 @@
 - Configuration flags and application/schema/ERP API/message compatibility:
 - Logs, monitoring, alerts, expected SLOs, health, troubleshooting:
 - Failure/retry/reconciliation, incident runbooks, support contacts:
-- Backup/PITR, verified restore evidence, RPO/RTO; rollback/compensation:
+- Backup/PITR, recovery runbook, verified restore evidence, RPO/RTO; rollback/compensation:
 - Release and authorisation chain; operator vs MASTER decision:
 - Known limitations, open incidents, data quality, security risks:
 
