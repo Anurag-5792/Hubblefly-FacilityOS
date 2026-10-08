@@ -23,7 +23,7 @@ path and cannot satisfy human approval requirements.
 
 ## Append-only enforcement
 
-Normal runtime has no INSERT/UPDATE/DELETE privilege on `audit_event`. HUMAN append uses the
+Canonical Audit is append-only. Normal runtime has no INSERT/UPDATE/DELETE privilege on `audit_event`. HUMAN append uses the
 narrow SECURITY DEFINER `governance.append_human_audit_event` function, which resolves the
 current active FacilityOS profile, verifies the exact authorizing W0-07 Capability in current
 scope and inserts one canonical row. There is no generic `audit.write` grant that permits
