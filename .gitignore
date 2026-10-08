@@ -6,3 +6,22 @@ out
 .env.*.local
 *.log
 .DS_Store
+
+# Supabase CLI local state / local secrets
+supabase/.temp/
+supabase/.branches/
+supabase/.env
+supabase/.env.*
+!supabase/.env.example
+
+# Private/local FacilityOS sample and reconciliation data
+sample-data/private/
+*.private.xlsx
+
+# Generated Next.js / TypeScript build metadata
+next-env.d.ts
+*.tsbuildinfo
+
+# Generated Python bytecode from legacy verification
+__pycache__/
+*.py[cod]

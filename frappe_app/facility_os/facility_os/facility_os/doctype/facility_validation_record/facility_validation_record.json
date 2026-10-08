@@ -1,0 +1,98 @@
+{
+  "actions": [],
+  "autoname": "hash",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "reference_doctype",
+    "reference_name",
+    "action",
+    "previous_status",
+    "new_status",
+    "actor",
+    "actor_role",
+    "remarks",
+    "blocking_exceptions",
+    "occurred_at"
+  ],
+  "fields": [
+    {
+      "fieldname": "reference_doctype",
+      "fieldtype": "Link",
+      "label": "Reference DocType",
+      "options": "DocType",
+      "reqd": 1
+    },
+    {
+      "fieldname": "reference_name",
+      "fieldtype": "Data",
+      "label": "Reference Name",
+      "reqd": 1
+    },
+    {
+      "fieldname": "action",
+      "fieldtype": "Data",
+      "label": "Action",
+      "reqd": 1
+    },
+    {
+      "fieldname": "previous_status",
+      "fieldtype": "Data",
+      "label": "Previous Status",
+      "reqd": 1
+    },
+    {
+      "fieldname": "new_status",
+      "fieldtype": "Data",
+      "label": "New Status",
+      "reqd": 1
+    },
+    {
+      "fieldname": "actor",
+      "fieldtype": "Link",
+      "label": "Actor",
+      "options": "User",
+      "reqd": 1
+    },
+    {
+      "fieldname": "actor_role",
+      "fieldtype": "Data",
+      "label": "Actor Role",
+      "reqd": 1
+    },
+    {
+      "fieldname": "remarks",
+      "fieldtype": "Small Text",
+      "label": "Remarks"
+    },
+    {
+      "fieldname": "blocking_exceptions",
+      "fieldtype": "Int",
+      "label": "Blocking Exceptions",
+      "default": "0"
+    },
+    {
+      "fieldname": "occurred_at",
+      "fieldtype": "Datetime",
+      "label": "Occurred At",
+      "reqd": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Validation Record",
+  "permissions": [
+    {
+      "role": "FacilityOS Inventory",
+      "read": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1
+    }
+  ],
+  "sort_field": "occurred_at",
+  "sort_order": "DESC",
+  "states": []
+}

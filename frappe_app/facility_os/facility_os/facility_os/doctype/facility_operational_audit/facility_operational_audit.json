@@ -1,0 +1,115 @@
+{
+  "actions": [],
+  "autoname": "hash",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "event_type",
+    "entity_type",
+    "entity_id",
+    "item_code",
+    "qty",
+    "from_position",
+    "to_position",
+    "from_container",
+    "to_container",
+    "actor",
+    "remarks",
+    "reference",
+    "occurred_at"
+  ],
+  "fields": [
+    {
+      "fieldname": "event_type",
+      "fieldtype": "Data",
+      "label": "Event Type",
+      "reqd": 1
+    },
+    {
+      "fieldname": "entity_type",
+      "fieldtype": "Data",
+      "label": "Entity Type",
+      "reqd": 1
+    },
+    {
+      "fieldname": "entity_id",
+      "fieldtype": "Data",
+      "label": "Entity ID",
+      "reqd": 1
+    },
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Data",
+      "label": "Item Code"
+    },
+    {
+      "fieldname": "qty",
+      "fieldtype": "Float",
+      "label": "Qty"
+    },
+    {
+      "fieldname": "from_position",
+      "fieldtype": "Data",
+      "label": "From Position"
+    },
+    {
+      "fieldname": "to_position",
+      "fieldtype": "Data",
+      "label": "To Position"
+    },
+    {
+      "fieldname": "from_container",
+      "fieldtype": "Data",
+      "label": "From Container"
+    },
+    {
+      "fieldname": "to_container",
+      "fieldtype": "Data",
+      "label": "To Container"
+    },
+    {
+      "fieldname": "actor",
+      "fieldtype": "Link",
+      "label": "Actor",
+      "options": "User",
+      "reqd": 1
+    },
+    {
+      "fieldname": "remarks",
+      "fieldtype": "Small Text",
+      "label": "Remarks"
+    },
+    {
+      "fieldname": "reference",
+      "fieldtype": "Data",
+      "label": "Reference"
+    },
+    {
+      "fieldname": "occurred_at",
+      "fieldtype": "Datetime",
+      "label": "Occurred At",
+      "reqd": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Operational Audit",
+  "permissions": [
+    {
+      "role": "FacilityOS Inventory",
+      "read": 1
+    },
+    {
+      "role": "FacilityOS MIS",
+      "read": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1
+    }
+  ],
+  "sort_field": "occurred_at",
+  "sort_order": "DESC",
+  "states": []
+}

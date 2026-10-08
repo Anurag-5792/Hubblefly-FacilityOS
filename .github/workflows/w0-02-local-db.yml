@@ -1,0 +1,77 @@
+name: W0-02 Local Database Verification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - "scripts/db/**"
+      - "src/platform/db/**"
+      - ".kysely-codegenrc.json"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/w0-02-local-db.yml"
+  push:
+    branches: [foundation/wave0-target]
+    paths:
+      - "supabase/**"
+      - "scripts/db/**"
+      - "src/platform/db/**"
+      - ".kysely-codegenrc.json"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/w0-02-local-db.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  local-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.27.1 --activate
+
+      - name: Frozen dependency install
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Supabase CLI version
+        run: pnpm supabase:version
+
+      - name: Verify local database migrations and generated types
+        run: pnpm db:verify
+
+      - name: TypeScript
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Next.js build
+        run: pnpm build
+
+      - name: Repository drift check
+        run: |
+          git diff --exit-code
+          status="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status"
+            exit 1
+          fi
+
+      - name: Stop local Supabase
+        if: always()
+        run: pnpm supabase:stop || true

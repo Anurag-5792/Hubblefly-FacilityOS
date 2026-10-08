@@ -1,0 +1,77 @@
+'use client';
+
+import { FormEvent, useState } from 'react';
+import { safeInternalRedirectPath } from '../../lib/auth/redirect';
+
+export default function LoginPage() {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function login(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const payload = await response.json() as { ok?: boolean; error?: string; role?: string; source?: string };
+      if (!response.ok || payload.ok === false) {
+        setError(payload.error ?? 'Login failed.');
+        return;
+      }
+
+      const requested = safeInternalRedirectPath(
+        new URLSearchParams(window.location.search).get('next'),
+      );
+      if (requested) {
+        window.location.href = requested;
+        return;
+      }
+
+      if (payload.source === 'supabase') {
+        window.location.href = '/';
+        return;
+      }
+
+      const routeByRole: Record<string, string> = {
+        inventory: '/inventory/dashboard',
+        shopfloor: '/shopfloor',
+        mis: '/mis',
+        admin: '/admin',
+      };
+      window.location.href = routeByRole[payload.role ?? ''] ?? '/roles';
+    } catch {
+      setError('Login could not be completed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="workflow-page">
+      <header className="scan-header">
+        <div>
+          <p className="eyebrow">Hubblefly FacilityOS</p>
+          <h1>Sign in</h1>
+          <p className="lead">Use your FacilityOS account. Authentication is verified by the configured server-side identity provider; business permissions are handled separately.</p>
+        </div>
+      </header>
+
+      <section className="panel" style={{ maxWidth: 560 }}>
+        <form className="scan-form" onSubmit={login}>
+          <label htmlFor="username">Email / Username</label>
+          <input id="username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required />
+          <label htmlFor="password">Password</label>
+          <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
+          {error && <div className="lookup-warning">{error}</div>}
+          <button className="scan-primary" disabled={busy} type="submit">{busy ? 'Signing in…' : 'Sign in'}</button>
+        </form>
+      </section>
+    </main>
+  );
+}

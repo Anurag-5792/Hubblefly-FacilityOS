@@ -1,0 +1,80 @@
+{
+  "actions": [],
+  "allow_rename": 0,
+  "autoname": "field:container_id",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "container_id",
+    "container_type",
+    "current_position",
+    "status",
+    "capacity",
+    "contents"
+  ],
+  "fields": [
+    {
+      "fieldname": "container_id",
+      "fieldtype": "Data",
+      "label": "Container ID",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "container_type",
+      "fieldtype": "Select",
+      "label": "Container Type",
+      "options": "BN\nBX\nBB",
+      "reqd": 1
+    },
+    {
+      "fieldname": "current_position",
+      "fieldtype": "Link",
+      "label": "Current Position",
+      "options": "Facility Position"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Active\nQuarantine\nVoid",
+      "default": "Active",
+      "reqd": 1
+    },
+    {
+      "fieldname": "capacity",
+      "fieldtype": "Int",
+      "label": "Capacity"
+    },
+    {
+      "fieldname": "contents",
+      "fieldtype": "Table",
+      "label": "Contents",
+      "options": "Facility Container Content"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Container",
+  "naming_rule": "By fieldname",
+  "permissions": [
+    {
+      "role": "FacilityOS Inventory",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

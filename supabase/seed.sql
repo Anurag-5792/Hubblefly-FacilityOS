@@ -1,0 +1,2 @@
+-- W0-02 intentionally contains no domain seed data.
+-- Future deterministic development/test fixtures require separate authorisation.

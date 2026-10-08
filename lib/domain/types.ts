@@ -1,4 +1,4 @@
-export type UserRole = 'inventory' | 'shopfloor' | 'admin';
+export type UserRole = 'inventory' | 'shopfloor' | 'mis' | 'admin';
 
 export type QrEntityType =
   | 'serial'

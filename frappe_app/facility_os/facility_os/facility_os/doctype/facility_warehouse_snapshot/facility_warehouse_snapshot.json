@@ -1,0 +1,79 @@
+{
+  "actions": [],
+  "autoname": "field:source_name",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "source_name",
+    "warehouse_name",
+    "company",
+    "parent_warehouse",
+    "is_group",
+    "disabled",
+    "source_modified",
+    "synced_at"
+  ],
+  "fields": [
+    {
+      "fieldname": "source_name",
+      "fieldtype": "Data",
+      "label": "Source Name",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "warehouse_name",
+      "fieldtype": "Data",
+      "label": "Warehouse Name",
+      "reqd": 1
+    },
+    {
+      "fieldname": "company",
+      "fieldtype": "Data",
+      "label": "Company"
+    },
+    {
+      "fieldname": "parent_warehouse",
+      "fieldtype": "Data",
+      "label": "Parent Warehouse"
+    },
+    {
+      "fieldname": "is_group",
+      "fieldtype": "Check",
+      "label": "Is Group"
+    },
+    {
+      "fieldname": "disabled",
+      "fieldtype": "Check",
+      "label": "Disabled"
+    },
+    {
+      "fieldname": "source_modified",
+      "fieldtype": "Datetime",
+      "label": "Source Modified"
+    },
+    {
+      "fieldname": "synced_at",
+      "fieldtype": "Datetime",
+      "label": "Synced At"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Warehouse Snapshot",
+  "naming_rule": "By fieldname",
+  "permissions": [
+    {
+      "role": "FacilityOS MIS",
+      "read": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": []
+}

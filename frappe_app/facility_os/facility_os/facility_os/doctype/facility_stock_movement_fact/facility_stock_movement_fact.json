@@ -1,0 +1,128 @@
+{
+  "actions": [],
+  "autoname": "field:source_name",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "source_name",
+    "posting_date",
+    "posting_time",
+    "company",
+    "warehouse",
+    "item_code",
+    "actual_qty",
+    "qty_after_transaction",
+    "valuation_rate",
+    "stock_value_difference",
+    "voucher_type",
+    "voucher_no",
+    "batch_no",
+    "serial_no",
+    "source_modified",
+    "synced_at"
+  ],
+  "fields": [
+    {
+      "fieldname": "source_name",
+      "fieldtype": "Data",
+      "label": "Source Name",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "posting_date",
+      "fieldtype": "Date",
+      "label": "Posting Date",
+      "reqd": 1
+    },
+    {
+      "fieldname": "posting_time",
+      "fieldtype": "Time",
+      "label": "Posting Time"
+    },
+    {
+      "fieldname": "company",
+      "fieldtype": "Data",
+      "label": "Company"
+    },
+    {
+      "fieldname": "warehouse",
+      "fieldtype": "Data",
+      "label": "Warehouse"
+    },
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Data",
+      "label": "Item Code",
+      "reqd": 1
+    },
+    {
+      "fieldname": "actual_qty",
+      "fieldtype": "Float",
+      "label": "Actual Qty"
+    },
+    {
+      "fieldname": "qty_after_transaction",
+      "fieldtype": "Float",
+      "label": "Qty After Transaction"
+    },
+    {
+      "fieldname": "valuation_rate",
+      "fieldtype": "Currency",
+      "label": "Valuation Rate"
+    },
+    {
+      "fieldname": "stock_value_difference",
+      "fieldtype": "Currency",
+      "label": "Stock Value Difference"
+    },
+    {
+      "fieldname": "voucher_type",
+      "fieldtype": "Data",
+      "label": "Voucher Type"
+    },
+    {
+      "fieldname": "voucher_no",
+      "fieldtype": "Data",
+      "label": "Voucher No"
+    },
+    {
+      "fieldname": "batch_no",
+      "fieldtype": "Data",
+      "label": "Batch No"
+    },
+    {
+      "fieldname": "serial_no",
+      "fieldtype": "Long Text",
+      "label": "Serial No"
+    },
+    {
+      "fieldname": "source_modified",
+      "fieldtype": "Datetime",
+      "label": "Source Modified"
+    },
+    {
+      "fieldname": "synced_at",
+      "fieldtype": "Datetime",
+      "label": "Synced At"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Stock Movement Fact",
+  "naming_rule": "By fieldname",
+  "permissions": [
+    {
+      "role": "FacilityOS MIS",
+      "read": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": []
+}

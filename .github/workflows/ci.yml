@@ -1,0 +1,61 @@
+name: FacilityOS CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, foundation/wave0-target]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.27.1 --activate
+
+      - name: Report tool versions
+        run: |
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build web app
+        run: pnpm build
+
+      - name: Compile Frappe Python sources
+        run: python -m compileall -q frappe_app/facility_os/facility_os
+
+      - name: Validate Frappe DocType JSON
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          files = list(Path("frappe_app/facility_os/facility_os").rglob("*.json"))
+          for path in files:
+              with path.open("r", encoding="utf-8") as handle:
+                  json.load(handle)
+          print(f"Validated {len(files)} Frappe JSON files")
+          PY

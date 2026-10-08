@@ -1,0 +1,122 @@
+{
+  "actions": [],
+  "autoname": "naming_series:",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "naming_series",
+    "company",
+    "warehouse",
+    "validation_status",
+    "opening_stock_gate",
+    "blocking_exceptions",
+    "inventory_validated_by",
+    "inventory_validated_at",
+    "admin_approved_by",
+    "admin_approved_at",
+    "lines"
+  ],
+  "fields": [
+    {
+      "fieldname": "naming_series",
+      "fieldtype": "Select",
+      "label": "Series",
+      "options": "FOS-PC-.YYYY.-.#####",
+      "default": "FOS-PC-.YYYY.-.#####",
+      "reqd": 1
+    },
+    {
+      "fieldname": "company",
+      "fieldtype": "Link",
+      "label": "Company",
+      "options": "Company",
+      "reqd": 1
+    },
+    {
+      "fieldname": "warehouse",
+      "fieldtype": "Link",
+      "label": "Warehouse",
+      "options": "Warehouse",
+      "reqd": 1
+    },
+    {
+      "fieldname": "validation_status",
+      "fieldtype": "Select",
+      "label": "Validation Status",
+      "options": "Draft\nSubmitted\nInventory Validated\nInventory Rejected\nAdmin Approved\nAdmin Rejected",
+      "default": "Draft",
+      "reqd": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "opening_stock_gate",
+      "fieldtype": "Select",
+      "label": "Opening Stock Gate",
+      "options": "Blocked\nReady for Approval",
+      "default": "Blocked",
+      "read_only": 1
+    },
+    {
+      "fieldname": "blocking_exceptions",
+      "fieldtype": "Int",
+      "label": "Blocking Exceptions",
+      "default": "0",
+      "read_only": 1
+    },
+    {
+      "fieldname": "inventory_validated_by",
+      "fieldtype": "Link",
+      "label": "Inventory Validated By",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "inventory_validated_at",
+      "fieldtype": "Datetime",
+      "label": "Inventory Validated At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "admin_approved_by",
+      "fieldtype": "Link",
+      "label": "Admin Approved By",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "admin_approved_at",
+      "fieldtype": "Datetime",
+      "label": "Admin Approved At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "lines",
+      "fieldtype": "Table",
+      "label": "Count Lines",
+      "options": "Facility Physical Count Line"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "is_submittable": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Physical Count Session",
+  "permissions": [
+    {
+      "role": "FacilityOS Inventory",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

@@ -1,0 +1,73 @@
+{
+  "actions": [],
+  "autoname": "field:batch_no",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "batch_no",
+    "item_code",
+    "manufacturing_date",
+    "expiry_date",
+    "disabled",
+    "source_modified",
+    "synced_at"
+  ],
+  "fields": [
+    {
+      "fieldname": "batch_no",
+      "fieldtype": "Data",
+      "label": "Batch No",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Data",
+      "label": "Item Code",
+      "reqd": 1
+    },
+    {
+      "fieldname": "manufacturing_date",
+      "fieldtype": "Date",
+      "label": "Manufacturing Date"
+    },
+    {
+      "fieldname": "expiry_date",
+      "fieldtype": "Date",
+      "label": "Expiry Date"
+    },
+    {
+      "fieldname": "disabled",
+      "fieldtype": "Check",
+      "label": "Disabled"
+    },
+    {
+      "fieldname": "source_modified",
+      "fieldtype": "Datetime",
+      "label": "Source Modified"
+    },
+    {
+      "fieldname": "synced_at",
+      "fieldtype": "Datetime",
+      "label": "Synced At"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Batch Snapshot",
+  "naming_rule": "By fieldname",
+  "permissions": [
+    {
+      "role": "FacilityOS MIS",
+      "read": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": []
+}

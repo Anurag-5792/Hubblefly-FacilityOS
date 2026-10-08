@@ -1,0 +1,77 @@
+{
+  "actions": [],
+  "autoname": "field:projection",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "projection",
+    "status",
+    "last_source_modified",
+    "last_success_at",
+    "last_attempt_at",
+    "rows_processed",
+    "error_summary"
+  ],
+  "fields": [
+    {
+      "fieldname": "projection",
+      "fieldtype": "Data",
+      "label": "Projection",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Healthy\nPending\nError",
+      "default": "Pending",
+      "reqd": 1
+    },
+    {
+      "fieldname": "last_source_modified",
+      "fieldtype": "Datetime",
+      "label": "Last Source Modified"
+    },
+    {
+      "fieldname": "last_success_at",
+      "fieldtype": "Datetime",
+      "label": "Last Success At"
+    },
+    {
+      "fieldname": "last_attempt_at",
+      "fieldtype": "Datetime",
+      "label": "Last Attempt At"
+    },
+    {
+      "fieldname": "rows_processed",
+      "fieldtype": "Int",
+      "label": "Rows Processed",
+      "default": "0"
+    },
+    {
+      "fieldname": "error_summary",
+      "fieldtype": "Small Text",
+      "label": "Error Summary"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Sync State",
+  "permissions": [
+    {
+      "role": "FacilityOS MIS",
+      "read": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1,
+      "write": 1,
+      "create": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": []
+}

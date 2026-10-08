@@ -1,0 +1,79 @@
+{
+  "actions": [],
+  "autoname": "field:serial_no",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "serial_no",
+    "item_code",
+    "warehouse",
+    "batch_no",
+    "status",
+    "company",
+    "source_modified",
+    "synced_at"
+  ],
+  "fields": [
+    {
+      "fieldname": "serial_no",
+      "fieldtype": "Data",
+      "label": "Serial No",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Data",
+      "label": "Item Code",
+      "reqd": 1
+    },
+    {
+      "fieldname": "warehouse",
+      "fieldtype": "Data",
+      "label": "Warehouse"
+    },
+    {
+      "fieldname": "batch_no",
+      "fieldtype": "Data",
+      "label": "Batch No"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Data",
+      "label": "Status"
+    },
+    {
+      "fieldname": "company",
+      "fieldtype": "Data",
+      "label": "Company"
+    },
+    {
+      "fieldname": "source_modified",
+      "fieldtype": "Datetime",
+      "label": "Source Modified"
+    },
+    {
+      "fieldname": "synced_at",
+      "fieldtype": "Datetime",
+      "label": "Synced At"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "FacilityOS",
+  "name": "Facility Serial Snapshot",
+  "naming_rule": "By fieldname",
+  "permissions": [
+    {
+      "role": "FacilityOS MIS",
+      "read": 1
+    },
+    {
+      "role": "FacilityOS Admin",
+      "read": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": []
+}

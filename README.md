@@ -1,35 +1,141 @@
 # Hubblefly FacilityOS
 
-Hubblefly FacilityOS is a responsive, QR-first web application for inventory, shopfloor, container/location tracking, manufacturing genealogy, gate passes and delivery challans, with ERPNext as the stock and accounting backbone.
+FacilityOS is Hubblefly's operational layer across Sales Requirement, Manufacturing Job,
+engineering release control, PPC, physical inventory, manufacturing execution, quality/testing,
+dispatch, Installed Base and MRO.
 
-## Product roles
+## Target architecture
 
-- Inventory: count, receive, move, issue, return, search, gate pass and delivery challan
-- Shopfloor: build SFG, install/remove/replace components, consume material, route card and genealogy
-- Admin: item master, location master, container master, SFG/BOM, users/roles, print templates, ERPNext sync and audit
+The accepted production target is:
 
-## Core architecture
+`Next.js + TypeScript -> FacilityOS application/domain services -> PostgreSQL/Supabase -> controlled ERPNext APIs`
 
-FacilityOS Web App -> FacilityOS API/business logic -> ERPNext
+- FacilityOS target operational data lives in PostgreSQL/Supabase.
+- ERPNext/Frappe Cloud remains the authoritative ERP, accounting and official stock-ledger system.
+- FacilityOS never writes the ERPNext database directly.
+- The architecture is a modular monolith initially.
+- Detailed physical locations belong to FacilityOS rather than being modelled as ERP Warehouse
+  children.
+- BOM is intended configuration; genealogy is actual installed configuration.
+- As-Built is immutable; MRO creates As-Maintained history without overwriting As-Built.
 
-ERPNext remains authoritative for Item, Warehouse, Serial No, Batch, Stock Ledger and ERP-linked stock transactions. FacilityOS adds QR scanning, rack/position/container tracking, operator workflows, genealogy and printable operational documents.
+See [docs/target-architecture.md](docs/target-architecture.md).
 
-## Physical location model
+## Current repository coexistence
 
-`Warehouse -> Rack -> Level -> Position -> Stack Slot -> Container -> Item`
+The repository still contains the substantial Inventory/Shopfloor prototype and the legacy
+FacilityOS Frappe app under `frappe_app/facility_os`.
 
-Example: `R05-L2-P03-S2`.
+That Frappe backend is **SUPERSEDED as the target architecture**, but it remains intact as
+migration/reference implementation. It must not be deleted until the corresponding target module
+has been implemented, tested, migrated/cut over where required, and explicitly approved for
+cleanup.
 
-- Position QR: `R05-L2-P03`
-- S1: bottom container
-- S2: top container
+Historical details are preserved in
+[docs/architecture.md](docs/architecture.md), clearly marked **SUPERSEDED / LEGACY REFERENCE**.
 
-## Release rule
+## W0-01 scope
 
-No cost-generating or irreversible output is released from an assumption. Bulk labels, opening stock, serial creation and stock posting require preview/validation before production use.
+The controlled target implementation branch is `foundation/wave0-target`.
+
+W0-01 establishes repository/runtime foundations only:
+
+- Node.js 24 LTS runtime intent
+- pnpm dependency authority and deterministic lockfile
+- Next.js 16 / React 19.2 / TypeScript 6 foundation
+- typecheck, lint and formatting scripts
+- target environment-validation schema foundation
+- additive `src/` target structure
+- architecture documentation alignment
+
+W0-01 does **not** configure Supabase/Vercel, create PostgreSQL migrations, implement target Auth/RLS,
+post to ERPNext, perform opening stock, migrate legacy data or remove legacy code.
+
+## Legacy operational prototype
+
+Existing routes/screens/providers for Inventory QR, physical count, locations, containers, GRN,
+Route Cards, genealogy, Delivery Challan, Gate Pass, MIS and Admin remain unchanged by W0-01 except
+for framework/toolchain compatibility required to keep the project building.
+
+## Runtime
+
+Target development runtime:
+
+- Node.js 24 LTS
+- pnpm 11.27.1
+- dependency authority: `pnpm-lock.yaml`
+
+Use `.env.example` only as a template. Real credentials must never be committed.
 
 ## Project control
 
-ClickUp folder: `FacilityOS — ERPNext & Store Operations`
+Canonical operating rule:
 
-Development lifecycle: Backlog -> Ready -> In Development -> Code Review -> Ready for UAT -> UAT -> Ready for Release -> Production -> Closed.
+`Chat decides -> Notion documents -> ClickUp executes -> GitHub implements -> Master tracks`
+
+Implementation status must distinguish DESIGNED / PLANNED / IMPLEMENTED / TESTED / DEPLOYED /
+PRODUCTION VERIFIED / SUPERSEDED / BLOCKED.
+
+## W0-07 authorization development
+
+W0-07 adds the application-level authorization foundation under `src/domains/iam`.
+Authentication remains owned by W0-06; authorization resolves FacilityOS-controlled server-side
+Role Assignments and Capabilities on each protected operation. PostgreSQL production RLS is
+deliberately deferred to W0-08.
+
+For the authorization model, scope semantics, local bootstrap/test procedure and troubleshooting,
+see [docs/security/authorization.md](docs/security/authorization.md). The package handover record is
+[docs/handover/w0-07-authorization.md](docs/handover/w0-07-authorization.md).
+
+Run the local authorization suite with:
+
+```bash
+pnpm test:authorization:unit
+pnpm test:authorization:integration
+```
+
+## W0-08 database RLS development
+
+W0-08 status: **TESTED** (GitHub Actions run #20, 2026-10-07). It is not DEPLOYED or PRODUCTION VERIFIED.
+
+W0-08 adds PostgreSQL row-level security/runtime-role defence beneath W0-07. Protected
+user-scoped persistence uses the existing UnitOfWork through `withRlsTransaction`; requested
+browser scope is never trusted as database authority.
+
+`core`, `iam` and private `facilityos_security` remain outside the Supabase Data API.
+Ordinary runtime is NOBYPASSRLS, protected Wave-0 tables use RLS + FORCE RLS, and
+`platform.superuser` never becomes PostgreSQL superuser/BYPASSRLS.
+
+See [docs/security/rls.md](docs/security/rls.md),
+[ADR-0002](docs/adr/0002-rls-runtime-context.md), and
+[docs/handover/w0-08-rls.md](docs/handover/w0-08-rls.md).
+
+Run `pnpm test:rls:unit` and `pnpm test:rls:integration`.
+
+
+## W0-09 governance foundation
+
+W0-09 status: **IMPLEMENTED — TEST VERIFICATION PENDING**. It is not DEPLOYED or PRODUCTION VERIFIED.
+
+W0-09 adds reusable canonical Audit, Approval and operational Hold foundations in the private
+`governance` PostgreSQL schema. Canonical history is append-only/immutable at the database
+boundary, approval decisions preserve human identity and segregation-of-duty rules, and Holds are
+enforced through server/database policy rather than UI state.
+
+The package builds on W0-07 Authorization and W0-08 FORCE-RLS/runtime context. Direct
+`platform.superuser` alone does not satisfy approval or Hold authority.
+
+See [Audit](docs/security/audit.md),
+[Approvals](docs/governance/approvals.md),
+[Holds](docs/governance/holds.md),
+[ADR-0003](docs/adr/0003-governance-audit-approval-holds.md), and
+[W0-09 handover](docs/handover/w0-09-audit-approval-holds.md).
+
+Run:
+
+```bash
+pnpm test:governance:unit
+pnpm test:governance:integration
+```
+
+W0-10 is not authorised by W0-09 completion and must not start automatically.
