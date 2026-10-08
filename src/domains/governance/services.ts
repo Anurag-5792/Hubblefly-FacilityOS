@@ -27,10 +27,8 @@ import {
   createResourceReference,
   parseGovernanceCode,
   type ApprovalDecisionValue,
-  type ApprovalRequest,
   type GovernanceMutationResult,
   type GovernanceScope,
-  type Hold,
   type ResourceReference,
 } from "./model";
 import { governanceRepository } from "./repository";
