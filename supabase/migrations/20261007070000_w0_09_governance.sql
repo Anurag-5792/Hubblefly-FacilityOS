@@ -1211,4 +1211,19 @@ comment on table governance.hold_action is
 
 -- Remove migration-only ownership-transfer authority before completion.
 revoke create on schema governance from facilityos_governance_executor;
-revoke facilityos_governance_executor from postgres;
+
+do $governance_executor_memberships$
+declare
+  v_member record;
+begin
+  for v_member in
+    select member_role.rolname
+    from pg_auth_members am
+    join pg_roles granted_role on granted_role.oid = am.roleid
+    join pg_roles member_role on member_role.oid = am.member
+    where granted_role.rolname = 'facilityos_governance_executor'
+  loop
+    execute format('revoke facilityos_governance_executor from %I', v_member.rolname);
+  end loop;
+end;
+$governance_executor_memberships$;

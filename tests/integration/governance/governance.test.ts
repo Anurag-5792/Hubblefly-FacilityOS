@@ -399,7 +399,7 @@ describe("W0-09 immutable Audit, Approval and Hold governance", () => {
     });
 
     const systemOperation = operation("audit-system");
-    const systemEvent = await runtime.unitOfWork.withTransaction(async (uow) =>
+    const systemEvent = await runtime.unitOfWork.withSecurityAdminTransaction(async (uow) =>
       await audit.appendSystemWithin(uow, {
         actor: parseActorContext({
           actorType: "SYSTEM",

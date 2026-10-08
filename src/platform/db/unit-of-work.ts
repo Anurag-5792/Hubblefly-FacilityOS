@@ -57,6 +57,30 @@ export class UnitOfWorkManager<Database> {
     }
   }
 
+  async withSecurityAdminTransaction<Result>(
+    operation: (unitOfWork: UnitOfWork<Database>) => Promise<Result>,
+  ): Promise<Result> {
+    if (this.hasActiveTransaction()) {
+      throw new NestedTransactionError();
+    }
+
+    try {
+      return await this.database.transaction().execute(async (transaction) => {
+        // This path is reserved for separately provisioned non-user operational authority.
+        // The database credential must be explicitly allowed to SET ROLE to this NOLOGIN/NOBYPASSRLS role.
+        await sql`set local role facilityos_security_admin`.execute(transaction);
+        await sql`set local row_security = on`.execute(transaction);
+
+        return await this.activeTransaction.run(
+          transaction,
+          async () => await operation(new KyselyUnitOfWork(transaction)),
+        );
+      });
+    } catch (error) {
+      throw translateDatabaseError(error);
+    }
+  }
+
   async withRlsTransaction<Result>(
     context: Readonly<DatabaseSecurityContext>,
     operation: (unitOfWork: UnitOfWork<Database>) => Promise<Result>,
