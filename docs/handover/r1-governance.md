@@ -162,7 +162,7 @@ These are **reproduction instructions**, not claims that every local command was
 
 ## 7. Outstanding U-01 through U-10 — updated status, owners and gates
 
-These IDs come from approved Design v1.2 `14 and Plan v1.2 `12. Do **not** erase original `OPEN` wording in archived pre-execution design documents. The table below is the later **as-of-S_R1 / R1-10 preparation** execution status.
+These IDs come from approved Design v1.2 §14 and Plan v1.2 §12. Do **not** erase original `OPEN` wording in archived pre-execution design documents. The table below is the later **as-of-S_R1 / R1-10 preparation** execution status.
 
 | U ID | Current disposition | Owner and required future evidence | Release/phase gate |
 |---|---|---|---|
@@ -184,7 +184,7 @@ No unverified U-item should be silently converted to `CLOSED` merely because PR 
 | Evidence | Identifiable current source | Custody / unresolved archive task |
 |---|---|---|
 | Approved Design v1.2/Plan v1.2 and historical Design v1.1 | MASTER-approved programme files (outside this one-file PR), normative template copies at S_R1 | Preserve signed/versioned source bytes/hashes and exact approval decisions under U-09 |
-| CI-BOOT-01 code/diff and owner merge | [PR #7](https://github.com/Anurag-5792/Hubblefly-FacilityOS/pull/7), [S_BOOT](https://github.com/Anurag-5792/Hubblefly-FacilityOS/commit/46d2d74c8744ac7d4949604cdd3b7a0466d22e37), workflow run IDs in `3.1 | Retain PR discussion, review and archived CI artifacts/logs outside future Actions TTL |
+| CI-BOOT-01 code/diff and owner merge | [PR #7](https://github.com/Anurag-5792/Hubblefly-FacilityOS/pull/7), [S_BOOT](https://github.com/Anurag-5792/Hubblefly-FacilityOS/commit/46d2d74c8744ac7d4949604cdd3b7a0466d22e37), workflow run IDs in §3.1 | Retain PR discussion, review and archived CI artifacts/logs outside future Actions TTL |
 | BOOT-AC-06 canary | [PR #8](https://github.com/Anurag-5792/Hubblefly-FacilityOS/pull/8), source HEAD, synthetic merge and eight terminal runs | **Closed without merge**; preserve temporary branch/commit evidence and do not re-introduce the diagnostic file as normative |
 | R1 implementation and release provenance | [PR #9](https://github.com/Anurag-5792/Hubblefly-FacilityOS/pull/9), [S_R1](https://github.com/Anurag-5792/Hubblefly-FacilityOS/commit/d5fdbf31be313c4cd16f2a7f2245c3ef0b878f1f), all 18 paths, `3.1` jobs | Archive exact-source review report and MASTER source-HEAD approval record with immutable IDs |
 | R1-09 independent specialist review | *MASTER CHAT UPDATE — R1-09 Independent Governance Implementation Review* (8 Oct 2026), Chat 08 verdict APPROVE at `1cd4f8cd...`, N-01/N-02 | Report was supplied separately to the programme; no invented native GitHub review URL; archive exact report before programme closure |
