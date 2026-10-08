@@ -111,3 +111,7 @@ See [docs/security/rls.md](docs/security/rls.md),
 [docs/handover/w0-08-rls.md](docs/handover/w0-08-rls.md).
 
 Run `pnpm test:rls:unit` and `pnpm test:rls:integration`.
+
+## SDLC governance and contribution
+
+See [R1 governance index](docs/governance/README.md) for the MASTER-approved R1 SDLC design v1.2 implementation, DoR/DoD, templates, independent specialist review, exact-SHA evidence, ownership Option B and R2–R6 exclusions.
