@@ -1214,16 +1214,22 @@ revoke create on schema governance from facilityos_governance_executor;
 
 do $governance_executor_memberships$
 declare
-  v_member record;
+  v_membership record;
 begin
-  for v_member in
-    select member_role.rolname
+  for v_membership in
+    select member_role.rolname as member_name,
+           grantor_role.rolname as grantor_name
     from pg_auth_members am
     join pg_roles granted_role on granted_role.oid = am.roleid
     join pg_roles member_role on member_role.oid = am.member
+    join pg_roles grantor_role on grantor_role.oid = am.grantor
     where granted_role.rolname = 'facilityos_governance_executor'
   loop
-    execute format('revoke facilityos_governance_executor from %I', v_member.rolname);
+    execute format(
+      'revoke facilityos_governance_executor from %I granted by %I',
+      v_membership.member_name,
+      v_membership.grantor_name
+    );
   end loop;
 end;
 $governance_executor_memberships$;
@@ -1231,18 +1237,23 @@ $governance_executor_memberships$;
 do $governance_executor_membership_assert$
 declare
   v_member_name text;
+  v_grantor_name text;
 begin
-  select member_role.rolname
-    into v_member_name
+  select member_role.rolname, grantor_role.rolname
+    into v_member_name, v_grantor_name
   from pg_auth_members am
   join pg_roles granted_role on granted_role.oid = am.roleid
   join pg_roles member_role on member_role.oid = am.member
+  join pg_roles grantor_role on grantor_role.oid = am.grantor
   where granted_role.rolname = 'facilityos_governance_executor'
-  order by member_role.rolname
+  order by member_role.rolname, grantor_role.rolname
   limit 1;
 
   if v_member_name is not null then
-    raise exception 'facilityos_governance_executor retains forbidden membership for %', v_member_name;
+    raise exception
+      'facilityos_governance_executor retains forbidden membership for % granted by %',
+      v_member_name,
+      v_grantor_name;
   end if;
 end;
 $governance_executor_membership_assert$;
