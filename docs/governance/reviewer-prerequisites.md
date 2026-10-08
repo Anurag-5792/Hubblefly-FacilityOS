@@ -32,6 +32,8 @@ Reviewing Chat 08 must be distinct from implementing Chat 15, inspect actual rep
 
 ## Standing U-01 through U-10 external decision record
 
+**U-07 closure after CI-BOOT-01 (stage-specific precedence):** The original Design v1.2 table below describes the pre-bootstrap planning state. MASTER subsequently accepted and CLOSED CI-BOOT-01 at frozen S_BOOT `46d2d74c8744ac7d4949604cdd3b7a0466d22e37` after the post-merge documentation-only canary PR #8 demonstrated **eight of eight successful GitHub Actions workflow runs and required jobs**. Therefore the **R1 CI reachability prerequisite is SATISFIED**; the residual future R5 CI/test consolidation and required-check naming remain separate and **not authorised** here. The historical row is retained as the approved design source, not current operational status.
+
 ## 14. External decision and prerequisite register U-01 to U-10
 
 | ID | Standing decision/prerequisite at v1.2 | Owner/evidence required | Actual gate |
