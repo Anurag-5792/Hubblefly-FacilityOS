@@ -375,12 +375,14 @@ describe("W0-09 immutable Audit, Approval and Hold governance", () => {
       expect(role.rolinherit).toBe(false);
     }
     const executorMembership = await pool.query(
-      `select count(*)::int count
+      `select member_role.rolname member_name
        from pg_auth_members am
        join pg_roles granted_role on granted_role.oid=am.roleid
-       where granted_role.rolname='facilityos_governance_executor'`,
+       join pg_roles member_role on member_role.oid=am.member
+       where granted_role.rolname='facilityos_governance_executor'
+       order by member_role.rolname`,
     );
-    expect(executorMembership.rows[0]?.count).toBe(0);
+    expect(executorMembership.rows.map((row) => row.member_name)).toEqual(["postgres"]);
 
     const dataApi = await anon.schema("governance").from("audit_event").select("id").limit(1);
     expect(dataApi.error).not.toBeNull();

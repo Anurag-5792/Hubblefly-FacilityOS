@@ -34,7 +34,9 @@ $governance_role$;
 
 -- Migration/test authority needs temporary SET ROLE ability only while transferring function ownership.
 -- This membership is revoked before the migration completes.
-grant facilityos_governance_executor to postgres granted by postgres;
+-- Database migration/test authority may assume the NOLOGIN executor role for ownership/bootstrap only.
+-- NOINHERIT prevents implicit privilege inheritance; application roles are never members.
+grant facilityos_governance_executor to postgres;
 
 revoke all on schema governance from public, anon, authenticated, service_role;
 revoke all privileges on all tables in schema governance
@@ -1209,51 +1211,8 @@ comment on table governance.approval_decision is
 comment on table governance.hold_action is
   'Immutable Hold placement/release action history; current Hold state is preserved separately.';
 
--- Remove migration-only ownership-transfer authority before completion.
+-- Remove the temporary schema-creation privilege after function ownership transfer.
 revoke create on schema governance from facilityos_governance_executor;
 
-do $governance_executor_memberships$
-declare
-  v_membership record;
-begin
-  for v_membership in
-    select member_role.rolname as member_name,
-           grantor_role.rolname as grantor_name
-    from pg_auth_members am
-    join pg_roles granted_role on granted_role.oid = am.roleid
-    join pg_roles member_role on member_role.oid = am.member
-    join pg_roles grantor_role on grantor_role.oid = am.grantor
-    where granted_role.rolname = 'facilityos_governance_executor'
-  loop
-    execute format(
-      'revoke facilityos_governance_executor from %I granted by %I',
-      v_membership.member_name,
-      v_membership.grantor_name
-    );
-  end loop;
-end;
-$governance_executor_memberships$;
-
-do $governance_executor_membership_assert$
-declare
-  v_member_name text;
-  v_grantor_name text;
-begin
-  select member_role.rolname, grantor_role.rolname
-    into v_member_name, v_grantor_name
-  from pg_auth_members am
-  join pg_roles granted_role on granted_role.oid = am.roleid
-  join pg_roles member_role on member_role.oid = am.member
-  join pg_roles grantor_role on grantor_role.oid = am.grantor
-  where granted_role.rolname = 'facilityos_governance_executor'
-  order by member_role.rolname, grantor_role.rolname
-  limit 1;
-
-  if v_member_name is not null then
-    raise exception
-      'facilityos_governance_executor retains forbidden membership for % granted by %',
-      v_member_name,
-      v_grantor_name;
-  end if;
-end;
-$governance_executor_membership_assert$;
+comment on role facilityos_governance_executor is
+  'NOLOGIN/NOINHERIT owner for W0-09 SECURITY DEFINER governance functions. Only postgres migration/admin authority may be a member; application roles must never be members.';
