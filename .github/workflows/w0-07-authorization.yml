@@ -2,7 +2,7 @@ name: W0-07 Scoped Authorization Verification
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, rebaseline/sdlc-v1]
     paths:
       - "supabase/migrations/**"
       - "src/domains/iam/**"
@@ -19,6 +19,12 @@ on:
       - "package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/w0-07-authorization.yml"
+      - "CONTRIBUTING.md"
+      - "docs/governance/**"
+      - "docs/templates/**"
+      - "docs/handover/r1-governance.md"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/PULL_REQUEST_TEMPLATE.md"
   push:
     branches: [foundation/wave0-target]
     paths:

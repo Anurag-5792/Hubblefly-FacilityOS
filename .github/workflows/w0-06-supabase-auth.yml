@@ -2,7 +2,7 @@ name: W0-06 Supabase Auth Verification
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, rebaseline/sdlc-v1]
     paths:
       - "supabase/migrations/**"
       - "supabase/config.toml"
@@ -21,6 +21,13 @@ on:
       - "package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/w0-06-supabase-auth.yml"
+      - "CONTRIBUTING.md"
+      - "README.md"
+      - "docs/governance/**"
+      - "docs/templates/**"
+      - "docs/handover/r1-governance.md"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/PULL_REQUEST_TEMPLATE.md"
   push:
     branches: [foundation/wave0-target]
     paths:

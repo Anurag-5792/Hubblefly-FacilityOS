@@ -2,7 +2,7 @@ name: W0-08 RLS Runtime Enforcement Verification
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, rebaseline/sdlc-v1]
   push:
     branches: [foundation/wave0-target]
 
