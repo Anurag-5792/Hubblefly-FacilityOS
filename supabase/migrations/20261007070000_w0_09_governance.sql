@@ -1227,3 +1227,22 @@ begin
   end loop;
 end;
 $governance_executor_memberships$;
+
+do $governance_executor_membership_assert$
+declare
+  v_member_name text;
+begin
+  select member_role.rolname
+    into v_member_name
+  from pg_auth_members am
+  join pg_roles granted_role on granted_role.oid = am.roleid
+  join pg_roles member_role on member_role.oid = am.member
+  where granted_role.rolname = 'facilityos_governance_executor'
+  order by member_role.rolname
+  limit 1;
+
+  if v_member_name is not null then
+    raise exception 'facilityos_governance_executor retains forbidden membership for %', v_member_name;
+  end if;
+end;
+$governance_executor_membership_assert$;

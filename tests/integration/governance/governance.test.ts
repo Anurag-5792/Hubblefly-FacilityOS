@@ -323,11 +323,13 @@ describe("W0-09 immutable Audit, Approval and Hold governance", () => {
   beforeAll(async () => {
     expect(databaseUrl).toMatch(/^postgres(?:ql)?:\/\//);
     expect(apiUrl).toMatch(/^http:\/\/(127\.0\.0\.1|localhost):/);
+    await pool.query("grant facilityos_security_admin to postgres");
     await seed();
   });
 
   afterAll(async () => {
     await closeApplicationDatabaseRuntime();
+    await pool.query("revoke facilityos_security_admin from postgres");
     await pool.end();
   });
 
