@@ -34,7 +34,7 @@ $governance_role$;
 
 -- Migration/test authority needs temporary SET ROLE ability only while transferring function ownership.
 -- This membership is revoked before the migration completes.
-grant facilityos_governance_executor to postgres;
+grant facilityos_governance_executor to postgres granted by postgres;
 
 revoke all on schema governance from public, anon, authenticated, service_role;
 revoke all privileges on all tables in schema governance
