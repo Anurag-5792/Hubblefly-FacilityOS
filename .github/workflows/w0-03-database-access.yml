@@ -2,7 +2,7 @@ name: W0-03 Database Access Verification
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, rebaseline/sdlc-v1]
     paths:
       - "src/platform/db/**"
       - "tests/unit/platform/db/**"
@@ -13,6 +13,13 @@ on:
       - "pnpm-lock.yaml"
       - "vitest.config.mts"
       - ".github/workflows/w0-03-database-access.yml"
+      - "CONTRIBUTING.md"
+      - "README.md"
+      - "docs/governance/**"
+      - "docs/templates/**"
+      - "docs/handover/r1-governance.md"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/PULL_REQUEST_TEMPLATE.md"
   push:
     branches: [foundation/wave0-target]
     paths:

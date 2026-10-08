@@ -2,7 +2,7 @@ name: FacilityOS CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, rebaseline/sdlc-v1]
   push:
     branches: [main]
 
