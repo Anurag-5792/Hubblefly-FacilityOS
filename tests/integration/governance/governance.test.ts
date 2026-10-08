@@ -375,7 +375,7 @@ describe("W0-09 immutable Audit, Approval and Hold governance", () => {
       expect(role.rolinherit).toBe(false);
     }
     const executorMembership = await pool.query(
-      `select member_role.rolname member_name
+      `select distinct member_role.rolname member_name
        from pg_auth_members am
        join pg_roles granted_role on granted_role.oid=am.roleid
        join pg_roles member_role on member_role.oid=am.member

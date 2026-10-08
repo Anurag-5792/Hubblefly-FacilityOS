@@ -596,6 +596,70 @@ begin
 end;
 $$;
 
+create or replace function facilityos_security.system_scope_exists_active(
+  p_organisation_id uuid,
+  p_legal_entity_id uuid,
+  p_site_id uuid
+)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = pg_catalog, pg_temp
+as $
+begin
+  if not exists (
+    select 1
+    from core.organisation o
+    where o.id = p_organisation_id
+      and o.status = 'ACTIVE'
+  ) then
+    return false;
+  end if;
+
+  if p_legal_entity_id is not null and not exists (
+    select 1
+    from core.legal_entity le
+    where le.id = p_legal_entity_id
+      and le.organisation_id = p_organisation_id
+      and le.status = 'ACTIVE'
+  ) then
+    return false;
+  end if;
+
+  if p_site_id is not null and not exists (
+    select 1
+    from core.site s
+    where s.id = p_site_id
+      and s.organisation_id = p_organisation_id
+      and s.status = 'ACTIVE'
+  ) then
+    return false;
+  end if;
+
+  if p_legal_entity_id is not null
+     and p_site_id is not null
+     and not exists (
+       select 1
+       from core.site_legal_entity sle
+       where sle.organisation_id = p_organisation_id
+         and sle.legal_entity_id = p_legal_entity_id
+         and sle.site_id = p_site_id
+         and sle.status = 'ACTIVE'
+     ) then
+    return false;
+  end if;
+
+  return true;
+end;
+$;
+
+alter function facilityos_security.system_scope_exists_active(uuid,uuid,uuid) owner to postgres;
+revoke all privileges on function facilityos_security.system_scope_exists_active(uuid,uuid,uuid)
+  from public, anon, authenticated, service_role, facilityos_user_runtime, facilityos_security_admin;
+grant execute on function facilityos_security.system_scope_exists_active(uuid,uuid,uuid)
+  to facilityos_governance_executor;
+
 create or replace function governance.append_system_audit_event(
   p_id uuid,
   p_actor_type text,
@@ -631,23 +695,10 @@ begin
   if not governance.valid_code(p_actor_id,128) then
     raise exception 'System audit actor id is invalid' using errcode = '22023';
   end if;
-  if not exists (
-    select 1 from core.organisation o
-    where o.id = p_organisation_id and o.status = 'ACTIVE'
+  if not facilityos_security.system_scope_exists_active(
+    p_organisation_id, p_legal_entity_id, p_site_id
   ) then
-    raise exception 'System audit Organisation is invalid' using errcode = '22023';
-  end if;
-  if p_legal_entity_id is not null and not exists (
-    select 1 from core.legal_entity le
-    where le.id = p_legal_entity_id and le.organisation_id = p_organisation_id and le.status = 'ACTIVE'
-  ) then
-    raise exception 'System audit Legal Entity is invalid' using errcode = '22023';
-  end if;
-  if p_site_id is not null and not exists (
-    select 1 from core.site s
-    where s.id = p_site_id and s.organisation_id = p_organisation_id and s.status = 'ACTIVE'
-  ) then
-    raise exception 'System audit Site is invalid' using errcode = '22023';
+    raise exception 'System audit scope is invalid' using errcode = '22023';
   end if;
 
   insert into governance.audit_event (
