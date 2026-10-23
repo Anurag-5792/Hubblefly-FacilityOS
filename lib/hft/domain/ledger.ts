@@ -150,7 +150,7 @@ export function applyCommand(state: EngineState, command: StockCommand, principa
     if (available < qty) throw new Error('INSUFFICIENT_AVAILABLE_STOCK');
     if (item.control === 'SERIAL' && serials.get(sk) !== 'AVAILABLE') throw new Error('SERIAL_NOT_AVAILABLE');
     next.set(key, available - qty);
-    if (item.control === 'SERIAL') serials.set(sk, \`CUSTODY:\${employee.employeeId}\`);
+    if (item.control === 'SERIAL') serials.set(sk, `CUSTODY:${employee.employeeId}`);
     issues.set(c.commandId, { employeeId: employee.employeeId, itemCode: c.itemCode, warehouseId: c.warehouseId,
       legalEntityId: c.legalEntityId, siteId: c.siteId, original: qty, remaining: qty, serialNo: c.serialNo, batchNo: c.batchNo });
     employeeId = employee.employeeId;
@@ -162,7 +162,7 @@ export function applyCommand(state: EngineState, command: StockCommand, principa
     if (!issue || issue.employeeId !== c.employeeId || issue.itemCode !== c.itemCode || issue.warehouseId !== c.warehouseId ||
         issue.legalEntityId !== c.legalEntityId || issue.siteId !== c.siteId || issue.serialNo !== c.serialNo || issue.batchNo !== c.batchNo) throw new Error('ISSUE_REFERENCE_MISMATCH');
     if (issue.remaining < qty) throw new Error('RETURN_EXCEEDS_CUSTODY');
-    if (item.control === 'SERIAL' && serials.get(sk) !== \`CUSTODY:\${c.employeeId}\`) throw new Error('SERIAL_CUSTODY_MISMATCH');
+    if (item.control === 'SERIAL' && serials.get(sk) !== `CUSTODY:${c.employeeId}`) throw new Error('SERIAL_CUSTODY_MISMATCH');
     if (!['GOOD', 'DAMAGED', 'QUARANTINE'].includes(condition)) throw new Error('RETURN_CONDITION_INVALID');
     if (gate.inspectedCondition !== condition || !gate.inspectionEvidenceId || gate.inspectionEvidenceId.trim().length < 3) {
       throw new Error('RETURN_INSPECTION_REQUIRED');
