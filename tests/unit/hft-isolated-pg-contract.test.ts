@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { withIsolatedPgTransaction, CommitOutcomeUncertain, type PgQueryClient, type PgPool } from '../../lib/hft/persistence/isolated-pg-transaction.ts';
 
-const env = {HFT_LIVE_POSTING_ENABLED:'false',HFT_POSTING_RUN_MODE:'ISOLATED_DB_TEST',HFT_TEST_PG_DATABASE:'hft_r1_disposable_synthetic',PGHOST:'127.0.0.1'};
+const env = {NODE_ENV:'test',HFT_ENVIRONMENT:'test',HFT_AUTH_SOURCE:'verified',HFT_OPERATIONS_SOURCE:'database',HFT_LIVE_POSTING_ENABLED:'false',HFT_POSTING_RUN_MODE:'ISOLATED_DB_TEST',HFT_TEST_PG_DATABASE:'hft_r1_disposable_synthetic',PGHOST:'127.0.0.1'};
 function fakePg(options: { identity?: string; fail?: string } = {}) {
   const statements: string[] = [];
   let releases = 0;
