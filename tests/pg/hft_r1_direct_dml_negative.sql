@@ -44,7 +44,7 @@ BEGIN
 
  denied:=false;
  BEGIN
-   ALTER TABLE hft.stock_entry DISABLE TRIGGER ALL;
+   EXECUTE 'ALTER TABLE hft.stock_entry DISABLE TRIGGER ALL';
  EXCEPTION WHEN insufficient_privilege THEN denied:=true;
  END;
  IF NOT denied THEN RAISE EXCEPTION 'RUNTIME_TRIGGER_DISABLE_MUST_BE_DENIED'; END IF;
