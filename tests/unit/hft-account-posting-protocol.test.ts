@@ -84,6 +84,9 @@ for(const [kind,before,held,qty,version,condition,expectedAvailable] of [
   const c=command(kind,qty,version,{employeeId:'EMP1',...(kind==='RETURN'?{originalIssueId:'CMD-ISSUE',condition}: {})});
   const r=await postIsolatedStockCommand(p.pool,env,c,verifiedFixtureOperator());
   assert.equal(r.available,expectedAvailable);
+  const commandRow=p.calls.find(q=>q.sql.includes('INSERT INTO hft.stock_command('));
+  assert.ok(commandRow,'typed stock command must be persisted');
+  assert.equal(commandRow.params.at(-1),'SITE1','stock-command site binding must match signed operator scope');
   const legs=p.calls.filter(q=>q.sql.includes('INSERT INTO hft.stock_entry('));
   assert.deepEqual(legs.map(l=>l.params[2]),kind==='ISSUE'?['AVAILABLE','CUSTODY']:
     condition==='GOOD'?['CUSTODY','AVAILABLE']:['CUSTODY','DAMAGED']);

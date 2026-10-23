@@ -115,7 +115,7 @@ DO $$ BEGIN
  END;
 END $$;
 DO $$ BEGIN
- IF (SELECT count(*) FROM qa002_assertion) <> 9 THEN
+ IF (SELECT count(*) FROM qa002_assertion) <> 10 THEN
   RAISE EXCEPTION 'QA002_NEGATIVE_ASSERTIONS_INCOMPLETE got=%',(SELECT count(*) FROM qa002_assertion);
  END IF;
 END $$;
