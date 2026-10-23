@@ -32,3 +32,12 @@ Source reference: `20a5ce022426b765a587e38e672dabc4f8d98a1e`.
 Remediation: source-specific regression `tests/unit/hft-signed-ledger-regression.test.ts` covers RECEIVE→ISSUE→RETURN, conservation, replay, positive/zero/negative variances and Holds/SoD. Test evidence must be rerun against the new committed blob hashes; local checks before commit are provisional.
 
 Open gates: no actual PostgreSQL instance, PostgreSQL migrations not executed, real transaction/concurrency/rollback/audit-outbox unproven; exact full checkout build/typecheck/lint, independent AI architecture/security/QA reviews, browser E2E and dependency audit outstanding. **NO-GO**.
+
+## Isolated PostgreSQL transaction foundation (2026-10-23)
+
+- `lib/hft/persistence/isolated-pg-transaction.ts` establishes **nonproduction-only** transaction control: explicit disabled live-posting flag, local disposable database name and role attestation, SERIALIZABLE transaction isolation, timeouts, rollback attempts and ambiguous COMMIT handling.
+- `tests/unit/hft-isolated-pg-contract.test.ts` tests this envelope with a *synthetic fake client*, including invalid environment, successful sequence, rollback, wrong database, uncertain COMMIT and lost BEGIN response.
+- This is **NOT** a stock posting implementation. No database SQL migrations, persisted balances, employee custody, audit-outbox, Holds, or concurrency were actually tested against PostgreSQL.
+- Dependency blocking integration: PostgreSQL server/psql executable/isolated database are absent in current execution container, and application dependencies are not installed. Build/lint/fully clean Git checkout pending.
+- Before the next bounded implementation: deploy a disposable PG15+ service under authorized local control, install pinned adapter, run migrations and real-db positive/negative and concurrency tests; obtain independent architecture, security and QA review.
+- Security limitation: environment variables and database naming conventions are preflight checks, not authorization for live use or proof of infrastructure identity. Production remains NO-GO.
