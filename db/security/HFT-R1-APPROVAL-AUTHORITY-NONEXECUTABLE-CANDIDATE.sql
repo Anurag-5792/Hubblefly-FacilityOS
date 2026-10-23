@@ -205,28 +205,56 @@ CREATE TRIGGER issue_auth_revision_v1 BEFORE UPDATE ON hft.material_issue
 CREATE TRIGGER return_auth_revision_v1 BEFORE UPDATE ON hft.material_return
  FOR EACH ROW EXECUTE FUNCTION hft.bump_header_authorization_revision_v1();
 
--- Protected issue-line mutation invalidates previously recorded header rev.
--- Counter-only changes (issued_micro) do not count as authorization changes.
-CREATE OR REPLACE FUNCTION hft.bump_issue_line_authorization_revision_v1()
+-- Protected line mutation invalidates approval. Ordinary posted counters
+-- (accepted_micro/issued_micro/returned_micro) do not invalidate it.
+CREATE OR REPLACE FUNCTION hft.bump_line_authorization_revision_v1()
 RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE parent_id uuid;
 BEGIN
- IF TG_OP='UPDATE' AND
-  (NEW.item_code,NEW.location_id,NEW.batch_no,NEW.serial_no,
-   NEW.authorized_micro,NEW.source_action_key)
-  IS NOT DISTINCT FROM
-  (OLD.item_code,OLD.location_id,OLD.batch_no,OLD.serial_no,
-   OLD.authorized_micro,OLD.source_action_key) THEN
-  RETURN NULL;
+ IF TG_TABLE_NAME='grn_line' THEN
+   IF TG_OP='UPDATE' AND
+     (NEW.item_code,NEW.ordered_micro,NEW.invoice_id,NEW.invoice_line_id)
+     IS NOT DISTINCT FROM
+     (OLD.item_code,OLD.ordered_micro,OLD.invoice_id,OLD.invoice_line_id) THEN
+       RETURN NULL;
+   END IF;
+   parent_id:=CASE WHEN TG_OP='DELETE' THEN OLD.grn_id ELSE NEW.grn_id END;
+   UPDATE hft.grn SET authorization_revision=authorization_revision+1 WHERE id=parent_id;
+ ELSIF TG_TABLE_NAME='material_issue_line' THEN
+   IF TG_OP='UPDATE' AND
+    (NEW.item_code,NEW.location_id,NEW.batch_no,NEW.serial_no,
+     NEW.authorized_micro,NEW.source_action_key)
+    IS NOT DISTINCT FROM
+    (OLD.item_code,OLD.location_id,OLD.batch_no,OLD.serial_no,
+     OLD.authorized_micro,OLD.source_action_key) THEN
+      RETURN NULL;
+   END IF;
+   parent_id:=CASE WHEN TG_OP='DELETE' THEN OLD.issue_id ELSE NEW.issue_id END;
+   UPDATE hft.material_issue SET authorization_revision=authorization_revision+1
+    WHERE id=parent_id;
+ ELSIF TG_TABLE_NAME='material_return_line' THEN
+   IF TG_OP='UPDATE' AND
+    (NEW.item_code,NEW.location_id,NEW.batch_no,NEW.serial_no,
+     NEW.authorized_micro,NEW.original_issue_command_id,NEW.source_action_key)
+    IS NOT DISTINCT FROM
+    (OLD.item_code,OLD.location_id,OLD.batch_no,OLD.serial_no,
+     OLD.authorized_micro,OLD.original_issue_command_id,OLD.source_action_key) THEN
+      RETURN NULL;
+   END IF;
+   parent_id:=CASE WHEN TG_OP='DELETE' THEN OLD.return_id ELSE NEW.return_id END;
+   UPDATE hft.material_return SET authorization_revision=authorization_revision+1
+    WHERE id=parent_id;
+ ELSE
+   RAISE EXCEPTION 'UNEXPECTED_AUTH_REVISION_SOURCE';
  END IF;
- parent_id:=CASE WHEN TG_OP='DELETE' THEN OLD.issue_id ELSE NEW.issue_id END;
- UPDATE hft.material_issue SET authorization_revision=authorization_revision+1
- WHERE id=parent_id;
  RETURN NULL;
 END $$;
-CREATE TRIGGER issue_line_revision_v1
- AFTER INSERT OR UPDATE OR DELETE ON hft.material_issue_line
- FOR EACH ROW EXECUTE FUNCTION hft.bump_issue_line_authorization_revision_v1();
+CREATE TRIGGER grn_line_revision_v1 AFTER INSERT OR UPDATE OR DELETE ON hft.grn_line
+ FOR EACH ROW EXECUTE FUNCTION hft.bump_line_authorization_revision_v1();
+CREATE TRIGGER issue_line_revision_v1 AFTER INSERT OR UPDATE OR DELETE ON hft.material_issue_line
+ FOR EACH ROW EXECUTE FUNCTION hft.bump_line_authorization_revision_v1();
+CREATE TRIGGER return_line_revision_v1 AFTER INSERT OR UPDATE OR DELETE ON hft.material_return_line
+ FOR EACH ROW EXECUTE FUNCTION hft.bump_line_authorization_revision_v1();
 
 -- Revocation and policy changes must acquire the posting advisory lock from
 -- 0004. Do not grant runtime direct DML on these tables.
