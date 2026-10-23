@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { postIsolatedStockCommand } from '../../lib/hft/persistence/post-stock-command.ts';
+import { verifiedFixtureOperator } from '../support/signed-session-fixture.ts';
 import type { StockCommand } from '../../lib/hft/domain/ledger.ts';
 import type { PgPool, PgQueryClient } from '../../lib/hft/persistence/isolated-pg-transaction.ts';
 const env={NODE_ENV:'test',HFT_ENVIRONMENT:'test',HFT_AUTH_SOURCE:'verified',HFT_OPERATIONS_SOURCE:'database',HFT_LIVE_POSTING_ENABLED:'false',HFT_POSTING_RUN_MODE:'ISOLATED_DB_TEST',
@@ -10,7 +11,7 @@ const sourceDocumentId='00000000-0000-4000-8000-000000000001';
 const command:StockCommand={commandId:'CMD-R001',idempotencyKey:'KEY-R001',kind:'RECEIVE',
   legalEntityId:'HFT',siteId:'SITE1',warehouseId:'WH1',itemCode:'ITEM1',quantity:'5',
   sourceDocumentId,sourceActionKey:'RECEIPT-1:1',expectedBalanceVersion:0};
-const actor={subject:'STORE1',trustedServerContext:true as const,channel:'ISOLATED_TEST_ONLY' as const};
+const actor=verifiedFixtureOperator();
 function scriptedPg(grantActive=true) {
   const calls:{sql:string,params:readonly unknown[]}[]=[];
   const results=(sql:string):Record<string,unknown>[]=>{
@@ -41,7 +42,7 @@ function scriptedPg(grantActive=true) {
 }
 test('posting adapter rejects untrusted caller before opening DB',async()=>{
   const pg=scriptedPg();
-  await assert.rejects(postIsolatedStockCommand(pg.pool,env,command,{...actor,trustedServerContext:false as true}),/TRUSTED_OPERATOR_REQUIRED/);
+  await assert.rejects(postIsolatedStockCommand(pg.pool,env,command,{...actor}),/VERIFIED_REQUEST_IDENTITY_REQUIRED/);
   assert.equal(pg.calls.length,0);
 });
 test('persisted actor grant rejects with rollback and no posting writes',async()=>{

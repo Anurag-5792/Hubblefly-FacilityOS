@@ -10,12 +10,11 @@ import { applyCommand, emptyEngineState, type StockCommand, type PostResult,
 import { parseQuantity } from '../domain/quantity.ts';
 import type { Item, Employee, Warehouse } from '../domain/masters.ts';
 import { authorize, type VerifiedPrincipal } from '../security/authorization.ts';
+import { assertVerifiedRequestOperator, type VerifiedRequestOperator } from '../security/verified-request.ts';
 import { withIsolatedPgTransaction, type PgPool, type PgQueryClient,
   type IsolatedPgEnvironment } from './isolated-pg-transaction.ts';
 
-export type NonproductionOperator = Readonly<{
-  subject: string; trustedServerContext: true; channel: 'ISOLATED_TEST_ONLY';
-}>;
+export type NonproductionOperator = VerifiedRequestOperator;
 type Row = Record<string, unknown>;
 function str(v: unknown): string { if (typeof v !== 'string') throw new Error('DATABASE_STRING_INVALID'); return v; }
 function bool(v: unknown): boolean { if (typeof v !== 'boolean') throw new Error('DATABASE_BOOLEAN_INVALID'); return v; }
@@ -109,8 +108,8 @@ async function loadDocument(q: PgQueryClient,c:StockCommand, qty:bigint):Promise
 
 export async function postIsolatedStockCommand(pool: PgPool, env: IsolatedPgEnvironment,
   command: StockCommand, operator: NonproductionOperator): Promise<PostResult> {
-  if (!operator?.trustedServerContext || operator.channel!=='ISOLATED_TEST_ONLY') throw new Error('TRUSTED_OPERATOR_REQUIRED');
-  requireIdentifier(operator.subject); requireIdentifier(command.commandId);
+  const verifiedSubject = assertVerifiedRequestOperator(operator,command);
+  requireIdentifier(verifiedSubject); requireIdentifier(command.commandId);
   requireIdentifier(command.idempotencyKey); requireIdentifier(command.sourceDocumentId);
   requireIdentifier(command.sourceActionKey);
   const payloadHash=fingerprint(command,operator.subject);
