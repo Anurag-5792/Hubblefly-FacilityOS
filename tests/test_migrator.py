@@ -9,8 +9,16 @@ from hft_apply_migrations import revisions, validate_environment, build_locked_s
 class MigratorContracts(unittest.TestCase):
     def test_revision_order_and_checksums(self):
         rows = revisions()
-        self.assertEqual([r[0] for r in rows],[1,2,3,4])
+        self.assertEqual([r[0] for r in rows],[1,2,3,4,5])
         self.assertTrue(all(len(row[2])==64 for row in rows))
+        self.assertEqual(rows[4][1].name,'0005_hft_quantitative_accounts_receipts.sql')
+        migration = rows[4][3]
+        for required in ('stock_account_full_identity_v2','stock_account_reconstruction_v2',
+                         'supplier_invoice_line','grn_unique_physical_delivery_v2','grn_unique_supplier_delivery_v2','invoice_line_receipt_reconstruction_v2',
+                         'stock_command_unique_receipt_v2','material_issue_line','material_return_line','stock_command_scope_and_receipt_v2',
+                         'LEGACY_CUSTODY_LEDGER_RECONCILIATION_REQUIRED'):
+            self.assertIn(required,migration)
+        self.assertIn('FOREIGN KEY(legal_entity_id,warehouse_id,location_key)',migration)
     def test_atomic_migration_source_and_concurrent_application_guards(self):
         plan = revisions()
         first = build_locked_statement(1, plan[0][2], plan[0][3], plan)
@@ -18,7 +26,7 @@ class MigratorContracts(unittest.TestCase):
         self.assertIn("pg_advisory_xact_lock", first)
         self.assertIn("MIGRATION_0001_CONFLICT", first)
         self.assertIn("MIGRATION_CONCURRENTLY_APPLIED", fourth)
-        self.assertIn(plan[2][2], fourth)
+        self.assertIn(plan[2][2], fourth)  # predecessor SHA pinned under lock
         self.assertLess(fourth.index("pg_advisory_xact_lock"), fourth.index("CREATE TABLE"))
         with self.assertRaisesRegex(RuntimeError,"MIGRATION_SOURCE_REVISION_MISMATCH"):
             build_locked_statement(4, "0"*64, plan[3][3], plan)

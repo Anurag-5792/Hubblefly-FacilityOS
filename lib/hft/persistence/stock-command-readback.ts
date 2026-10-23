@@ -5,14 +5,14 @@
  */
 import { createHash } from 'node:crypto';
 import { stockRequestFingerprint } from './command-fingerprint.ts';
+import { postingLegs } from './account-model.ts';
 export { stockRequestFingerprint } from './command-fingerprint.ts';
 import type { StockCommand, PostResult } from '../domain/ledger.ts';
 import { assertVerifiedRequestOperator, type VerifiedRequestOperator } from '../security/verified-request.ts';
 import { withIsolatedPgTransaction, type PgPool, type IsolatedPgEnvironment } from './isolated-pg-transaction.ts';
 
-type Stored = { command_id: string; payload_sha256: string; actor_subject: string;
-  result: PostResult | null; canonical_text: string | null; canonical_sha256: string | null;
-  delivery_found: boolean; legs: string; total: string };
+type Stored = { internal_command_uuid: string; command_id: string; payload_sha256: string; actor_subject: string;
+  result: PostResult | null; canonical_text: string | null; canonical_sha256: string | null; delivery_found: boolean; legs: string; total: string };
 export type CommitReadback =
   | Readonly<{ state: 'COMMITTED_VERIFIED'; result: PostResult }>
   | Readonly<{ state: 'INDETERMINATE_NOT_FOUND'; automaticRetryAllowed: false }>;
@@ -22,20 +22,19 @@ export async function reconcileIsolatedCommand(pool: PgPool, env: IsolatedPgEnvi
   const subject=assertVerifiedRequestOperator(operator,c);
   const requestedHash=stockRequestFingerprint(c,subject);
   return withIsolatedPgTransaction(pool,env,async q=>{
-    const result=await q.query<Stored>(
-      'SELECT sc.command_id,sc.payload_sha256,sc.actor_subject,'+
-      ' o.result,a.canonical_text,a.canonical_sha256,(d.outbox_id IS NOT NULL) AS delivery_found,'+
-      ' (SELECT COUNT(*)::text FROM hft.stock_entry e WHERE e.command_id=sc.id) AS legs,'+
-      ' (SELECT COALESCE(SUM(e.qty_delta_micro),0)::text FROM hft.stock_entry e WHERE e.command_id=sc.id) AS total'+
-      ' FROM hft.stock_command sc LEFT JOIN hft.stock_command_outcome o ON o.command_id=sc.id'+
-      ' LEFT JOIN hft.audit_outbox a ON a.command_id=sc.id'+
-      ' LEFT JOIN hft.audit_delivery d ON d.outbox_id=a.id'+
-      ' WHERE sc.legal_entity_id=$1 AND sc.idempotency_key=$2 AND sc.command_id=$3'+
-      ' FOR SHARE OF sc',[c.legalEntityId,c.idempotencyKey,c.commandId]);
+    const result=await q.query<Stored>(`SELECT sc.id::text AS internal_command_uuid,sc.command_id,sc.payload_sha256,sc.actor_subject,
+       o.result,a.canonical_text,a.canonical_sha256, (d.outbox_id IS NOT NULL) AS delivery_found,
+       (SELECT COUNT(*)::text FROM hft.stock_entry e WHERE e.command_id=sc.id) AS legs,
+       (SELECT COALESCE(SUM(e.qty_delta_micro),0)::text FROM hft.stock_entry e WHERE e.command_id=sc.id) AS total
+       FROM hft.stock_command sc LEFT JOIN hft.stock_command_outcome o ON o.command_id=sc.id
+       LEFT JOIN hft.audit_outbox a ON a.command_id=sc.id
+       LEFT JOIN hft.audit_delivery d ON d.outbox_id=a.id
+       WHERE sc.legal_entity_id=$1 AND sc.idempotency_key=$2 AND sc.command_id=$3
+       FOR SHARE OF sc`,[c.legalEntityId,c.idempotencyKey,c.commandId]);
     if(result.rows.length===0) {
-      // An unobserved original COMMIT may still succeed after this read.
+      // Check if the key has been committed for a DIFFERENT command: no blind retry.
       const other=await q.query<{command_id:string}>(
-        'SELECT command_id FROM hft.stock_command WHERE legal_entity_id=$1 AND idempotency_key=$2 FOR SHARE',
+        `SELECT command_id FROM hft.stock_command WHERE legal_entity_id=$1 AND idempotency_key=$2 FOR SHARE`,
         [c.legalEntityId,c.idempotencyKey]);
       if(other.rows.length) throw new Error('IDEMPOTENCY_CONFLICT');
       return {state:'INDETERMINATE_NOT_FOUND',automaticRetryAllowed:false} as const;
@@ -45,12 +44,40 @@ export async function reconcileIsolatedCommand(pool: PgPool, env: IsolatedPgEnvi
     if(row.payload_sha256!==requestedHash || row.actor_subject!==subject) throw new Error('IDEMPOTENCY_CONFLICT');
     if(!row.result || !row.canonical_text || !row.canonical_sha256 || row.delivery_found!==true)
       throw new Error('READBACK_REQUIRED_EVIDENCE_MISSING');
-    if(!Number.isSafeInteger(Number(row.legs)) || Number(row.legs)<2 || row.total!=='0')
-      throw new Error('READBACK_LEDGER_INTEGRITY_FAILED');
-    if(createHash('sha256').update(row.canonical_text).digest('hex')!==row.canonical_sha256)
+    if(!Number.isSafeInteger(Number(row.legs)) || Number(row.legs)<2 || row.total!=='0') throw new Error('READBACK_LEDGER_INTEGRITY_FAILED');
+    if(typeof row.canonical_text!=='string' ||
+       createHash('sha256').update(row.canonical_text).digest('hex')!==row.canonical_sha256)
       throw new Error('READBACK_AUDIT_DIGEST_FAILED');
     if(row.result.commandId!==c.commandId || row.result.fact?.commandId!==c.commandId)
       throw new Error('READBACK_OUTCOME_INVALID');
+    // Account-level fact verification is INDEPENDENT of overall debit/credit
+    // balancing: equal-and-opposite wrong accounts could otherwise pass.
+    const expected=postingLegs(c,row.result.fact);
+    const actual=await q.query<{bucket:string;account_id:string|null;qty_delta_micro:string;
+       account_kind:string|null;legal_entity_id:string|null;warehouse_id:string|null;
+       location_key:string|null;item_code:string|null;batch_key:string|null;serial_key:string|null;
+       custodian_employee_id:string|null}>(`SELECT e.bucket,e.account_id::text,e.qty_delta_micro::text,
+       a.account_kind,a.legal_entity_id,a.warehouse_id,a.location_key,a.item_code,
+       a.batch_key,a.serial_key,a.custodian_employee_id
+       FROM hft.stock_entry e LEFT JOIN hft.stock_account a ON a.id=e.account_id
+       WHERE e.command_id=$1::uuid ORDER BY e.id`,[row.internal_command_uuid]);
+    if(actual.rows.length!==expected.length) throw new Error('READBACK_ACCOUNT_LEG_COUNT_MISMATCH');
+    for(let i=0;i<actual.rows.length;i++) {
+      const got=actual.rows[i], planned=expected[i];
+      if(got.bucket!==planned.bucket || got.qty_delta_micro!==planned.signedMicro.toString() ||
+         (planned.account===null ? got.account_id!==null :
+           !got.account_id || got.account_kind!==planned.account.kind ||
+           got.legal_entity_id!==planned.account.legalEntityId ||
+           got.warehouse_id!==planned.account.warehouseId ||
+           got.location_key!==planned.account.locationId || got.item_code!==planned.account.itemCode ||
+           got.batch_key!==planned.account.batchNo || got.serial_key!==planned.account.serialNo ||
+           got.custodian_employee_id!==planned.account.custodianEmployeeId))
+        throw new Error('READBACK_ACCOUNT_ATTRIBUTION_FAILED');
+    }
+    const discrepant=await q.query<{account_id:string}>(`SELECT account_id::text FROM hft.stock_account_reconstruction_v2
+      WHERE account_id IN (SELECT account_id FROM hft.stock_entry WHERE command_id=$1::uuid)
+      AND persisted_micro<>reconstructed_micro`,[row.internal_command_uuid]);
+    if(discrepant.rows.length) throw new Error('READBACK_ACCOUNT_RECONSTRUCTION_FAILED');
     return {state:'COMMITTED_VERIFIED',result:{...row.result,replay:true}} as const;
   });
 }

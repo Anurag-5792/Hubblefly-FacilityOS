@@ -10,6 +10,8 @@ export type StockCommand = Readonly<{
   legalEntityId: string;
   siteId: string;
   warehouseId: string;
+  /** Physical storage location; mandatory for persisted commands. */
+  locationId?: string;
   itemCode: string;
   quantity: string;
   sourceDocumentId: string;
@@ -43,7 +45,8 @@ export type StockFact = Readonly<{
   entityId: string;
   warehouseId: string;
   itemCode: string;
-  movements: readonly Readonly<{ bucket: 'EXTERNAL' | 'AVAILABLE' | 'CUSTODY' | 'QUARANTINE'; delta: string }>[];
+  locationId?: string;
+  movements: readonly Readonly<{ bucket: 'EXTERNAL' | 'AVAILABLE' | 'CUSTODY' | 'QUARANTINE' | 'DAMAGED'; delta: string }>[];
   operatorId: string;
   employeeId?: string;
   issueId?: string;
@@ -67,13 +70,13 @@ export function emptyEngineState(): EngineState {
 export type TrustedMasterSnapshot = Readonly<{ item: Item; warehouse: Warehouse; employee?: Employee }>;
 
 function stockKey(c: StockCommand): string {
-  return JSON.stringify([c.legalEntityId, c.siteId, c.warehouseId, c.itemCode, c.batchNo || '', c.serialNo || '']);
+  return JSON.stringify([c.legalEntityId, c.siteId, c.warehouseId, c.itemCode, c.locationId || '', c.batchNo || '', c.serialNo || '']);
 }
 function serialKey(c: StockCommand): string {
   return JSON.stringify([c.legalEntityId, c.itemCode, c.serialNo]);
 }
 function fingerprint(c: StockCommand): string {
-  return JSON.stringify([c.commandId, c.kind, c.legalEntityId, c.siteId, c.warehouseId, c.itemCode,
+  return JSON.stringify([c.commandId, c.kind, c.legalEntityId, c.siteId, c.warehouseId, c.itemCode, c.locationId || '',
     c.quantity, c.sourceDocumentId, c.sourceActionKey, c.expectedBalanceVersion, c.employeeId || '', c.originalIssueId || '', c.serialNo || '', c.batchNo || '', c.condition || '']);
 }
 function idempotencyScope(c: StockCommand): string { return JSON.stringify([c.legalEntityId, c.idempotencyKey]); }
@@ -170,10 +173,10 @@ export function applyCommand(state: EngineState, command: StockCommand, principa
     const restorable = condition === 'GOOD';
     if (restorable) next.set(key, available + qty);
     issues.set(c.originalIssueId, { ...issue, remaining: issue.remaining - qty });
-    if (item.control === 'SERIAL') serials.set(sk, restorable ? 'AVAILABLE' : 'QUARANTINE');
+    if (item.control === 'SERIAL') serials.set(sk, restorable ? 'AVAILABLE' : condition === 'DAMAGED' ? 'DAMAGED' : 'QUARANTINE');
     employeeId = c.employeeId;
     issueId = c.originalIssueId;
-    legs = [movement('CUSTODY', -qty), movement(restorable ? 'AVAILABLE' : 'QUARANTINE', qty)];
+    legs = [movement('CUSTODY', -qty), movement(restorable ? 'AVAILABLE' : condition === 'DAMAGED' ? 'DAMAGED' : 'QUARANTINE', qty)];
   } else throw new Error('COMMAND_KIND_INVALID');
 
   // All ledger commands conserve quantity across source/target buckets.
@@ -182,7 +185,7 @@ export function applyCommand(state: EngineState, command: StockCommand, principa
   }
   versions.set(key, version + 1);
   const fact: StockFact = { commandId: c.commandId, sourceDocumentId: c.sourceDocumentId, kind: c.kind,
-    entityId: c.legalEntityId, warehouseId: c.warehouseId, itemCode: c.itemCode, movements: legs,
+    entityId: c.legalEntityId, warehouseId: c.warehouseId, itemCode: c.itemCode, ...(c.locationId ? {locationId: c.locationId} : {}), movements: legs,
     operatorId: principal!.subject, ...(employeeId ? { employeeId } : {}), ...(issueId ? { issueId } : {}) };
   const result: PostResult = { commandId: c.commandId, accountVersion: version + 1,
     available: formatQuantity(next.get(key) ?? 0n), fact, replay: false };

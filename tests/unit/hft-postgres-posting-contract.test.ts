@@ -9,7 +9,7 @@ const env={NODE_ENV:'test',HFT_ENVIRONMENT:'test',HFT_AUTH_SOURCE:'verified',HFT
   HFT_TEST_PG_DATABASE:'hft_r1_disposable_synthetic',PGHOST:'127.0.0.1'};
 const sourceDocumentId='00000000-0000-4000-8000-000000000001';
 const command:StockCommand={commandId:'CMD-R001',idempotencyKey:'KEY-R001',kind:'RECEIVE',
-  legalEntityId:'HFT',siteId:'SITE1',warehouseId:'WH1',itemCode:'ITEM1',quantity:'5',
+  legalEntityId:'HFT',siteId:'SITE1',warehouseId:'WH1',itemCode:'ITEM1',locationId:'LOC1',quantity:'5',
   sourceDocumentId,sourceActionKey:'RECEIPT-1:1',expectedBalanceVersion:0};
 const actor=verifiedFixtureOperator();
 function scriptedPg(grantActive=true) {
@@ -18,13 +18,15 @@ function scriptedPg(grantActive=true) {
     if(sql.includes('SELECT current_database()')) return [{db_name:env.HFT_TEST_PG_DATABASE,db_role:'hft_engineering'}];
     if(sql.includes('FROM hft.actor_warehouse_grant')) return [{active:grantActive,may_post:true}];
     if(sql.includes('FROM hft.stock_approval')) return [{approval_id:'APR01',revision:'1',approved:true,approved_by:'APPROVER2',inspected_condition:null,inspection_evidence_id:null}];
+    if(sql.includes('FROM hft.location')) return [{active:true}];
     if(sql.includes('FROM hft.item')) return [{control_type:'NONE',active:true,version:'1',uom:'NOS'}];
     if(sql.includes('FROM hft.warehouse')) return [{active:true,version:'1'}];
-    if(sql.includes('FROM hft.grn g')) return [{id:sourceDocumentId,status:'AUTHORIZED',authorized_by:'APPROVER2',supplier_active:true}];
-    if(sql.includes('FROM hft.grn_partial_receipt')) return [{line_no:1,accepted_micro:'5000000',item_code:'ITEM1'}];
+    if(sql.includes('FROM hft.grn g')) return [{id:sourceDocumentId,status:'AUTHORIZED',authorized_by:'APPROVER2',supplier_active:true,invoice_id:'10000000-0000-4000-8000-000000000001',physical_receipt_id:'DELIVERY-001',invoice_status:'VERIFIED',verified_invoice_key:'INV-1'}];
+    if(sql.includes('FROM hft.grn_partial_receipt')) return [{receipt_id:'20000000-0000-4000-8000-000000000001',line_no:1,accepted_micro:'5000000',item_code:'ITEM1',location_id:'LOC1',serial_no:'',batch_no:'',invoice_line_id:'30000000-0000-4000-8000-000000000001',invoice_received_micro:'0',invoice_authorized_micro:'5000000'}];
     if(sql.includes('FROM hft.stock_account')) return [{id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',qty_micro:'0',reserved_micro:'0',version:'0'}];
     if(sql.includes('INSERT INTO hft.stock_command(')) return [{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'}];
     if(sql.includes('INSERT INTO hft.audit_outbox(')) return [{id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'}];
+    if(sql.includes('UPDATE hft.supplier_invoice_line')) return [{id:'30000000-0000-4000-8000-000000000001'}];
     if(sql.includes('UPDATE hft.grn_line')) return [{line_no:1}];
     if(sql.includes('UPDATE hft.stock_account')) return [{id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'}];
     return [];
@@ -61,6 +63,8 @@ test('synthetic happy path issues balanced movement SQL, audit outbox and COMMIT
   assert.equal(posted.length,2);
   assert.deepEqual(posted.map(x=>x.params[3]),['-5000000','5000000']);
   assert.equal(pg.calls.filter(x=>x.sql.includes('INSERT INTO hft.audit_outbox(')).length,1);
+  assert.equal(pg.calls.filter(x=>x.sql.includes('UPDATE hft.supplier_invoice_line')).length,1);
+  assert.equal(pg.calls.filter(x=>x.sql.includes('location_key=$4')).length,1);
   assert.equal(pg.calls.filter(x=>x.sql.includes('INSERT INTO hft.audit_delivery(')).length,1);
   assert.equal(pg.calls.filter(x=>x.sql.includes('INSERT INTO hft.stock_command_outcome(')).length,1);
   assert.equal(pg.calls.at(-1)?.sql,'COMMIT');
