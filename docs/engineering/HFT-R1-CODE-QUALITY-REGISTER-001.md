@@ -21,3 +21,14 @@ Scope: read-only donor inventory; no dead-code removal. Classifications are prov
 Current authorized change: new isolated secure authorization and exact fixed-point quantity contracts, with synthetic Node tests.
 No legacy file was removed, copied or changed. No database writes, production operations or actual stock postings.
 Outstanding: full dead-code reachability, duplicate call-graph, dependency CVEs, schema/runtime migration qualification, lint/type/build, independent architecture/security/QA reviews.
+
+## HFT-R1-ENG-EXEC-FOLLOWUP-002 defect reproduction and corrective action (2026-10-23)
+
+Source reference: `20a5ce022426b765a587e38e672dabc4f8d98a1e`.
+- ENG-QA-001 HIGH, `lib/hft/domain/ledger.ts`: signed debit deltas incorrectly routed through unsigned quantity formatter. **REFACTOR** using `formatSignedQuantity`; retain `formatQuantity` for nonnegative balances.
+- ENG-QA-002 HIGH, `lib/hft/domain/opening-stock.ts`: negative variance incorrectly routed through unsigned formatter. **REFACTOR** using signed representation for variances only.
+- ENG-QA-003 HIGH test-evidence discrepancy, `lib/hft/domain/quantity.ts`: committed source lacked `requirePositive` export imported by GRN and ledger; source-matched tests reproduced 3 PASS and 2 test-file load failures. **REPAIR** export and add regression tests. Previous 23/23 local evidence does not qualify original HEAD.
+
+Remediation: source-specific regression `tests/unit/hft-signed-ledger-regression.test.ts` covers RECEIVE→ISSUE→RETURN, conservation, replay, positive/zero/negative variances and Holds/SoD. Test evidence must be rerun against the new committed blob hashes; local checks before commit are provisional.
+
+Open gates: no actual PostgreSQL instance, PostgreSQL migrations not executed, real transaction/concurrency/rollback/audit-outbox unproven; exact full checkout build/typecheck/lint, independent AI architecture/security/QA reviews, browser E2E and dependency audit outstanding. **NO-GO**.

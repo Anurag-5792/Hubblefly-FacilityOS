@@ -1,5 +1,5 @@
 /** Strictly nonposting opening-stock count reconciliation. Approval is a separate workflow. */
-import { parseQuantity, formatQuantity } from './quantity.ts';
+import { parseQuantity, formatQuantity, formatSignedQuantity } from './quantity.ts';
 import { authorize, type VerifiedPrincipal } from '../security/authorization.ts';
 import { validateItem, type Item } from './masters.ts';
 
@@ -47,6 +47,6 @@ export function reconcileOpeningCount(session: OpeningCountSession, actor: Verif
     keys.add(key);
     const baseline = parseQuantity(referenceByKey.get(key) ?? '0');
     return { lineId:line.lineId,itemCode:line.itemCode,inventoryState:line.inventoryState,key,
-      physicalQuantity:formatQuantity(physical),referenceQuantity:formatQuantity(baseline),variance:formatQuantity(physical-baseline) };
+      physicalQuantity:formatQuantity(physical),referenceQuantity:formatQuantity(baseline),variance:formatSignedQuantity(physical-baseline) };
   });
 }

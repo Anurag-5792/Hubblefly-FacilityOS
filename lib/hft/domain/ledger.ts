@@ -1,5 +1,5 @@
 /** Nonproduction deterministic posting model. NOT a transactional database adapter. */
-import { parseQuantity, requirePositive, requireSerializedUnit, formatQuantity } from './quantity.ts';
+import { parseQuantity, requirePositive, requireSerializedUnit, formatQuantity, formatSignedQuantity } from './quantity.ts';
 import { authorize, type VerifiedPrincipal } from '../security/authorization.ts';
 import { validateEmployee, requireActiveItem, requireActiveWarehouse, type Employee, type Item, type Warehouse } from './masters.ts';
 
@@ -129,7 +129,7 @@ export function applyCommand(state: EngineState, command: StockCommand, principa
   const serials = new Map(state.serialLocations);
   const idempotency = new Map(state.idempotency);
   const sourceActions = new Set(state.sourceActions);
-  const movement = (bucket: StockFact['movements'][number]['bucket'], n: bigint) => ({ bucket, delta: formatQuantity(n) });
+  const movement = (bucket: StockFact['movements'][number]['bucket'], n: bigint) => ({ bucket, delta: formatSignedQuantity(n) });
   let legs: StockFact['movements'];
   let employeeId: string | undefined;
   let issueId: string | undefined;
