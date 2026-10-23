@@ -20,4 +20,10 @@ export function assertSecureStartup(env: Readonly<Record<string, string | undefi
     throw new Error('PRODUCTION_STARTUP_NOT_AUTHORIZED');
   if (env.HFT_AUTH_SOURCE === 'preview' || env.HFT_AUTH_SOURCE === 'sample')
     throw new Error('INSECURE_AUTH_SOURCE_REJECTED');
+  if (env.HFT_AUTH_SOURCE !== 'verified')
+    throw new Error('VERIFIED_AUTH_SOURCE_REQUIRED');
+  if (env.HFT_OPERATIONS_SOURCE === 'preview' || env.HFT_OPERATIONS_SOURCE === 'sample')
+    throw new Error('SAMPLE_OPERATIONS_SOURCE_REJECTED');
+  if (env.HFT_ENVIRONMENT !== 'development' && env.HFT_ENVIRONMENT !== 'test')
+    throw new Error('ISOLATED_NONPRODUCTION_ENVIRONMENT_REQUIRED');
 }
