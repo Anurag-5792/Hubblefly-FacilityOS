@@ -1,5 +1,3 @@
-import { parseQuantity } from './quantity.ts';
-
 export type Employee = Readonly<{
   legalEntityId: string; employeeId: string; fullName: string; department: string;
   designation: string; siteId: string; active: boolean; version: number;
@@ -28,19 +26,36 @@ export function validateEmployee(employee: Employee): Employee {
 export function validateItem(item: Item): Item {
   if (!id.test(item.legalEntityId) || !id.test(item.itemCode) || !id.test(item.uom)) throw new Error('ITEM_IDENTIFIERS_INVALID');
   if (!['NONE', 'SERIAL', 'BATCH'].includes(item.control)) throw new Error('ITEM_CONTROL_INVALID');
-  if (!item.active || !Number.isSafeInteger(item.version) || item.version < 1) throw new Error('ITEM_INACTIVE_OR_VERSION_INVALID');
+  if (typeof item.active !== 'boolean' || !Number.isSafeInteger(item.version) || item.version < 1) throw new Error('ITEM_METADATA_INVALID');
   return item;
 }
 export function validateSupplier(supplier: Supplier): Supplier {
   if (!id.test(supplier.legalEntityId) || !id.test(supplier.supplierId)) throw new Error('SUPPLIER_ID_INVALID');
   required(supplier.legalName, 'SUPPLIER_NAME_REQUIRED');
-  if (!supplier.active || !Number.isSafeInteger(supplier.version) || supplier.version < 1) throw new Error('SUPPLIER_INACTIVE_OR_VERSION_INVALID');
+  if (typeof supplier.active !== 'boolean' || !Number.isSafeInteger(supplier.version) || supplier.version < 1) throw new Error('SUPPLIER_METADATA_INVALID');
   return supplier;
 }
 export function validateWarehouse(warehouse: Warehouse): Warehouse {
   if (!id.test(warehouse.legalEntityId) || !id.test(warehouse.warehouseId) || !id.test(warehouse.siteId)) throw new Error('WAREHOUSE_IDENTIFIERS_INVALID');
-  if (!warehouse.active || !Number.isSafeInteger(warehouse.version) || warehouse.version < 1) throw new Error('WAREHOUSE_INACTIVE_OR_VERSION_INVALID');
+  if (typeof warehouse.active !== 'boolean' || !Number.isSafeInteger(warehouse.version) || warehouse.version < 1) throw new Error('WAREHOUSE_METADATA_INVALID');
   return warehouse;
+}
+
+/** Master CRUD can preserve inactive records; posting services must check active status. */
+export function requireActiveItem(item: Item): Item {
+  validateItem(item);
+  if (!item.active) throw new Error('ITEM_INACTIVE');
+  return item;
+}
+export function requireActiveWarehouse(warehouse: Warehouse): Warehouse {
+  validateWarehouse(warehouse);
+  if (!warehouse.active) throw new Error('WAREHOUSE_INACTIVE');
+  return warehouse;
+}
+export function requireActiveSupplier(supplier: Supplier): Supplier {
+  validateSupplier(supplier);
+  if (!supplier.active) throw new Error('SUPPLIER_INACTIVE');
+  return supplier;
 }
 
 /** Strict RFC-4180-style parser: multiline quoted cells, escaped quotes, no silent row drops. */
@@ -91,5 +106,3 @@ export function validateEmployeeCsv(csv: string, legalEntityId: string, existing
   return { valid, errors };
 }
 
-/** Future Excel adapter must convert a vetted workbook to this same validated row contract. */
-export function requireAvailableQuantityString(qty: string): void { if (parseQuantity(qty) <= 0n) throw new Error('QUANTITY_MUST_BE_POSITIVE'); }
