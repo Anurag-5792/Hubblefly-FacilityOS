@@ -47,6 +47,32 @@ class MigratorContracts(unittest.TestCase):
         self.assertLess(fourth.index("pg_advisory_xact_lock"), fourth.index("CREATE TABLE"))
         with self.assertRaisesRegex(RuntimeError,"MIGRATION_SOURCE_REVISION_MISMATCH"):
             build_locked_statement(4, "0"*64, plan[3][3], plan)
+    def test_already_applied_original_v5_stops_without_sql_writes(self):
+        from unittest.mock import patch
+        from hft_apply_migrations import run, LEGACY_0005_SHA256
+        plan = revisions()
+        sql_seen = []
+        def fake_sql(sql, env):
+            sql_seen.append(sql)
+            if 'current_database()' in sql:
+                return 'hft_r1_disposable_synthetic|hft_engineering|170000|false'
+            if "to_regclass('hft.schema_revision')" in sql:
+                return 't'
+            if 'COALESCE((SELECT sha256 FROM hft.schema_revision WHERE version=' in sql:
+                version = int(sql.split('version=')[1].split(')')[0])
+                return LEGACY_0005_SHA256 if version == 5 else plan[version-1][2]
+            raise AssertionError('unexpected SQL: '+sql[:100])
+        with patch('hft_apply_migrations.validate_environment',return_value=('hft_r1_disposable_synthetic','hft_engineering')), \
+             patch('hft_apply_migrations.execute_sql',side_effect=fake_sql):
+            with self.assertRaisesRegex(RuntimeError,'APPLIED_LEGACY_0005_REQUIRES_SEPARATE_FORWARD_MIGRATION'):
+                run()
+        self.assertTrue(all('INSERT INTO hft.schema_revision' not in q for q in sql_seen))
+        self.assertTrue(all('pg_advisory_xact_lock' not in q for q in sql_seen))
+    def test_corrected_candidate_missing_stops_fresh_migration(self):
+        from unittest.mock import patch
+        with patch('hft_apply_migrations.CORRECTED_0005',Path('/nonexistent/qa002.sql')):
+            with self.assertRaisesRegex(RuntimeError,'QA_CORRECTED_0005_NOT_AVAILABLE'):
+                revisions()
     def test_rejects_production_and_missing_gates(self):
         baseline=dict(HFT_ENVIRONMENT='test',HFT_AUTH_SOURCE='verified',HFT_OPERATIONS_SOURCE='database',HFT_LIVE_POSTING_ENABLED='false',HFT_POSTING_RUN_MODE='ISOLATED_DB_TEST',
                       HFT_TEST_PG_DATABASE='hft_r1_disposable_synthetic',PGDATABASE='hft_r1_disposable_synthetic',
