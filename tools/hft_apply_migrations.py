@@ -66,6 +66,30 @@ def execute_sql(sql: str, env: dict[str, str]) -> str:
     return process.stdout.strip()
 
 
+def build_locked_statement(version: int, sha: str, ddl: str,
+                           plan: list[tuple[int, Path, str, str]]) -> str:
+    """Recheck revision state inside advisory-locked transaction.
+
+    A simultaneous migrator must fail without running duplicate DDL. This is a
+    fail-closed conflict, never treated as an automatically successful migration.
+    """
+    if not (1 <= version <= len(plan)) or plan[version - 1][0] != version or plan[version - 1][2] != sha:
+        raise RuntimeError("MIGRATION_SOURCE_REVISION_MISMATCH")
+    if version == 1:
+        guard = ("DO $$ BEGIN IF to_regclass('hft.schema_revision') IS NOT NULL "
+                 "THEN RAISE EXCEPTION 'MIGRATION_0001_CONFLICT'; END IF; END $$;\n")
+    else:
+        prior_sha = plan[version - 2][2]
+        guard = ("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM hft.schema_revision WHERE version="
+                 f"{version - 1} AND sha256='{prior_sha}') "
+                 "THEN RAISE EXCEPTION 'PRIOR_MIGRATION_MISSING_OR_MISMATCHED'; END IF; "
+                 "IF EXISTS (SELECT 1 FROM hft.schema_revision WHERE version="
+                 f"{version}) THEN RAISE EXCEPTION 'MIGRATION_CONCURRENTLY_APPLIED'; END IF; END $$;\n")
+    return ("BEGIN;\nSELECT pg_advisory_xact_lock(hashtextextended('HFT:R1:MIGRATIONS',0));\n"
+            + guard + ddl + "\nINSERT INTO hft.schema_revision(version,sha256,applied_by) VALUES ("
+            + str(version) + ", '" + sha + "', current_user);\nCOMMIT;")
+
+
 def run() -> None:
     env = dict(os.environ)
     db, role = validate_environment(env)
@@ -88,13 +112,7 @@ def run() -> None:
                 raise RuntimeError(f"MIGRATION_CHECKSUM_MISMATCH:{version}")
             print(f"MIGRATION_{version:04d}=EXISTING_VALIDATED sha256={sha}")
             continue
-        previous = version - 1
-        prerequisite = "" if version == 1 else (
-            "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM hft.schema_revision WHERE version="
-            f"{previous}) THEN RAISE EXCEPTION 'PRIOR_MIGRATION_MISSING'; END IF; END $$;\n")
-        statement = ("BEGIN;\nSELECT pg_advisory_xact_lock(hashtextextended('HFT:R1:MIGRATIONS',0));\n"
-                     + prerequisite + ddl + "\nINSERT INTO hft.schema_revision(version,sha256,applied_by) VALUES ("
-                     + str(version) + ", '" + sha + "', current_user);\nCOMMIT;")
+        statement = build_locked_statement(version, sha, ddl, plan)
         execute_sql(statement, env)
         print(f"MIGRATION_{version:04d}=APPLIED sha256={sha}")
     print("MIGRATION_SEQUENCE_COMPLETE=TRUE (database schema only; no production authority)")
