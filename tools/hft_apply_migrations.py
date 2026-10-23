@@ -11,6 +11,13 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL_DIR = ROOT / "db" / "migrations"
+# Preserve old 0005 bytes until the operator can certify no governed system
+# recorded its checksum. For an authorized disposable database, the *selected*
+# new v5 implementation is a separate immutable candidate. An existing v5
+# schema revision with the former checksum is NOT automatically upgraded.
+LEGACY_0005_NAME = "0005_hft_quantitative_accounts_receipts.sql"
+LEGACY_0005_SHA256 = "8e38ed17ecd4d2fdc7c3184d2f0ea2100feca67e30fa146b8965cb0c2c4ebc5e"
+CORRECTED_0005 = ROOT / "db" / "migration_candidates" / "0005_hft_quantitative_accounts_receipts_qa_corrected.sql"
 PATTERN = re.compile(r"^([0-9]{4})_hft_[a-z0-9_]+\.sql$")
 WRAPPER = re.compile(r"\A(?:\s*--[^\n]*\n)*\s*BEGIN;\s*(.*?)\s*COMMIT;\s*\Z", re.S)
 
@@ -47,6 +54,12 @@ def revisions() -> list[tuple[int, Path, str, str]]:
         match = PATTERN.fullmatch(path.name)
         if not match or int(match.group(1)) != expected:
             raise RuntimeError(f"MIGRATION_SEQUENCE_INVALID:{path.name}")
+        if expected == 5:
+            if path.name != LEGACY_0005_NAME or hashlib.sha256(path.read_bytes()).hexdigest() != LEGACY_0005_SHA256:
+                raise RuntimeError("LEGACY_0005_SOURCE_MUTATION_FORBIDDEN")
+            path = CORRECTED_0005
+            if not path.is_file():
+                raise RuntimeError("QA_CORRECTED_0005_NOT_AVAILABLE")
         raw = path.read_bytes()
         text = raw.decode("utf-8")
         wrapper = WRAPPER.fullmatch(text)
@@ -66,9 +79,10 @@ def execute_sql(sql: str, env: dict[str, str]) -> str:
     return process.stdout.strip()
 
 
+
 def build_locked_statement(version: int, sha: str, ddl: str,
                            plan: list[tuple[int, Path, str, str]]) -> str:
-    """Recheck revision state inside advisory-locked transaction.
+    """Recheck revision state *inside* advisory-locked transaction.
 
     A simultaneous migrator must fail without running duplicate DDL. This is a
     fail-closed conflict, never treated as an automatically successful migration.
@@ -108,6 +122,8 @@ def run() -> None:
         exists = (execute_sql(f"SELECT COALESCE((SELECT sha256 FROM hft.schema_revision WHERE version={version}), '');", env)
                   if table_exists == "t" else "")
         if exists:
+            if version == 5 and exists == LEGACY_0005_SHA256:
+                raise RuntimeError("APPLIED_LEGACY_0005_REQUIRES_SEPARATE_FORWARD_MIGRATION")
             if exists != sha:
                 raise RuntimeError(f"MIGRATION_CHECKSUM_MISMATCH:{version}")
             print(f"MIGRATION_{version:04d}=EXISTING_VALIDATED sha256={sha}")

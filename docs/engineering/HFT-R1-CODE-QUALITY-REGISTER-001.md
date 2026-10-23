@@ -93,3 +93,20 @@ Reference precursor: `811443dccaa4b834d9565303225a72e8835ba4c0`. Nonproduction w
 - **CQ-QA-06 / DEFER (HIGH):** material/identity policy, privileged DB bypass and protected external audit anchoring are not qualified; owner security (10), audit (11), deployment (13). No production authorization.
 - **Regression evidence:** local **60 Node test passes, 3 Python contract test passes, affected TypeScript strict check exit 0**. Actual PostgreSQL tests remain **NOT RUN**; full clean install/build/lint fail for missing lock and packages. These numbers are local source staging, not clean exact-commit CI acceptance.
 - **Review evidence:** independent Chat 17 bounded re-review package prepared in `HFT-R1-QA-REVIEW-REQUEST-001.md`, not yet returned. Review disposition remains **REQUEST CHANGES / NO-GO**.
+
+## QA-CORRECT-002 (2026-10-23) — Source-only correction, real database still unqualified
+
+Reviewed precursor: `f2bf6a3f237b0d61001d4a2cd9194e440501799a`. MASTER directive `HFT-R1-ENG-QA-CORRECT-002`. Owner: Chat 16; independent rereview: Chat 17 (pending).
+
+| Finding | Severity | Exact source and disposition | Evidence / residual |
+|---|---|---|---|
+| QA-011 | HIGH | `db/migrations/0005_hft_quantitative_accounts_receipts.sql` preserved byte-for-byte SHA-256 `8e38ed17ecd4d2fdc7c3184d2f0ea2100feca67e30fa146b8965cb0c2c4ebc5e`; corrected fresh-only v5 at `db/migration_candidates/0005_hft_quantitative_accounts_receipts_qa_corrected.sql` adds `supplier_invoice_entity_identity_v2 UNIQUE(id,legal_entity_id)` before referenced FK | Source corrected but NOT PostgreSQL-qualified; applied-old-v5 must STOP for a separate forward migration; governed environment status not attested |
+| QA-012 | MEDIUM | Corrected v5 adds scoped GRN/invoice parent-child composite keys, invoice item identity, physical receipt warehouse/location and lot, issue/return header and line keys, stock command site/warehouse/item/receipt keys, and transaction-locked typed-document/original-issue triggers | `tests/pg/hft_qa_correct_002_schema_negative.sql` is prepared but NOT RUN; real constraint catalog and cross-entity evidence required |
+| QA-013 | MEDIUM | Fresh-only v5 preflight blocks existing operational balances, serials, movement history, custody, approvals/Holds, GRNs, audit and counts; no synthetic delivery IDs or silent data rewriting; validates both originally `NOT VALID` receipt constraints | Separate historical seed/assertion SQL prepared, NOT RUN. Governing historical data migration requires separate MASTER scope and independently validated provenance |
+| ENG-SCOPE-002 | HIGH | `lib/hft/persistence/post-stock-command.ts` includes authenticated `site_id` in `hft.stock_command` insert to match new composite warehouse/site FK | Synthetic TS protocol tests pass; no real insert or server issuer integration tested |
+| ENG-MIG-002 | HIGH | `tools/hft_apply_migrations.py` explicitly pins legacy v5 bytes and selects independently checked corrected v5 in an isolated disposable DB. Existing original v5 checksum is refused; 0001–0004 remain unchanged | 5 Python migration-contract tests PASS locally; no psql or authorized database |
+| ENG-ENV-002 | CRITICAL BLOCK | No reviewed `package-lock.json`, npm install, full lint/build, approved PostgreSQL host, real migration evidence, CI, browser E2E or backup/restore | Local 60 synthetic Node tests PASS; 5 Python tests PASS; affected subtree strict TypeScript PASS; actual database 0 tests. Full application and PostgreSQL NO-GO |
+
+- **No controlled deletion, production deployment, source-of-record amendment, real employee/inventory data, ERPNext posting or PR merge performed.**
+- **Independent Chat 17 review requested via** `docs/engineering/HFT-R1-QA-REREVIEW-003-REQUEST.md`; no separate AI reviewer has yet returned findings at this commit.
+- **Release:** REQUEST CHANGES / NO-GO. Do not claim QA-011/012/013 closed without independent PostgreSQL and historical-data verification.
