@@ -1,7 +1,7 @@
 /** Nonproduction deterministic posting model. NOT a transactional database adapter. */
 import { parseQuantity, requirePositive, requireSerializedUnit, formatQuantity } from './quantity.ts';
 import { authorize, type VerifiedPrincipal } from '../security/authorization.ts';
-import { validateEmployee, validateItem, validateWarehouse, type Employee, type Item, type Warehouse } from './masters.ts';
+import { validateEmployee, requireActiveItem, requireActiveWarehouse, type Employee, type Item, type Warehouse } from './masters.ts';
 
 export type StockCommand = Readonly<{
   commandId: string;
@@ -103,8 +103,8 @@ export function applyCommand(state: EngineState, command: StockCommand, principa
       gate.legalEntityId !== c.legalEntityId || gate.siteId !== c.siteId || gate.warehouseId !== c.warehouseId) throw new Error('APPROVAL_REQUIRED');
   if (gate.blockingHolds.length) throw new Error('BLOCKING_HOLD');
   if (principal?.subject === gate.approvedBy) throw new Error('SEGREGATION_OF_DUTIES');
-  const item = validateItem(masters.item);
-  const warehouse = validateWarehouse(masters.warehouse);
+  const item = requireActiveItem(masters.item);
+  const warehouse = requireActiveWarehouse(masters.warehouse);
   if (item.legalEntityId !== c.legalEntityId || item.itemCode !== c.itemCode ||
       warehouse.legalEntityId !== c.legalEntityId || warehouse.siteId !== c.siteId || warehouse.warehouseId !== c.warehouseId) {
     throw new Error('MASTER_SCOPE_MISMATCH');
