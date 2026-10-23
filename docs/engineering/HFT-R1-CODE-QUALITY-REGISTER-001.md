@@ -110,3 +110,22 @@ Reviewed precursor: `f2bf6a3f237b0d61001d4a2cd9194e440501799a`. MASTER directive
 - **No controlled deletion, production deployment, source-of-record amendment, real employee/inventory data, ERPNext posting or PR merge performed.**
 - **Independent Chat 17 review requested via** `docs/engineering/HFT-R1-QA-REREVIEW-003-REQUEST.md`; no separate AI reviewer has yet returned findings at this commit.
 - **Release:** REQUEST CHANGES / NO-GO. Do not claim QA-011/012/013 closed without independent PostgreSQL and historical-data verification.
+
+## EXEC-005 — Canonical migration, approval binding and DB privilege candidate (2026-10-23)
+
+Source baseline: \`76d850ae97658515e91d634801817ae9cdfa6209\`. Directive HFT-R1-ENG-EXEC-005.
+Classification below differentiates committed source fixes from unexecuted PostgreSQL design.
+
+| Finding | Status | Exact source/mitigation | Unqualified obligation |
+|---|---|---|---|
+| QA-013A / QA-013B | SOURCE CORRECTED; DB NOT QUALIFIED | \`db/migrations/0005_hft_quantitative_accounts_receipts.sql\` now contains only the reviewed corrected digest \`01fe977d55540b31cf6a0691e88969ecb01c63e6e25d30c75e5c06a61b70aedf\`. Original invalid digest \`8e38ed17ecd4d2fdc7c3184d2f0ea2100feca67e30fa146b8965cb0c2c4ebc5e\` archived in \`db/provenance/rejected-0005-hft-quantitative-accounts-receipts.sql\`. \`db/migrations/manifest.v1.json\` has exact allowlist/checksums 0001–0005; \`tools/hft_apply_migrations.py\` enforces manifest and refuses unknown SQL, drift, and incompatible DB revision-5 | Real disposable PostgreSQL version/catalog/migration and historical refusal test NOT RUN |
+| QA-012A | CONTRACT IMPLEMENTED; DB BINDING OPEN | \`lib/hft/security/approval-binding.ts\` + \`tests/unit/hft-approval-binding.test.ts\`. Stable approval tuple binds doc/action/revision, entity/site/warehouse/item/location/lot, exact quantity, actor/approver, policy generation, and inspection evidence. 6 targeted tests PASS in isolated local Node staging including approved 2 → attempted 4 rejection | Persist approved payload/actual source with protected DB transaction and enforce from a single trusted write path; candidate SQL review still required |
+| QA-012B | NONEXECUTABLE CANDIDATE; HIGH OPEN | \`db/security/HFT-R1-APPROVAL-AUTHORITY-NONEXECUTABLE-CANDIDATE.sql\` proposes DB-side validation, protected source revision generation, actor login mapping, Hold epoch and exact canonical hash with CHECK/trigger path | No active migration, DB tests or qualified SECURITY DEFINER posting procedure. Current test adapter retains privileged per-table SQL. DO NOT enable production runtime writes |
+| QA-014 | NONEXECUTABLE CANDIDATE; HIGH OPEN | \`db/security/HFT-R1-DISPOSABLE-ROLE-BOOTSTRAP-REVIEW.sql\` proposes nonlogin least-privilege runtime and audit reader roles; \`tests/pg/hft_r1_runtime_grant_catalog.sql\` and \`tests/pg/hft_r1_direct_dml_negative.sql\` specify actual denied-role proof | PostgreSQL catalog grants, table ownership, trigger tampering denial, row-level site isolation and attacker DML not executed. No claim of qualified RLS |
+| APP-LOCK | CRITICAL OPEN | Pinned package.json exists, but reviewed \`package-lock.json\` not present. Local \`npm ci --offline\` fails EUSAGE: lockfile absent | Trusted registry/cache access, lockfile review, clean install, full application lint/typecheck/build, vulnerability/license/secret scans |
+| PG-QUAL | CRITICAL OPEN | Disposable PostgreSQL 15+ runtime not present here; \`psql --version\` exit 127 | Operator-approved PG host, separate migration/runtime/audit roles, catalog evidence, real postings/concurrent issues/reconciliation/rollback/uncertain COMMIT, and historical-data refusal |
+| REV-005 | HIGH OPEN | QA/architecture/security/release reviewers must independently inspect exact Git SHA and corrected candidate source | Chat 17 and workstreams 10/11/13 review dispositions, human approvals, MASTER stock authority and U-09 remain pending |
+
+**Evidence standard:** This turn executed **6/6 targeted Node synthetic approval-binding tests** (Node 22.16.0) in an isolated reconstructed test workspace, not a full GitHub checkout. \`npm ci --offline\` failed EUSAGE due absent lockfile. \`psql\` unavailable. Full repository tests, Python canonical manifest test suite, database acceptance and build were **not executed** from the exact latest SHA. Earlier reported tests from other increments remain historical only.
+
+**Release:** PRODUCTION NO-GO. PR #11 remains DRAFT and unmerged. Do not apply review-only security SQL or import real records.
