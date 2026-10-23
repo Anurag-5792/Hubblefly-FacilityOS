@@ -4,6 +4,8 @@
  * Must use a new connection to the same attested isolated database.
  */
 import { createHash } from 'node:crypto';
+import { stockRequestFingerprint } from './command-fingerprint.ts';
+export { stockRequestFingerprint } from './command-fingerprint.ts';
 import type { StockCommand, PostResult } from '../domain/ledger.ts';
 import { assertVerifiedRequestOperator, type VerifiedRequestOperator } from '../security/verified-request.ts';
 import { withIsolatedPgTransaction, type PgPool, type IsolatedPgEnvironment } from './isolated-pg-transaction.ts';
@@ -14,12 +16,6 @@ type Stored = { command_id: string; payload_sha256: string; actor_subject: strin
 export type CommitReadback =
   | Readonly<{ state: 'COMMITTED_VERIFIED'; result: PostResult }>
   | Readonly<{ state: 'INDETERMINATE_NOT_FOUND'; automaticRetryAllowed: false }>;
-
-export function stockRequestFingerprint(c: StockCommand, actor: string): string {
-  return createHash('sha256').update(JSON.stringify([actor,c.commandId,c.idempotencyKey,c.kind,c.legalEntityId,c.siteId,
-    c.warehouseId,c.itemCode,c.quantity,c.sourceDocumentId,c.sourceActionKey,c.expectedBalanceVersion,
-    c.employeeId??'',c.originalIssueId??'',c.serialNo??'',c.batchNo??'',c.condition??''])).digest('hex');
-}
 
 export async function reconcileIsolatedCommand(pool: PgPool, env: IsolatedPgEnvironment,
   c: StockCommand, operator: VerifiedRequestOperator): Promise<CommitReadback> {

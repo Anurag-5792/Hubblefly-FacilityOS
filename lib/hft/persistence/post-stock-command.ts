@@ -11,6 +11,7 @@ import { parseQuantity } from '../domain/quantity.ts';
 import type { Item, Employee, Warehouse } from '../domain/masters.ts';
 import { authorize, type VerifiedPrincipal } from '../security/authorization.ts';
 import { assertVerifiedRequestOperator, type VerifiedRequestOperator } from '../security/verified-request.ts';
+import { stockRequestFingerprint } from './command-fingerprint.ts';
 import { withIsolatedPgTransaction, type PgPool, type PgQueryClient,
   type IsolatedPgEnvironment } from './isolated-pg-transaction.ts';
 
@@ -38,11 +39,6 @@ async function optional<T extends Row>(q: PgQueryClient, sql: string, parameters
   return result.rows[0] ?? null;
 }
 const sha256=(text:string) => createHash('sha256').update(text).digest('hex');
-function fingerprint(c: StockCommand, actor: string):string {
-  return sha256(JSON.stringify([actor,c.commandId,c.idempotencyKey,c.kind,c.legalEntityId,c.siteId,
-    c.warehouseId,c.itemCode,c.quantity,c.sourceDocumentId,c.sourceActionKey,c.expectedBalanceVersion,
-    c.employeeId??'',c.originalIssueId??'',c.serialNo??'',c.batchNo??'',c.condition??'']));
-}
 function canonicalKey(c: StockCommand): string { return JSON.stringify([c.legalEntityId,c.siteId,c.warehouseId,c.itemCode,c.batchNo||'',c.serialNo||'']); }
 function requireIdentifier(v: string): void {
   if (typeof v !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/.test(v)) throw new Error('POSTING_IDENTIFIER_INVALID');
@@ -112,7 +108,7 @@ export async function postIsolatedStockCommand(pool: PgPool, env: IsolatedPgEnvi
   requireIdentifier(verifiedSubject); requireIdentifier(command.commandId);
   requireIdentifier(command.idempotencyKey); requireIdentifier(command.sourceDocumentId);
   requireIdentifier(command.sourceActionKey);
-  const payloadHash=fingerprint(command,operator.subject);
+  const payloadHash=stockRequestFingerprint(command,operator.subject);
   return withIsolatedPgTransaction(pool,env,async q=>{
     const c=command;
     await q.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',
