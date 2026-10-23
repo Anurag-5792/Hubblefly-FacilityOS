@@ -17,8 +17,8 @@ SQL_DIR = ROOT / "db" / "migrations"
 MANIFEST = SQL_DIR / "manifest.v1.json"
 PROVENANCE_0005 = ROOT / "db/provenance/rejected-0005-hft-quantitative-accounts-receipts.sql"
 LEGACY_0005_SHA256 = "8e38ed17ecd4d2fdc7c3184d2f0ea2100feca67e30fa146b8965cb0c2c4ebc5e"
-PATTERN = re.compile(r"^([0-9]{4})_hft_[a-z0-9_]+\\.sql$")
-WRAPPER = re.compile(r"\\A(?:\\s*--[^\\n]*\\n)*\\s*BEGIN;\\s*(.*?)\\s*COMMIT;\\s*\\Z", re.S)
+PATTERN = re.compile(r"^([0-9]{4})_hft_[a-z0-9_]+\.sql$")
+WRAPPER = re.compile(r"\A(?:\s*--[^\n]*\n)*\s*BEGIN;\s*(.*?)\s*COMMIT;\s*\Z", re.S)
 
 def validate_environment(env: dict[str, str]) -> tuple[str, str]:
     if env.get("NODE_ENV") == "production" or env.get("HFT_ENVIRONMENT") == "production":
