@@ -285,7 +285,7 @@ CREATE OR REPLACE FUNCTION hft.enforce_bound_stock_command_v1()
 RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE a hft.bound_stock_approval%ROWTYPE;
  policy_epoch bigint; source_revision bigint; source_approver text;
- source_qty bigint; role_actor text;
+ source_qty bigint; role_actor text; target_employee text;
 BEGIN
  PERFORM pg_advisory_xact_lock(hashtextextended(
   'HFT:GATE:'||NEW.legal_entity_id||':'||NEW.site_id||':'||NEW.warehouse_id,0));
@@ -307,10 +307,25 @@ BEGIN
  IF policy_epoch IS NULL OR policy_epoch<>NEW.policy_generation THEN
    RAISE EXCEPTION 'DATABASE_POLICY_GENERATION_STALE';
  END IF;
+ -- Resolve employee from the trusted persisted typed source, not HTTP input.
+ IF NEW.kind='ISSUE' THEN
+   SELECT employee_id INTO target_employee FROM hft.material_issue
+   WHERE id::text=NEW.source_document_id AND legal_entity_id=NEW.legal_entity_id
+   AND warehouse_id=NEW.warehouse_id FOR SHARE;
+ ELSIF NEW.kind='RETURN' THEN
+   SELECT mi.employee_id INTO target_employee
+   FROM hft.material_return mr JOIN hft.material_issue mi ON mi.id=mr.issue_id
+   WHERE mr.id::text=NEW.source_document_id AND mi.legal_entity_id=NEW.legal_entity_id
+   AND mi.warehouse_id=NEW.warehouse_id FOR SHARE OF mr,mi;
+ END IF;
+ IF NEW.kind IN ('ISSUE','RETURN') AND target_employee IS NULL THEN
+   RAISE EXCEPTION 'POSTING_EMPLOYEE_SCOPE_MISSING';
+ END IF;
  PERFORM 1 FROM hft.stock_hold
  WHERE legal_entity_id=NEW.legal_entity_id AND site_id=NEW.site_id
  AND warehouse_id=NEW.warehouse_id AND active=true
  AND (item_code IS NULL OR item_code=NEW.item_code)
+ AND (employee_id IS NULL OR employee_id=target_employee)
  AND (source_document_id IS NULL OR source_document_id=NEW.source_document_id)
  FOR SHARE;
  IF FOUND THEN RAISE EXCEPTION 'DATABASE_BLOCKING_HOLD'; END IF;
