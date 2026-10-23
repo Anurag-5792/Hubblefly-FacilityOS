@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseQuantity, formatQuantity } from '../../lib/hft/domain/quantity.ts';
-import { validateEmployeeCsv } from '../../lib/hft/domain/masters.ts';
+import { validateEmployeeCsv, validateItem, requireActiveItem } from '../../lib/hft/domain/masters.ts';
 import { assertSecureStartup, authorize, type VerifiedPrincipal } from '../../lib/hft/security/authorization.ts';
 import { applyCommand, emptyEngineState, type StockCommand, type TrustedApprovalGate, type TrustedMasterSnapshot } from '../../lib/hft/domain/ledger.ts';
 
@@ -36,6 +36,10 @@ test('employee CSV validates identity and duplicate, preserving inactive records
   const r=validateEmployeeCsv(csv,'HFT');
   assert.equal(r.valid.length,2); assert.equal(r.errors[0].code,'EMPLOYEE_ID_DUPLICATE');
   assert.equal(r.valid[1].active,false);
+});
+test('inactive master can be retained but is blocked from posting', () => {
+  assert.equal(validateItem({...masters.item,active:false}).active,false);
+  assert.throws(()=>requireActiveItem({...masters.item,active:false}),/ITEM_INACTIVE/);
 });
 test('security blocks production and cross-entity or untrusted actors', () => {
   assert.throws(()=>assertSecureStartup({NODE_ENV:'production'}),/PRODUCTION_STARTUP_NOT_AUTHORIZED/);
