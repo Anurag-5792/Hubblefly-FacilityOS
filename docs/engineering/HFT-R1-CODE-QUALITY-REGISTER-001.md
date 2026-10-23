@@ -41,3 +41,14 @@ Open gates: no actual PostgreSQL instance, PostgreSQL migrations not executed, r
 - Dependency blocking integration: PostgreSQL server/psql executable/isolated database are absent in current execution container, and application dependencies are not installed. Build/lint/fully clean Git checkout pending.
 - Before the next bounded implementation: deploy a disposable PG15+ service under authorized local control, install pinned adapter, run migrations and real-db positive/negative and concurrency tests; obtain independent architecture, security and QA review.
 - Security limitation: environment variables and database naming conventions are preflight checks, not authorization for live use or proof of infrastructure identity. Production remains NO-GO.
+
+
+## Addendum — CQ-16 (2026-10-23), bounded security hardening
+
+- **Finding CQ-16 / High (REFACTOR):** `lib/hft/security/authorization.ts::assertSecureStartup` allowed absent/unrecognized authentication source and unspecified HFT environment when not in production. This was an unsafe default for the isolated engineering runtime. Main baseline `ae5d60909bbc6ec1b90e82ad5511351d55066977`; engineering precursor `c08892c490e09456f43a3cc7264ac0846c52fb18`.
+- **Change:** require explicit `HFT_AUTH_SOURCE=verified` and `HFT_ENVIRONMENT=development|test`; reject preview/sample operational sources; preserve strict production and live-posting prohibitions. No legacy security module was copied. Updated PostgreSQL synthetic-client test fixture to supply explicit isolated auth/environment identity, and added `tests/unit/hft-secure-config.test.ts`.
+- **Dependency impact:** isolated PostgreSQL envelope invokes `assertSecureStartup` and now rejects unspecified environment. Verified identity is a **configuration contract only**; a production-capable identity adapter and API integration have not been implemented. This change must not be described as having secured legacy routes.
+- **Regression evidence:** reconstructed affected source/test staging; `node --experimental-strip-types --test tests/unit/*.test.ts`: **32 passed / 0 failed**. Node v22.16.0. Tests use synthetic PG client and do not demonstrate real database behavior, application build or production readiness.
+- **Deferred CQ-09:** floating Next/React dependencies and absent lockfile still block reproducible full build. No unauthorized dependency upgrades or broad legacy deletion attempted.
+- **Independent code review:** outstanding. Security / architecture / QA independent AI reviews of final exact SHA remain required.
+- **Release:** NO-GO. Stock posting gate remains blocked; no production use approved.
