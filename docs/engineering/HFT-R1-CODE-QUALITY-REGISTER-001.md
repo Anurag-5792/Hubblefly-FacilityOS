@@ -52,3 +52,13 @@ Open gates: no actual PostgreSQL instance, PostgreSQL migrations not executed, r
 - **Deferred CQ-09:** floating Next/React dependencies and absent lockfile still block reproducible full build. No unauthorized dependency upgrades or broad legacy deletion attempted.
 - **Independent code review:** outstanding. Security / architecture / QA independent AI reviews of final exact SHA remain required.
 - **Release:** NO-GO. Stock posting gate remains blocked; no production use approved.
+
+## HFT-R1-ENG-EXEC-003 — Nonproduction posting candidate (2026-10-23)
+
+- **CQ-20 / REFACTOR / OPEN:** `db/migrations/0001-0004`. New `0004_hft_posting_authority.sql` adds per-warehouse persisted actor grants, SoD-constrained approvals, Holds, mutation gating, append-only outcomes and deferred command completeness. All migrations remain **UNEXECUTED** against PostgreSQL; external `psql` unavailable.
+- **CQ-21 / REPLACE / OPEN:** `lib/hft/persistence/post-stock-command.ts`. Isolated candidate loads persisted ACL, active Holds, approvals, source documents and masters, then applies existing deterministic `applyCommand`. Proposed serializable changes persist balances, journal legs, custody, audit-outbox and idempotency in one transaction. **Not database-qualified**; no HTTP endpoint or live mode permitted.
+- **CQ-22 / REFACTOR / OPEN:** `tools/hft_apply_migrations.py`. New guarded, ordered SHA256-revision migration runner. Local Python contract tests passed; PostgreSQL version identity, SQL execution, failure atomicity and rollback still unverified. Requires local non-superuser and disposable DB.
+- **CQ-23 / REFACTOR / OPEN:** `package.json`. Adds executable Node/Python/unit/typecheck scripts. Deprecation of `next lint`, missing lockfile, uninstalled dependencies and blocked registry prevent full clean build/lint/audit. Do not claim reproducibility.
+- **CQ-24 / DEFER / HIGH:** No independent trust-boundary verification of `NonproductionOperator`, no real DB isolation, location_key unavailable in adapter, single-command material issue, source/receipt attachment validation incomplete, no protected audit-integrity anchor or disaster-recovery proof.
+- **CQ-25 / KEEP / SYNTHETIC ONLY:** `tests/unit/hft-postgres-posting-contract.test.ts`, `tests/test_migrator.py` check SQL protocol/control flow and fail-closed migrator preconditions. They **do not** assert PostgreSQL ACID behavior.
+- **Evidence:** after reconciliation with concurrent authorized security hardening at `1c3c2b743b3c26cb95ddee68d8aad62873871248`, local source suite **35/35 PASS**, Python migration contract **2/2 PASS**, strict TS affected subtree **PASS**. `npm ci`, full build/lint, npm audit and real PostgreSQL remain blocked. No independent AI reviewer sign-offs. **PRODUCTION NO-GO.**

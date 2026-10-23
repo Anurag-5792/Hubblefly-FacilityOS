@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:unit": "node --experimental-strip-types --test tests/unit/*.test.ts",
+    "test:migrations:contract": "python -m unittest discover -s tests -p 'test_*.py'",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "next": "^15.0.0",
