@@ -1,27 +1,17 @@
-/** Inventory base-unit quantities use exact millionths, never IEEE-754 floats. */
-export const SCALE = 1_000_000n;
-export type MicroQty = bigint & { readonly __microQty: unique symbol };
-
-export function parseQuantity(value: string): MicroQty {
-  if (typeof value !== 'string' || !/^(0|[1-9]\d{0,14})(?:\.\d{1,6})?$/.test(value)) {
-    throw new Error('QUANTITY_INVALID');
-  }
-  const [whole, decimal = ''] = value.split('.');
-  const result = BigInt(whole) * SCALE + BigInt(decimal.padEnd(6, '0') || '0');
-  return result as MicroQty;
+/** Exact micro-unit quantity representation; 6 decimal places. */
+export function parseQuantity(s: string): bigint {
+  if (typeof s !== 'string' || !/^(0|[1-9][0-9]*)(\.[0-9]{1,6})?$/.test(s)) throw new Error('QUANTITY_INVALID');
+  const [whole, fraction = ''] = s.split('.');
+  const micro = BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0,6));
+  if (micro < 0n || micro > 9_223_372_036_854_775_807n) throw new Error('QUANTITY_OVERFLOW');
+  return micro;
 }
-
-export function formatQuantity(value: bigint): string {
-  const negative = value < 0n;
-  const v = negative ? -value : value;
-  const suffix = (v % SCALE).toString().padStart(6, '0').replace(/0+$/, '');
-  return `${negative ? '-' : ''}${v / SCALE}${suffix ? '.' + suffix : ''}`;
+export function formatQuantity(micro: bigint): string {
+  if (micro < 0n) throw new Error('QUANTITY_INVALID');
+  const whole = micro / 1_000_000n;
+  const decimal = (micro % 1_000_000n).toString().padStart(6,'0').replace(/0+$/,'');
+  return decimal ? `${whole}.${decimal}` : String(whole);
 }
-
-export function requirePositive(value: MicroQty): void {
-  if (value <= 0n) throw new Error('QUANTITY_MUST_BE_POSITIVE');
-}
-
-export function requireSerializedUnit(value: MicroQty): void {
-  if (value !== SCALE) throw new Error('SERIAL_QUANTITY_MUST_EQUAL_ONE');
+export function requireSerializedUnit(quantity: bigint): void {
+  if (quantity !== 1_000_000n) throw new Error('SERIAL_QUANTITY_MUST_EQUAL_ONE');
 }
