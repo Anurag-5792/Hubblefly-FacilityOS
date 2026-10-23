@@ -32,3 +32,38 @@ Status: OPEN; NOT a claim that repository-wide static analysis has completed. Ba
 - Dependency vulnerability scan, JavaScript lockfile, lint and production build not yet performed.
 - Review/test evidence must reference exact new commit SHA.
 - Release status NO-GO.
+
+## 23 October 2026 — Incremental evidence-based scan and cleanup
+
+Repository-wide Git tree inventory: 217 blobs, including 175 TS/TSX/Python source files at legacy donor cf5d45d1c5c1823e4a2d34dd3465bad9f37d9271. Source-content inspection covered selected application/domain files, 24 high-risk library/Python implementation files, both legacy workflows, package configuration and known DocType schemas. This is NOT yet a full reachability/call-graph analysis of every source file. No file was classified dead solely because it was old.
+
+| ID | Exact source | Action | Reason, dependency and authorization |
+|---|---|---|---|
+| CQ-019 | .github/workflows/sync-frappe-deploy.yml::mirror (legacy) | DEFER | On legacy-branch push it force-pushes a deployment subtree; existing deployment linkage may rely on the branch. Never execute/delete without 13 and MASTER review. |
+| CQ-020 | frappe_app/facility_os/facility_os/api/printing.py::approve_print_job and api/documents.py::transition (legacy) | DEFER | Operational approval patterns are useful; mutators use ignore_permissions and manual commits. No demonstrated per-entity object-scoped locking. Separate 10/11 review required. |
+| CQ-021 | lib/documents/provider.ts::sampleDocument,previewPrintBatch and sampleBoxCard (legacy) | DEFER | Multiple synthetic representations and preview print flows coexist with Frappe operations. Actual consumers/persisted print jobs require graph tracing and regression before cleanup. |
+| CQ-022 | lib/facility/provider.ts, lib/mis/provider.ts, lib/reconciliation/provider.ts, lib/sync/provider.ts (legacy) | DEFER | Provider switches allow samples/Frappe reads; preserve legacy/Phase 2 reference, never import fallback into R1 production. |
+| CQ-023 | lib/hft/domain/masters.ts::validateItem,validateWarehouse,validateSupplier (engineering) | REFACTOR — COMPLETE | Separated master validity from active-transaction eligibility; inactive historical records can be retained but cannot transact. Local regression executed. |
+| CQ-024 | lib/hft/domain/masters.ts::requireAvailableQuantityString (engineering draft) | REMOVE — COMPLETE | Unnecessary quantity helper duplicating dedicated quantity domain; removed before promotion. |
+| CQ-025 | lib/hft/domain/ledger.ts::applyCommand (engineering) | KEEP — NONPRODUCTION | Pure deterministic test model, not an authoritative database adapter. No API may invoke it for real stock posting. |
+| CQ-026 | middleware.ts (engineering) | KEEP — CANDIDATE | R1 production/active-HFT-API route gate deliberately returns 503. Runtime/build validation pending. |
+| CQ-027 | db/migrations/0001_hft_masters.sql through 0003_hft_workflows.sql (engineering) | KEEP — CANDIDATE | PostgreSQL v15+ schema authored but not applied. Migration upgrade, integrity and concurrency tests remain mandatory. |
+| CQ-028 | lib/hft/domain/grn.ts and opening-stock.ts (engineering) | KEEP — NONPOSTING | Shared validated business contracts; no actual GRN or opening-balance transaction can be posted. |
+| CQ-029 | app/documents/grn/page.tsx and app/inventory/scan/camera-scanner.tsx (legacy) | REUSE CANDIDATE | Frontend components require independent assessment and exact-source tests before copying; no changes made. |
+| CQ-030 | Legacy package.json and missing npm lockfile | REPLACE — PENDING | Dependency audit and version lock are not performed; do not label build reproducible. |
+
+### Dependency and architectural findings
+- Legacy package.json contains version ranges for Next.js/React/TypeScript; no dependency lockfile in the verified donor tree. Vulnerability status remains UNVERIFIED, not claimed safe.
+- Three sample-provider families and additional mixed preview/persistent provider switches are present in the old library architecture. These are deliberately excluded from the new posting domain.
+- The legacy Frappe role enforcement and API mutations remain ERPNext/Frappe-coupled. Standalone Phase 1 R1 paths must not depend on this authority.
+- No production credentials, employee records, inventory transactions or live integrations were imported into the engineering branch.
+- Full import/reachability proof, dependency scanning, migrations applied against PostgreSQL, real-browser E2E, production build and isolated independent AI reviews remain OPEN.
+
+### Actual local checks (synthetic data only)
+- Node.js v22.16.0 built-in TypeScript test runner: 12 of 12 committed smoke/workflow tests PASS after code changes.
+- Strict domain TypeScript typecheck with global tsc v5.8.3: PASS.
+- Local PostgreSQL server, Docker, package-lock-backed Next build, full lint suite, independent agent review: NOT AVAILABLE/NOT EXECUTED.
+- No GitHub Actions were initiated; $1 Actions cap setting remains UNVERIFIED.
+
+### Controlled cleanup policy
+Legacy, main and deployment branches remain unchanged; no destructive cleanup, data deletion or migration rewriting has been authorized. Deferred cleanup owner: 16 engineering, reviewed as appropriate by 04/05/10/11/13 and approved by MASTER. Production disposition: NO-GO.
