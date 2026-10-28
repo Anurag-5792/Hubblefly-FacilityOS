@@ -1,0 +1,14 @@
+-- P2-SEC-T06 — SOURCE ONLY; NOT RUN. Real test must use actual non-owner
+-- runtime login, qualified single writer, synthetic posted ISSUE fragments.
+-- Fixture contracts: RECEIVE 5; ISSUE fragment A 2; ISSUE fragment B 3;
+-- reject issue fragment C 1 (original 5 ceiling); RETURN fragment A1 1;
+-- RETURN fragment A2 1 (custody for original ISSUE-A exhausted), and reject
+-- return A3 1. Check remaining custody B=3, available per transfers,
+-- source authorized counters, one seal/outbox/outcome/nonce per new command.
+-- Negative: direct SQL stock_entry insert and direct seal function call denied.
+-- Negative: wrong buckets/signs, extra/missing ledger legs, mismatched audit
+-- actor/source/quantity, and wrong historical accountVersion all fail at COMMIT
+-- or SET CONSTRAINTS ALL IMMEDIATE, not merely ROLLBACK-only queries.
+-- Negative: deliberate lost COMMIT returns INDETERMINATE until fresh, bounded
+-- readback verifies signed command fingerprint, sealed immutable facts.
+SELECT 'P2_SEC_T06_NOT_EXECUTED_FIXTURE_REQUIRED' AS test_authoring_marker;

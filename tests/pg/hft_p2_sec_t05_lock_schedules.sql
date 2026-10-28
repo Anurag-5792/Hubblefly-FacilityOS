@@ -1,0 +1,12 @@
+-- P2-SEC-T05 — nonexecuted two-connection schedule specification.
+-- Client A and B must exercise opposing document/account source-lock orders
+-- on the SAME disposable data. A and B use independent actual PG sessions.
+-- A: sign approved ISSUE fragment X, acquire GATE then STOCK then SOURCE.
+-- B: sign approved RETURN/ISSUE fragment Y with opposite source ordering.
+-- Record backend PID, order and SQLSTATE. If PG signals deadlock 40P01 or
+-- serialization anomaly 40001, ensure full rollback, destroy connection if
+-- cleanup uncertain, and do not blindly retry/reuse a consumed nonce.
+-- Ambiguous COMMIT: lose response after COMMIT and invoke qualified readback
+-- on a fresh attested connection; verify no second stock movement.
+-- Accept only strict serializable state, balances, custody, seal/audit counts.
+SELECT 'P2_SEC_T05_NOT_EXECUTED_SCHEDULER_REQUIRED' AS test_authoring_marker;
