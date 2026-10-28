@@ -146,3 +146,19 @@ Classification below differentiates committed source fixes from unexecuted Postg
 **Important execution limitation:** No KES checkout is mounted in the active Chat 16 container. Windows local HEAD/unpushed changes could not be reconciled. Source changes were additive and committed with an exact expected remote SHA, without reset, replacement checkout, force push, or changes to the owner's workstation. KES custody check remains required before pulling these remote changes.
 
 **Residual:** H3–H5 are **NOT CLOSED** by synthetic/static source tests; Package 2 actor/approval/role integration and real-PostgreSQL authorization remain mandatory. **Production NO-GO.**
+
+## HFT-R1-P1-QA-CORRECT-001 — H3/H5 source correction (2026-10-28)
+
+**Reviewed parent:** `6a08d2bc7e1a79007b3234876f75d343cb1ad558`. **Corrective source:** `57b0f5499e57460567d7951f6e20aa27580201ef`.
+Old 0006 SHA-256 `f6b92c89468b59b596dad6fa27453f78ccfeb3a2c578ed6d125cde54bbf5f371` remains recoverable in Git history; new canonical SHA-256 `664c7fcb57bbc699cc8cd727046e8a1048ecb89792d27abe1dd3aef024754044` is pinned in the manifest. No 0001–0005 or rejected-v5 source changes.
+
+| Finding | State | Source | Evidence / unresolved |
+|---|---|---|---|
+| P1-H3-01 HIGH | SOURCE CORRECTED, NOT ACCEPTED | Corrected `0006` exact ordered leg/outcome bijection, source/action/actor checks, sealed historic poststate; adapter audit includes available/version; durable readback invokes exact DB verifier | New SQL negative cases authored. Actual PostgreSQL tests NOT RUN. Chat 17 pending |
+| P1-H3-02 HIGH | SOURCE CORRECTED, NOT ACCEPTED | Pure SELECT-only `assert_command_seal_v1`, separate posting/deferred locks; read-only reconciliation SQL | Positive RECEIVE+ISSUE READ ONLY SQL authored. Not run |
+| P1-H5-01 HIGH | SOURCE CORRECTED, NOT ACCEPTED | Deferred `hft.assert_grn_receipt_cumulative_v2` checks unique posted quantities, authorized QC evidence and GRN status; unposted receipt edits preserved | Source tests 13/13 PASS; 2+3 real PostgreSQL fixture authored NOT RUN |
+| H4 HIGH | SOURCE ACCEPTED PREVIOUSLY, UNCHANGED | `deny_stock_account_identity_change_v1` verified byte-identical | Database DML and reconstruction NOT RUN |
+| MIGRATION-0006 | CONDITIONAL SOURCE CORRECTION | Old version recorded; migrator rejects old applied digest and requires separate forward revision. No database migration performed | MASTER indicates no authorized 0006 execution; independent governed DB inventory is unavailable |
+| QUALITY | PARTIAL | Only bounded 13-file correction; no whole repo rescanning, no new code path or branch; production deny preserved | Full Node/CI/typecheck/build, dependency lock, browser, real DB, security/QA and recovery remain blocked |
+
+**Release:** REQUEST CHANGES until independent source re-review and real PostgreSQL qualification. PRODUCTION NO-GO.
