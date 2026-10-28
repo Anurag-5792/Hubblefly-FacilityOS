@@ -46,6 +46,8 @@ class InvocationVectors(unittest.TestCase):
   self.assertIn('GRANT EXECUTE ON FUNCTION hft.post_stock_command_protected_v1(jsonb,jsonb)',sql)
   self.assertIn('REVOKE EXECUTE ON FUNCTION hft.seal_stock_command_v1(uuid) FROM PUBLIC,hft_r1_app_runtime',sql)
   self.assertNotIn('CREATE EXTENSION',sql)
+  self.assertIn('GRANT EXECUTE ON FUNCTION hft.p2_length_prefixed_v1(text[])',sql)
+  self.assertIn('RETURN ARRAY(SELECT p->>x.field FROM pg_catalog.unnest(names) AS x(field))',sql)
  def test_one_nonce_per_proof_and_current_approval_and_hold_checks(self):
   sql=SQL.read_text()
   for check in ('PRIMARY KEY(key_version,nonce)', 'P2_INVOCATION_PROOF_MAC_INVALID',

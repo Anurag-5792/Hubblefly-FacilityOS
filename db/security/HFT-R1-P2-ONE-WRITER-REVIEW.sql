@@ -348,7 +348,7 @@ BEGIN
     OR (p->>'originalIssueId')='' OR (p->>'inspectionEvidenceId')=''
     OR p->>'condition' NOT IN ('GOOD','DAMAGED','QUARANTINE'))
  THEN RAISE EXCEPTION 'P2_RETURN_SCOPE_INVALID'; END IF;
- RETURN ARRAY(SELECT p->>name FROM pg_catalog.unnest(names) AS name);
+ RETURN ARRAY(SELECT p->>x.field FROM pg_catalog.unnest(names) AS x(field));
 END $$;
 CREATE OR REPLACE FUNCTION hft.p2_length_prefixed_v1(fields text[]) RETURNS bytea
 LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog,pg_temp AS $$
@@ -789,6 +789,11 @@ GRANT SELECT ON hft.legal_entity,hft.site,hft.item,hft.supplier,hft.warehouse,
  hft.posting_fragment TO hft_r1_posting_owner;
 GRANT INSERT ON hft.posting_invocation_nonce,hft.posting_fragment TO hft_r1_posting_owner;
 GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA hft TO hft_r1_posting_owner;
+-- Private SECURITY INVOKER validators are callable ONLY by the vetted
+-- non-login function owner, never by the app runtime or PUBLIC.
+GRANT EXECUTE ON FUNCTION hft.p2_length_prefixed_v1(text[]),
+ hft.p2_payload_fields_v1(jsonb),hft.p2_payload_digest_v1(jsonb),
+ hft.p2_verify_invocation_v1(jsonb,jsonb) TO hft_r1_posting_owner;
 GRANT EXECUTE ON FUNCTION hft.seal_stock_command_v1(uuid) TO hft_r1_posting_owner;
 GRANT EXECUTE ON FUNCTION hft.lock_seal_posting_dependencies_v2(uuid) TO hft_r1_posting_owner;
 GRANT EXECUTE ON FUNCTION hft.assert_command_seal_v1(uuid) TO hft_r1_posting_owner;

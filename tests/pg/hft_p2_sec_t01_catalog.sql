@@ -20,7 +20,8 @@ SELECT n.nspname,pg_catalog.has_schema_privilege('hft_r1_app_runtime',n.oid,'CRE
 SELECT p.oid::pg_catalog.regprocedure AS signature,r.rolname AS owner,p.prosecdef,p.proconfig,
        pg_catalog.has_function_privilege('hft_r1_app_runtime',p.oid,'EXECUTE') AS runtime_execute,
        pg_catalog.has_function_privilege('hft_r1_audit_verify',p.oid,'EXECUTE') AS audit_execute,
-       pg_catalog.has_function_privilege('PUBLIC',p.oid,'EXECUTE') AS public_execute
+       EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) acl
+        WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute
  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
  JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
  WHERE n.nspname='hft' AND p.proname IN
