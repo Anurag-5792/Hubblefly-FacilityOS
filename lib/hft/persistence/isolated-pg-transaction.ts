@@ -6,7 +6,8 @@ export interface PgQueryClient {
   query<Row extends Record<string, unknown> = Record<string, unknown>>(
     text: string, parameters?: readonly (string | number | bigint | boolean | null)[],
   ): Promise<QueryResult<Row>>;
-  release(): void;
+  /** True destroys/discards this pooled connection after unverified cleanup. */
+  release(destroy?: boolean): void;
 }
 export interface PgPool { connect(): Promise<PgQueryClient> }
 export type IsolatedPgEnvironment = Readonly<Record<string, string | undefined>>;
@@ -47,6 +48,7 @@ export async function withIsolatedPgTransaction<T>(
   const client = await pool.connect();
   let begun = false;
   let commitStarted = false;
+  let discard = false;
   try {
     begun = true; // BEGIN response loss may leave a transaction open; attempt ROLLBACK.
     await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -66,11 +68,17 @@ export async function withIsolatedPgTransaction<T>(
   } catch (error) {
     if (begun && !commitStarted) {
       try { await client.query('ROLLBACK'); }
-      catch (rollbackError) { throw new AggregateError([error, rollbackError], 'POSTGRES_ROLLBACK_UNVERIFIED'); }
+      catch (rollbackError) {
+        discard = true;
+        throw new AggregateError([error, rollbackError], 'POSTGRES_ROLLBACK_UNVERIFIED');
+      }
     }
-    if (commitStarted) throw new CommitOutcomeUncertain(error);
+    if (commitStarted) {
+      discard = true;
+      throw new CommitOutcomeUncertain(error);
+    }
     throw error;
   } finally {
-    client.release();
+    client.release(discard);
   }
 }
