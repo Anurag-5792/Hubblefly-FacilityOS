@@ -38,8 +38,17 @@ def validate_environment(env: dict[str, str]) -> tuple[str, str]:
     db = env.get("HFT_TEST_PG_DATABASE", "")
     if not re.fullmatch(r"hft_r1_disposable_[a-z0-9_]{6,40}", db) or env.get("PGDATABASE") != db:
         raise RuntimeError("DISPOSABLE_DATABASE_IDENTITY_INVALID")
-    if env.get("PGHOST") not in ("localhost", "127.0.0.1", "::1") or env.get("PGUSER") != "hft_engineering":
+    if env.get("PGHOST") != "127.0.0.1" or env.get("PGUSER") != "hft_engineering":
         raise RuntimeError("POSTGRES_HOST_OR_ROLE_NOT_AUTHORIZED")
+    if any(env.get(k) for k in ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE",
+                                "PGOPTIONS", "PGTARGETSESSIONATTRS")):
+        raise RuntimeError("AMBIENT_LIBPQ_ROUTING_FORBIDDEN")
+    port = env.get("PGPORT", "")
+    approved = env.get("HFT_APPROVED_PG_PORT", "")
+    if not port.isdecimal() or not approved.isdecimal() or port != approved or (
+       str(int(port)) != port or not 1 <= int(port) <= 65535
+    ):
+        raise RuntimeError("EXACT_APPROVED_POSTGRES_PORT_REQUIRED")
     if shutil.which("psql") is None:
         raise RuntimeError("PSQL_TOOL_NOT_AVAILABLE")
     return db, env["PGUSER"]
@@ -136,7 +145,9 @@ def verify_database_revision_ledger(env: dict[str, str],
 
 def execute_sql(sql: str, env: dict[str, str]) -> str:
     # Password stays in libpq environment/credential store, never argv, logs, or output.
-    process = subprocess.run(["psql", "-X", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-q"],
+    process = subprocess.run(["psql", "-X", "-h", "127.0.0.1", "-p", env["HFT_APPROVED_PG_PORT"],
+                              "-U", "hft_engineering", "-d", env["PGDATABASE"],
+                              "-v", "ON_ERROR_STOP=1", "-A", "-t", "-q"],
                              input=sql, text=True, capture_output=True, env=env, check=False)
     if process.returncode:
         # Do not print arbitrary server errors which may contain sensitive SQL/data.
@@ -175,11 +186,14 @@ def run() -> None:
     plan = revisions()
     actual = execute_sql("SELECT current_database()||'|'||current_user||'|'||"
                          "current_setting('server_version_num')||'|'||"
-                         "(SELECT rolsuper FROM pg_roles WHERE rolname=current_user)::text;", env)
+                         "(SELECT rolsuper FROM pg_roles WHERE rolname=current_user)::text||'|'||"
+                         "inet_server_addr()::text||'|'||inet_server_port()::text;", env)
     fields = actual.split("|")
-    if len(fields) != 4 or fields[0] != db or fields[1] != role or int(fields[2]) < 150000 or fields[3] != "false":
+    if (len(fields) != 6 or fields[0] != db or fields[1] != role
+        or int(fields[2]) < 150000 or fields[3] != "false"
+        or fields[4] != "127.0.0.1" or fields[5] != env["HFT_APPROVED_PG_PORT"]):
         raise RuntimeError("POSTGRES_IDENTITY_VERSION_OR_PRIVILEGE_MISMATCH")
-    print(f"POSTGRES_VERSION_NUM={fields[2]} DB_IDENTITY_VERIFIED=true SUPERUSER=false")
+    print(f"POSTGRES_VERSION_NUM={fields[2]} DB_IDENTITY_VERIFIED=true SUPERUSER=false LOOPBACK=127.0.0.1 PORT={fields[5]}")
     verify_database_revision_ledger(env, plan)
     for version, path, sha, ddl in plan:
         # A single database transaction covers DDL, checksum verification and revision recording.
