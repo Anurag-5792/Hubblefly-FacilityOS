@@ -106,7 +106,7 @@ class CanonicalMigrationContract(unittest.TestCase):
                      HFT_POSTING_RUN_MODE="ISOLATED_DB_TEST",
                      HFT_TEST_PG_DATABASE="hft_r1_disposable_synthetic",
                      PGDATABASE="hft_r1_disposable_synthetic",
-                     PGUSER="hft_engineering",PGHOST="127.0.0.1")
+                     PGUSER="hft_engineering",PGHOST="127.0.0.1",PGPORT="54329",HFT_APPROVED_PG_PORT="54329")
         cases=[dict(NODE_ENV="production"),dict(HFT_ENVIRONMENT="production"),
                dict(PGUSER="hft_app_runtime"),dict(PGHOST="example.com"),
                dict(PGDATABASE="hft_business"),dict(HFT_AUTH_SOURCE="preview"),
