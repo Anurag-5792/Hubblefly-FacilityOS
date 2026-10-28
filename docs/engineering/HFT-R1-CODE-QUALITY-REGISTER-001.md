@@ -164,3 +164,20 @@ Old 0006 SHA-256 `f6b92c89468b59b596dad6fa27453f78ccfeb3a2c578ed6d125cde54bbf5f3
 **Release:** REQUEST CHANGES until independent source re-review and real PostgreSQL qualification. PRODUCTION NO-GO.
 
 **P1-QA-CORRECT-001 portability correction:** Source/test commit `72c6247a0eaba87977fa6e8984e1d294e244697f` archives original reviewed 0006 in `db/provenance` and corrects a staging-only fixture path. 13/13 offline P1 source-contract tests PASS locally, exit 0. SQL, full TypeScript/build and real database tests NOT RUN; H3/H5 independent acceptance pending, H4 source accepted unchanged. NO-GO.
+
+## HFT-R1-P2-COMPLETE-002 — 2026-10-28 source-only security candidate
+
+**Base:** `c36de6454b10aca3cfcfa81a59297e5a2e859964` | **P2 implementation:** `616451f3cd379fde0713b816040dcf43c2185838` | **targeted correction:** `42a934b32ec6b34848e67097d06e2870c8be7a4b`. Existing PR #11 remains DRAFT/unmerged.
+
+| Finding | Disposition | Changed source / test | Release gate |
+|---|---|---|---|
+| H1 — exact approval / P2 SEC-03 | SOURCE CONTRACT AUTHORED, NOT ACCEPTED | `lib/hft/security/posting-invocation-proof.ts`, `posting-proof-issuer.ts` + independently reproduced HMAC vectors; `db/security/HFT-R1-P2-ONE-WRITER-REVIEW.sql` validates trusted session, proof, source revision, immutable protected approval, nonce, expiry, key status | No approved pgcrypto schema/DB verifier/key custody, no real SQL/human approval tests |
+| H2 — one protected writer / P2 SEC-01/02/04 | REVIEW-ONLY SQL CANDIDATE, NOT ACTIVE | Non-superuser NOLOGIN owner, SECURITY DEFINER with fixed search_path, global default PUBLIC revokes + explicit helper/runtime DML revokes, only one runtime EXECUTE grant; protected SQL serializes gates and writes fragment/ledger/audit/seal | SQL NOT EXECUTED. Roles/extensions/keys not provisioned. Independent Chat 10/17/11 reviews needed |
+| M1 — immutable partial issue/return | Domain existing; DATABASE SOURCE CANDIDATE | `hft.posting_fragment` uniqueness, source line counters and original custody ceilings in SQL. `tests/pg/hft_p2_sec_t06_seal_and_fragments.sql` authoring | No real DB partial 2+3 / serial/custody/concurrency acceptance |
+| M2 | SOURCE IMPLEMENTED PREVIOUSLY, unqualified | Existing `lib/hft/domain/ledger.ts` and tests, no competing engine | Full regression/DB tests pending |
+| M3 | SOURCE IMPLEMENTED PREVIOUSLY; protected endpoint added | `tools/hft_apply_migrations.py` accepted endpoint guard and `lib/hft/persistence/protected-posting-transaction.ts` runtime loopback/role check | Actual libpq endpoint and role identity NOT ATTESTED |
+| M4 | SOURCE IMPLEMENTED PREVIOUSLY; protected envelope added | discard-on-rollback-failure/ambiguous COMMIT, no automatic repost | Real driver fault and uncertain COMMIT tests NOT RUN |
+| SOURCE QA | BOUNDED OFFLINE TESTED | Node 22.16.0 `node --experimental-strip-types --test .../hft-posting-invocation-proof.test.ts`: 6/6 PASS; Python 3.13.5 `python3 -m unittest discover ... -p test_p2_invocation_contract.py -v`: 5/5 PASS; independently authored golden digest+MAC | Other authored Node and P2-SEC-T01–T06 suites NOT RUN, no PG/full build |
+| CLEANUP / REUSE | KEEP + DEFER DOCUMENTED | 0001–0006 and rejected/superseded provenance untouched; old `db/security/HFT-R1-P2-FUNCTION-ACCESS-NONEXECUTABLE.sql` historical input superseded by new review candidate, not executed; legacy per-table posting remains nonproduction isolated/test-only and NOT runtime-route accessible | After protected writer acceptance, remove or strictly isolate obsolete path and update affected tests; no unreviewed mass deletion |
+
+**Canonical migration checksum remains 0006** `664c7fcb57bbc699cc8cd727046e8a1048ecb89792d27abe1dd3aef024754044`; 0007 is NOT allocated/executable. No KES/workstation, database, extension, credential, CI, deployment or real stock action was executed. Independent Chat 10/17/11 review NOT YET RETURNED. Production NO-GO.
