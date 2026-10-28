@@ -14,12 +14,14 @@ import hft_apply_migrations as m
 class CanonicalMigrationContract(unittest.TestCase):
     def test_exact_manifest_and_canonical_sha(self):
         rows = m.revisions()
-        self.assertEqual([x[0] for x in rows], [1, 2, 3, 4, 5])
-        self.assertEqual(rows[-1][1], m.SQL_DIR / "0005_hft_quantitative_accounts_receipts.sql")
-        self.assertEqual(rows[-1][2], "01fe977d55540b31cf6a0691e88969ecb01c63e6e25d30c75e5c06a61b70aedf")
-        self.assertNotEqual(rows[-1][2], m.LEGACY_0005_SHA256)
+        self.assertEqual([x[0] for x in rows], [1, 2, 3, 4, 5, 6])
+        self.assertEqual(rows[4][1], m.SQL_DIR / "0005_hft_quantitative_accounts_receipts.sql")
+        self.assertEqual(rows[-1][1], m.SQL_DIR / "0006_hft_posted_fact_integrity.sql")
+        self.assertEqual(rows[4][2], "01fe977d55540b31cf6a0691e88969ecb01c63e6e25d30c75e5c06a61b70aedf")
+        self.assertEqual(rows[5][2], json.loads(m.MANIFEST.read_text())["migrations"][5]["sha256"])
+        self.assertNotEqual(rows[4][2], m.LEGACY_0005_SHA256)
         manifest=json.loads(m.MANIFEST.read_text())
-        self.assertEqual(len(manifest["migrations"]), 5)
+        self.assertEqual(len(manifest["migrations"]), 6)
         self.assertTrue(all(row[2] == manifest["migrations"][i]["sha256"] for i, row in enumerate(rows)))
         self.assertTrue(all(len(row[2]) == 64 for row in rows))
         self.assertTrue(m.PROVENANCE_0005.is_file())
@@ -82,7 +84,7 @@ class CanonicalMigrationContract(unittest.TestCase):
             self.assertTrue(statement.startswith("BEGIN;"))
             self.assertTrue(statement.endswith("COMMIT;"))
             self.assertLess(statement.index("pg_advisory_xact_lock"),statement.index(ddl[:30]))
-        self.assertIn("MIGRATION_CONCURRENTLY_APPLIED",m.build_locked_statement(5,plan[4][2],plan[4][3],plan))
+        self.assertIn("MIGRATION_CONCURRENTLY_APPLIED",m.build_locked_statement(6,plan[5][2],plan[5][3],plan))
 
     def test_no_runtime_or_production_database_permission(self):
         minimal=dict(HFT_ENVIRONMENT="test",HFT_AUTH_SOURCE="verified",

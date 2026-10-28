@@ -12,7 +12,7 @@ import { assertVerifiedRequestOperator, type VerifiedRequestOperator } from '../
 import { withIsolatedPgTransaction, type PgPool, type IsolatedPgEnvironment } from './isolated-pg-transaction.ts';
 
 type Stored = { internal_command_uuid: string; command_id: string; payload_sha256: string; actor_subject: string;
-  result: PostResult | null; canonical_text: string | null; canonical_sha256: string | null; delivery_found: boolean; legs: string; total: string };
+  result: PostResult | null; canonical_text: string | null; canonical_sha256: string | null; delivery_found: boolean; legs: string; total: string; seal_verified: boolean };
 export type CommitReadback =
   | Readonly<{ state: 'COMMITTED_VERIFIED'; result: PostResult }>
   | Readonly<{ state: 'INDETERMINATE_NOT_FOUND'; automaticRetryAllowed: false }>;
@@ -25,10 +25,15 @@ export async function reconcileIsolatedCommand(pool: PgPool, env: IsolatedPgEnvi
     const result=await q.query<Stored>(`SELECT sc.id::text AS internal_command_uuid,sc.command_id,sc.payload_sha256,sc.actor_subject,
        o.result,a.canonical_text,a.canonical_sha256, (d.outbox_id IS NOT NULL) AS delivery_found,
        (SELECT COUNT(*)::text FROM hft.stock_entry e WHERE e.command_id=sc.id) AS legs,
-       (SELECT COALESCE(SUM(e.qty_delta_micro),0)::text FROM hft.stock_entry e WHERE e.command_id=sc.id) AS total
+       (SELECT COALESCE(SUM(e.qty_delta_micro),0)::text FROM hft.stock_entry e WHERE e.command_id=sc.id) AS total,
+       (seal.command_id IS NOT NULL AND integrity.seal_missing=false AND integrity.seal_mismatch=false
+        AND seal.audit_sha256=a.canonical_sha256
+        AND seal.outcome_sha256=encode(sha256(convert_to(o.result::text,'UTF8')),'hex')) AS seal_verified
        FROM hft.stock_command sc LEFT JOIN hft.stock_command_outcome o ON o.command_id=sc.id
        LEFT JOIN hft.audit_outbox a ON a.command_id=sc.id
        LEFT JOIN hft.audit_delivery d ON d.outbox_id=a.id
+       LEFT JOIN hft.stock_command_seal seal ON seal.command_id=sc.id
+       LEFT JOIN hft.stock_command_seal_reconstruction_v1 integrity ON integrity.command_uuid=sc.id
        WHERE sc.legal_entity_id=$1 AND sc.idempotency_key=$2 AND sc.command_id=$3
        FOR SHARE OF sc`,[c.legalEntityId,c.idempotencyKey,c.commandId]);
     if(result.rows.length===0) {
@@ -44,7 +49,8 @@ export async function reconcileIsolatedCommand(pool: PgPool, env: IsolatedPgEnvi
     if(row.payload_sha256!==requestedHash || row.actor_subject!==subject) throw new Error('IDEMPOTENCY_CONFLICT');
     if(!row.result || !row.canonical_text || !row.canonical_sha256 || row.delivery_found!==true)
       throw new Error('READBACK_REQUIRED_EVIDENCE_MISSING');
-    if(!Number.isSafeInteger(Number(row.legs)) || Number(row.legs)<2 || row.total!=='0') throw new Error('READBACK_LEDGER_INTEGRITY_FAILED');
+    if(!Number.isSafeInteger(Number(row.legs)) || Number(row.legs)!==2 || row.total!=='0') throw new Error('READBACK_LEDGER_INTEGRITY_FAILED');
+    if(row.seal_verified!==true) throw new Error('READBACK_STOCK_COMMAND_SEAL_FAILED');
     if(typeof row.canonical_text!=='string' ||
        createHash('sha256').update(row.canonical_text).digest('hex')!==row.canonical_sha256)
       throw new Error('READBACK_AUDIT_DIGEST_FAILED');

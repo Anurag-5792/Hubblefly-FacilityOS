@@ -28,6 +28,11 @@
       "version": 5,
       "file": "0005_hft_quantitative_accounts_receipts.sql",
       "sha256": "01fe977d55540b31cf6a0691e88969ecb01c63e6e25d30c75e5c06a61b70aedf"
+    },
+    {
+      "version": 6,
+      "file": "0006_hft_posted_fact_integrity.sql",
+      "sha256": "f6b92c89468b59b596dad6fa27453f78ccfeb3a2c578ed6d125cde54bbf5f371"
     }
   ],
   "incompatible_provenance": [

@@ -300,11 +300,11 @@ export async function postIsolatedStockCommand(pool: PgPool, env: IsolatedPgEnvi
     // UUID-backed command and all dependent entries live in the same transaction.
     const posted=await one<{id:string}>(q,`INSERT INTO hft.stock_command(legal_entity_id,command_id,
       idempotency_key,payload_sha256,kind,source_document_id,source_action_key,actor_subject,approval_id,approval_revision,
-      source_receipt_id,source_line_no,warehouse_id,item_code,location_id,batch_no,serial_no,site_id)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::uuid,$12,$13,$14,$15,$16,$17,$18) RETURNING id::text AS id`,
+      source_receipt_id,source_line_no,warehouse_id,item_code,location_id,batch_no,serial_no,site_id,quantity_micro)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::uuid,$12,$13,$14,$15,$16,$17,$18,$19::bigint) RETURNING id::text AS id`,
       [c.legalEntityId,c.commandId,c.idempotencyKey,payloadHash,c.kind,c.sourceDocumentId,c.sourceActionKey,
        operator.subject,gate.approvalId,gate.revision,document.kind==='GRN'?document.receiptId:null,
-       document.kind==='GRN'?document.lineNo:null,c.warehouseId,c.itemCode,c.locationId??null,c.batchNo??'',c.serialNo??'',c.siteId]);
+       document.kind==='GRN'?document.lineNo:null,c.warehouseId,c.itemCode,c.locationId??null,c.batchNo??'',c.serialNo??'',c.siteId,qty.toString()]);
     if(c.kind==='ISSUE') {
       await q.query(`INSERT INTO hft.employee_custody(legal_entity_id,employee_id,issue_command_id,
         item_code,warehouse_id,issued_micro,serial_no,batch_no,location_id) VALUES($1,$2,$3::uuid,$4,$5,$6::bigint,$7,$8,$9)`,
@@ -364,6 +364,9 @@ export async function postIsolatedStockCommand(pool: PgPool, env: IsolatedPgEnvi
     await q.query(`INSERT INTO hft.audit_delivery(outbox_id,state) VALUES($1::uuid,'PENDING')`,[outbox.id]);
     await q.query(`INSERT INTO hft.stock_command_outcome(command_id,result,committed_by)
        VALUES($1::uuid,$2::jsonb,$3)`,[posted.id,JSON.stringify(result),operator.subject]);
+    // Seal the exact two-leg movement set, outcome and audit in this same transaction.
+    // Package 2 will move this call inside the sole protected database writer.
+    await q.query('SELECT hft.seal_stock_command_v1($1::uuid)',[posted.id]);
     return result;
   });
 }

@@ -67,6 +67,7 @@ test('synthetic happy path issues balanced movement SQL, audit outbox and COMMIT
   assert.equal(pg.calls.filter(x=>x.sql.includes('location_key=$4')).length,1);
   assert.equal(pg.calls.filter(x=>x.sql.includes('INSERT INTO hft.audit_delivery(')).length,1);
   assert.equal(pg.calls.filter(x=>x.sql.includes('INSERT INTO hft.stock_command_outcome(')).length,1);
+  assert.equal(pg.calls.filter(x=>x.sql.includes('SELECT hft.seal_stock_command_v1(')).length,1);
   assert.equal(pg.calls.at(-1)?.sql,'COMMIT');
   assert.equal(pg.releaseCount(),1);
 });

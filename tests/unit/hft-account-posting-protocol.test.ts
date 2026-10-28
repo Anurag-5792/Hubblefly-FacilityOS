@@ -86,7 +86,8 @@ for(const [kind,before,held,qty,version,condition,expectedAvailable] of [
   assert.equal(r.available,expectedAvailable);
   const commandRow=p.calls.find(q=>q.sql.includes('INSERT INTO hft.stock_command('));
   assert.ok(commandRow,'typed stock command must be persisted');
-  assert.equal(commandRow.params.at(-1),'SITE1','stock-command site binding must match signed operator scope');
+  assert.equal(commandRow.params.at(-2),'SITE1','stock-command site binding must match signed operator scope');
+  assert.equal(commandRow.params.at(-1),String(BigInt(qty)*1000000n),'posted command carries exact typed quantity');
   const legs=p.calls.filter(q=>q.sql.includes('INSERT INTO hft.stock_entry('));
   assert.deepEqual(legs.map(l=>l.params[2]),kind==='ISSUE'?['AVAILABLE','CUSTODY']:
     condition==='GOOD'?['CUSTODY','AVAILABLE']:['CUSTODY','DAMAGED']);
@@ -94,6 +95,9 @@ for(const [kind,before,held,qty,version,condition,expectedAvailable] of [
   if(kind==='ISSUE') {assert.equal(p.db[p.ids.aid],3000000n);assert.equal(p.db[p.ids.cid],2000000n);}
   else if(condition==='GOOD') {assert.equal(p.db[p.ids.aid],4000000n);assert.equal(p.db[p.ids.cid],1000000n);}
   else {assert.equal(p.db[p.ids.aid],4000000n);assert.equal(p.db[p.ids.cid],0n);assert.equal(p.db[p.ids.did],1000000n);assert.equal(p.calls.filter(x=>x.sql.includes('UPDATE hft.stock_account')).length,3);}
+  const sealIndex=p.calls.findIndex(q=>q.sql.includes('SELECT hft.seal_stock_command_v1('));
+  const resultIndex=p.calls.findIndex(q=>q.sql.includes('INSERT INTO hft.stock_command_outcome('));
+  assert.ok(sealIndex>resultIndex,'seal must follow immutable outcome and audit in one transaction');
   assert.equal(p.calls.at(-1)?.sql,'COMMIT');
  });
 }

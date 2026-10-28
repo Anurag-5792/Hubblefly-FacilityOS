@@ -7,13 +7,13 @@ import type { PgPool, PgQueryClient } from '../../lib/hft/persistence/isolated-p
 import { verifiedFixtureOperator } from '../support/signed-session-fixture.ts';
 const c:StockCommand={commandId:'CMD-001',idempotencyKey:'KEY-001',kind:'RECEIVE',legalEntityId:'HFT',siteId:'SITE1',warehouseId:'WH1',itemCode:'ITEM1',locationId:'LOC1',quantity:'5',sourceDocumentId:'DOC-001',sourceActionKey:'R1',expectedBalanceVersion:0};
 const env={NODE_ENV:'test',HFT_ENVIRONMENT:'test',HFT_AUTH_SOURCE:'verified',HFT_OPERATIONS_SOURCE:'database',HFT_LIVE_POSTING_ENABLED:'false',HFT_POSTING_RUN_MODE:'ISOLATED_DB_TEST',HFT_TEST_PG_DATABASE:'hft_r1_disposable_synthetic',PGHOST:'127.0.0.1'};
-function scriptedReadback(mode:'found'|'missing'|'other'|'unbalanced'|'audit_bad'|'missing_outbox'|'account_bad'|'misattributed'='found'){
+function scriptedReadback(mode:'found'|'missing'|'other'|'unbalanced'|'audit_bad'|'missing_outbox'|'account_bad'|'misattributed'|'seal_bad'='found'){
  const queries:string[]=[];
  const canonical='{"commandId":"CMD-001"}';
  const row={internal_command_uuid:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',command_id:c.commandId,payload_sha256:stockRequestFingerprint(c,'STORE1'),actor_subject:'STORE1',
    delivery_found:true, result:{commandId:'CMD-001',accountVersion:1,available:'5',fact:{commandId:'CMD-001',entityId:'HFT',warehouseId:'WH1',itemCode:'ITEM1',
     movements:[{bucket:'EXTERNAL',delta:'-5'},{bucket:'AVAILABLE',delta:'5'}]},replay:false},
-   canonical_text:canonical,canonical_sha256:createHash('sha256').update(canonical).digest('hex'),legs:'2',total:'0'};
+   canonical_text:canonical,canonical_sha256:createHash('sha256').update(canonical).digest('hex'),legs:'2',total:'0',seal_verified:mode!=='seal_bad'};
  if(mode==='unbalanced')row.total='-1';
  if(mode==='audit_bad')row.canonical_sha256='0'.repeat(64);
  if(mode==='missing_outbox')row.delivery_found=false;
@@ -73,4 +73,9 @@ test('wrong custody/available attribution fails readback despite balanced total'
 test('account-level reconstructed quantity mismatch fails even with balanced command',async()=>{
  const x=scriptedReadback('account_bad');
  await assert.rejects(reconcileIsolatedCommand(x.pool,env,c,verifiedFixtureOperator()),/READBACK_ACCOUNT_RECONSTRUCTION_FAILED/);
+});
+
+test('committed transaction without matching immutable movement seal fails readback',async()=>{
+ const x=scriptedReadback('seal_bad');
+ await assert.rejects(reconcileIsolatedCommand(x.pool,env,c,verifiedFixtureOperator()),/READBACK_STOCK_COMMAND_SEAL_FAILED/);
 });

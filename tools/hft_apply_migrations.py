@@ -58,7 +58,7 @@ def revisions() -> list[tuple[int, Path, str, str]]:
     ):
         raise RuntimeError("CANONICAL_MIGRATION_MANIFEST_FORMAT_INVALID")
     entries = manifest["migrations"]
-    if not isinstance(entries, list) or len(entries) != 5:
+    if not isinstance(entries, list) or len(entries) != 6:
         raise RuntimeError("MANIFEST_EXACT_MIGRATION_COUNT_REQUIRED")
     found = []
     expected_files = set()
