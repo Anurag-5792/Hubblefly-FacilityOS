@@ -32,7 +32,7 @@
     {
       "version": 6,
       "file": "0006_hft_posted_fact_integrity.sql",
-      "sha256": "f6b92c89468b59b596dad6fa27453f78ccfeb3a2c578ed6d125cde54bbf5f371"
+      "sha256": "664c7fcb57bbc699cc8cd727046e8a1048ecb89792d27abe1dd3aef024754044"
     }
   ],
   "incompatible_provenance": [

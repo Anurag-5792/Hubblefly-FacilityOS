@@ -17,6 +17,8 @@ SQL_DIR = ROOT / "db" / "migrations"
 MANIFEST = SQL_DIR / "manifest.v1.json"
 PROVENANCE_0005 = ROOT / "db/provenance/rejected-0005-hft-quantitative-accounts-receipts.sql"
 LEGACY_0005_SHA256 = "8e38ed17ecd4d2fdc7c3184d2f0ea2100feca67e30fa146b8965cb0c2c4ebc5e"
+# Superseded source candidate reviewed but not applied under accepted host evidence.
+SUPERSEDED_0006_SHA256 = "f6b92c89468b59b596dad6fa27453f78ccfeb3a2c578ed6d125cde54bbf5f371"
 PATTERN = re.compile(r"^([0-9]{4})_hft_[a-z0-9_]+\.sql$")
 WRAPPER = re.compile(r"\A(?:\s*--[^\n]*\n)*\s*BEGIN;\s*(.*?)\s*COMMIT;\s*\Z", re.S)
 
@@ -127,6 +129,8 @@ def verify_database_revision_ledger(env: dict[str, str],
             raise RuntimeError("DATABASE_REVISION_GAP_OR_UNDECLARED_VERSION")
         if version == 5 and parts[1] == LEGACY_0005_SHA256:
             raise RuntimeError("APPLIED_LEGACY_0005_REQUIRES_SEPARATE_FORWARD_MIGRATION")
+        if version == 6 and parts[1] == SUPERSEDED_0006_SHA256:
+            raise RuntimeError("APPLIED_SUPERSEDED_0006_REQUIRES_SEPARATE_FORWARD_MIGRATION")
         if parts[1] != plan[version - 1][2]:
             raise RuntimeError(f"MIGRATION_CHECKSUM_MISMATCH:{version}")
 

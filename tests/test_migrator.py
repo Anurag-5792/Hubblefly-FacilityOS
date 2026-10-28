@@ -86,6 +86,20 @@ class CanonicalMigrationContract(unittest.TestCase):
             self.assertLess(statement.index("pg_advisory_xact_lock"),statement.index(ddl[:30]))
         self.assertIn("MIGRATION_CONCURRENTLY_APPLIED",m.build_locked_statement(6,plan[5][2],plan[5][3],plan))
 
+    def test_previously_applied_superseded_0006_requires_forward_migration(self):
+        plan=m.revisions()
+        self.assertNotEqual(plan[5][2],m.SUPERSEDED_0006_SHA256)
+        prior="\n".join(f"{version}|{sha}" for version,_,sha,_ in plan[:5])
+        recorded=prior+"\n6|"+m.SUPERSEDED_0006_SHA256
+        def scripted(sql,env):
+            if "to_regclass('hft.schema_revision')" in sql: return "t"
+            if "SELECT version::text ||" in sql: return recorded
+            raise AssertionError("Unexpected SQL mutation or query: "+sql[:80])
+        with patch.object(m,'execute_sql',side_effect=scripted):
+            with self.assertRaisesRegex(RuntimeError,
+               "APPLIED_SUPERSEDED_0006_REQUIRES_SEPARATE_FORWARD_MIGRATION"):
+                m.verify_database_revision_ledger({},plan)
+
     def test_no_runtime_or_production_database_permission(self):
         minimal=dict(HFT_ENVIRONMENT="test",HFT_AUTH_SOURCE="verified",
                      HFT_OPERATIONS_SOURCE="database",HFT_LIVE_POSTING_ENABLED="false",

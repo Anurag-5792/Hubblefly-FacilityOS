@@ -85,7 +85,7 @@ WITH fact AS (
 ), ev AS (
  SELECT jsonb_build_object('schema','HFT_STOCK_EVENT_V2','commandId','CMDP1',
   'entity','HFTP1','actor','STAFFP1','approvalId','APPROVP1',
-  'approvalRevision',1,'fact',f) AS e FROM fact
+  'approvalRevision',1,'available','5','accountVersion',1,'fact',f) AS e FROM fact
 )
 INSERT INTO hft.audit_outbox(command_id,canonical_event,canonical_text,canonical_sha256)
 SELECT :'command_uuid'::uuid,e,e::text,

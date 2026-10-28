@@ -19,7 +19,9 @@ ORDER BY legal_entity_id,warehouse_id,location_key,item_code,batch_key,serial_ke
 
 -- Append-only commands must be exact, immutable 2-leg sets, with validated
 -- typed source, quantity, accounting signs and audit/outcome identity.
+-- This function performs SELECT only: safe in REPEATABLE READ READ ONLY.
 SELECT hft.assert_command_seal_v1(id) FROM hft.stock_command ORDER BY committed_at,id;
+SELECT hft.assert_grn_receipt_cumulative_v2(id) FROM hft.grn ORDER BY id;
 SELECT command_id,kind,quantity_micro,leg_count,net_micro,
        seal_missing,seal_mismatch,sealed_movement_sha256,reconstructed_movement_sha256
 FROM hft.stock_command_seal_reconstruction_v1 ORDER BY legal_entity_id,command_id;

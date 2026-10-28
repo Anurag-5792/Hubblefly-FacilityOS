@@ -355,7 +355,8 @@ export async function postIsolatedStockCommand(pool: PgPool, env: IsolatedPgEnvi
     }
     const result=simulated.result;
     const canonicalText=JSON.stringify({schema:'HFT_STOCK_EVENT_V2',commandId:c.commandId,entity:c.legalEntityId,
-      actor:operator.subject,approvalId:gate.approvalId,approvalRevision:gate.revision,fact:result.fact});
+      actor:operator.subject,approvalId:gate.approvalId,approvalRevision:gate.revision,
+      available:result.available,accountVersion:result.accountVersion,fact:result.fact});
     const auditHash=sha256(canonicalText);
     const event=JSON.parse(canonicalText) as Record<string,unknown>;
     const outbox=await one<{id:string}>(q,`INSERT INTO hft.audit_outbox(command_id,canonical_event,

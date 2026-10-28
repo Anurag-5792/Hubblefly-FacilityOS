@@ -6,13 +6,15 @@
 import { createHash } from 'node:crypto';
 import { stockRequestFingerprint } from './command-fingerprint.ts';
 import { postingLegs } from './account-model.ts';
+import { formatQuantity } from '../domain/quantity.ts';
 export { stockRequestFingerprint } from './command-fingerprint.ts';
 import type { StockCommand, PostResult } from '../domain/ledger.ts';
 import { assertVerifiedRequestOperator, type VerifiedRequestOperator } from '../security/verified-request.ts';
 import { withIsolatedPgTransaction, type PgPool, type IsolatedPgEnvironment } from './isolated-pg-transaction.ts';
 
 type Stored = { internal_command_uuid: string; command_id: string; payload_sha256: string; actor_subject: string;
-  result: PostResult | null; canonical_text: string | null; canonical_sha256: string | null; delivery_found: boolean; legs: string; total: string; seal_verified: boolean };
+  result: PostResult | null; canonical_text: string | null; canonical_sha256: string | null; delivery_found: boolean; legs: string; total: string; seal_verified: boolean;
+  available_after_micro:string|null; available_after_version:string|null };
 export type CommitReadback =
   | Readonly<{ state: 'COMMITTED_VERIFIED'; result: PostResult }>
   | Readonly<{ state: 'INDETERMINATE_NOT_FOUND'; automaticRetryAllowed: false }>;
@@ -26,6 +28,8 @@ export async function reconcileIsolatedCommand(pool: PgPool, env: IsolatedPgEnvi
        o.result,a.canonical_text,a.canonical_sha256, (d.outbox_id IS NOT NULL) AS delivery_found,
        (SELECT COUNT(*)::text FROM hft.stock_entry e WHERE e.command_id=sc.id) AS legs,
        (SELECT COALESCE(SUM(e.qty_delta_micro),0)::text FROM hft.stock_entry e WHERE e.command_id=sc.id) AS total,
+       seal.available_after_micro::text AS available_after_micro,
+       seal.available_after_version::text AS available_after_version,
        (seal.command_id IS NOT NULL AND integrity.seal_missing=false AND integrity.seal_mismatch=false
         AND seal.audit_sha256=a.canonical_sha256
         AND seal.outcome_sha256=encode(sha256(convert_to(o.result::text,'UTF8')),'hex')) AS seal_verified
@@ -51,6 +55,24 @@ export async function reconcileIsolatedCommand(pool: PgPool, env: IsolatedPgEnvi
       throw new Error('READBACK_REQUIRED_EVIDENCE_MISSING');
     if(!Number.isSafeInteger(Number(row.legs)) || Number(row.legs)!==2 || row.total!=='0') throw new Error('READBACK_LEDGER_INTEGRITY_FAILED');
     if(row.seal_verified!==true) throw new Error('READBACK_STOCK_COMMAND_SEAL_FAILED');
+    if(!row.available_after_micro || !row.available_after_version ||
+       !Number.isSafeInteger(row.result.accountVersion) ||
+       row.result.available!==formatQuantity(BigInt(row.available_after_micro)) ||
+       row.result.accountVersion.toString()!==row.available_after_version)
+      throw new Error('READBACK_HISTORICAL_BALANCE_OR_VERSION_MISMATCH');
+    if(row.result.fact.kind!==c.kind ||
+       row.result.fact.sourceDocumentId!==c.sourceDocumentId ||
+       row.result.fact.operatorId!==subject ||
+       row.result.fact.entityId!==c.legalEntityId ||
+       row.result.fact.warehouseId!==c.warehouseId ||
+       row.result.fact.itemCode!==c.itemCode ||
+       row.result.fact.locationId!==c.locationId ||
+       row.result.fact.employeeId!==c.employeeId ||
+       row.result.fact.issueId!==c.originalIssueId)
+      throw new Error('READBACK_SOURCE_ACTOR_OR_SCOPE_MISMATCH');
+    // Lock-free database verifier checks exact ledger/outcome bijection and
+    // full immutable audit, source and historic post-state, not only a hash.
+    await q.query('SELECT hft.assert_command_seal_v1($1::uuid)',[row.internal_command_uuid]);
     if(typeof row.canonical_text!=='string' ||
        createHash('sha256').update(row.canonical_text).digest('hex')!==row.canonical_sha256)
       throw new Error('READBACK_AUDIT_DIGEST_FAILED');
