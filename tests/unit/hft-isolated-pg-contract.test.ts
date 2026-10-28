@@ -6,6 +6,7 @@ const env = {NODE_ENV:'test',HFT_ENVIRONMENT:'test',HFT_AUTH_SOURCE:'verified',H
 function fakePg(options: { identity?: string; fail?: string } = {}) {
   const statements: string[] = [];
   let releases = 0;
+  const destroyed:boolean[] = [];
   const client: PgQueryClient = {
     async query<T extends Record<string, unknown>>(text: string) {
       statements.push(text);
@@ -14,10 +15,10 @@ function fakePg(options: { identity?: string; fail?: string } = {}) {
         [{db_name:options.identity ?? env.HFT_TEST_PG_DATABASE,db_role:'hft_engineering'}] : [];
       return { rows: rows as unknown as T[], rowCount: rows.length };
     },
-    release() { releases++; },
+    release(destroy?:boolean) { releases++; destroyed.push(destroy===true); },
   };
   const pool: PgPool = { async connect() { return client; } };
-  return { pool, statements, releases:()=>releases };
+  return { pool, statements, releases:()=>releases, destroyed };
 }
 test('requires explicitly isolated environment before acquiring connection', async () => {
   const pg = fakePg();
@@ -52,6 +53,7 @@ test('failed COMMIT is treated as uncertain outcome, never guaranteed rollback',
   await assert.rejects(withIsolatedPgTransaction(pg.pool,env,async()=>42),CommitOutcomeUncertain);
   assert.equal(pg.statements.at(-1),'COMMIT');
   assert.equal(pg.releases(),1);
+  assert.deepEqual(pg.destroyed,[true]);
 });
 
 test('lost BEGIN response still triggers rollback attempt',async()=>{
@@ -59,4 +61,11 @@ test('lost BEGIN response still triggers rollback attempt',async()=>{
   await assert.rejects(withIsolatedPgTransaction(pg.pool,env,async()=>null),/SYNTHETIC_DB_FAILURE/);
   assert.equal(pg.statements.at(-1),'ROLLBACK');
   assert.equal(pg.releases(),1);
+});
+
+test('rollback failure destroys pooled connection to prevent reuse', async () => {
+  const pg=fakePg({fail:'ROLLBACK'});
+  await assert.rejects(withIsolatedPgTransaction(pg.pool,env,async()=>{throw new Error('ABORT');}),/POSTGRES_ROLLBACK_UNVERIFIED/);
+  assert.equal(pg.releases(),1);
+  assert.deepEqual(pg.destroyed,[true]);
 });

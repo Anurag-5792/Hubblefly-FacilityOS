@@ -87,3 +87,11 @@ test('blocking hold and self approval reject without mutating original state', (
   assert.equal(state.facts.length, 0);
   assert.equal(state.balances.size, 0);
 });
+
+test('M2: fresh idempotency key cannot reuse already-posted commandId',()=>{
+  const cmd=command('RECEIVE','REC-M2','2',0);
+  const first=applyCommand(emptyEngineState(),cmd,actor,gate(cmd),masters);
+  const collision={...command('RECEIVE','NEW-ID','1',1),commandId:cmd.commandId};
+  assert.throws(()=>applyCommand(first.state,collision,actor,gate(collision),masters),/COMMAND_ID_ALREADY_POSTED/);
+  assert.equal(first.state.facts.length,1);
+});
