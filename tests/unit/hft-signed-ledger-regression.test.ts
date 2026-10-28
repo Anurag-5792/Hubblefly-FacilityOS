@@ -95,3 +95,20 @@ test('M2: fresh idempotency key cannot reuse already-posted commandId',()=>{
   assert.throws(()=>applyCommand(first.state,collision,actor,gate(collision),masters),/COMMAND_ID_ALREADY_POSTED/);
   assert.equal(first.state.facts.length,1);
 });
+
+test('M1: separate approved ISSUE fragments share one source line without double-posting',()=>{
+  const receive=command('RECEIVE','FRAG-REC','5',0);
+  let state=applyCommand(emptyEngineState(),receive,actor,gate(receive),masters).state;
+  const a=command('ISSUE','FRAG-ISS1','2',1,{employeeId:'EMP1',sourceDocumentId:'ISSUE-DOC',
+    sourceActionKey:'LINE-1',fragmentId:'FRAGMENT-1'});
+  state=applyCommand(state,a,actor,gate(a),masters).state;
+  const b=command('ISSUE','FRAG-ISS2','3',2,{employeeId:'EMP1',sourceDocumentId:'ISSUE-DOC',
+    sourceActionKey:'LINE-1',fragmentId:'FRAGMENT-2'});
+  state=applyCommand(state,b,actor,gate(b),masters).state;
+  assert.equal(state.issueRecords.get('FRAG-ISS1')?.remaining,2000000n);
+  assert.equal(state.issueRecords.get('FRAG-ISS2')?.remaining,3000000n);
+  assert.equal(state.facts.length,3);
+  const replay={...command('ISSUE','FRAG-ISS3','1',3,{employeeId:'EMP1',
+    sourceDocumentId:'ISSUE-DOC',sourceActionKey:'LINE-1'}),fragmentId:'FRAGMENT-2'};
+  assert.throws(()=>applyCommand(state,replay,actor,gate(replay),masters),/SOURCE_ACTION_ALREADY_POSTED/);
+});

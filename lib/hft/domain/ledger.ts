@@ -16,6 +16,8 @@ export type StockCommand = Readonly<{
   quantity: string;
   sourceDocumentId: string;
   sourceActionKey: string;
+  /** Distinct immutable approved posting fragment for partial ISSUE/RETURN. */
+  fragmentId?: string;
   expectedBalanceVersion: number;
   employeeId?: string;
   originalIssueId?: string;
@@ -78,11 +80,14 @@ function serialKey(c: StockCommand): string {
 }
 function fingerprint(c: StockCommand): string {
   return JSON.stringify([c.commandId, c.kind, c.legalEntityId, c.siteId, c.warehouseId, c.itemCode, c.locationId || '',
-    c.quantity, c.sourceDocumentId, c.sourceActionKey, c.expectedBalanceVersion, c.employeeId || '', c.originalIssueId || '', c.serialNo || '', c.batchNo || '', c.condition || '']);
+    c.quantity, c.sourceDocumentId, c.sourceActionKey, c.fragmentId || '', c.expectedBalanceVersion, c.employeeId || '', c.originalIssueId || '', c.serialNo || '', c.batchNo || '', c.condition || '']);
 }
 function idempotencyScope(c: StockCommand): string { return JSON.stringify([c.legalEntityId, c.idempotencyKey]); }
 function commandScope(c: StockCommand): string { return JSON.stringify([c.legalEntityId,c.commandId]); }
-function sourceActionScope(c: StockCommand): string { return JSON.stringify([c.legalEntityId, c.sourceDocumentId, c.sourceActionKey]); }
+function sourceActionScope(c: StockCommand): string {
+  return JSON.stringify([c.legalEntityId,c.sourceDocumentId,c.sourceActionKey,
+    c.kind==='RECEIVE'?'':c.fragmentId??'']);
+}
 function ensureIdentifier(v: string, code: string): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/.test(v)) throw new Error(code);
 }
@@ -96,6 +101,7 @@ export function applyCommand(state: EngineState, command: StockCommand, principa
   ensureIdentifier(c.idempotencyKey, 'IDEMPOTENCY_KEY_INVALID');
   ensureIdentifier(c.sourceDocumentId, 'DOCUMENT_ID_INVALID');
   ensureIdentifier(c.sourceActionKey, 'SOURCE_ACTION_KEY_INVALID');
+  if (c.fragmentId !== undefined) ensureIdentifier(c.fragmentId,'FRAGMENT_ID_INVALID');
   const requestFingerprint = fingerprint(c);
   const idempotencyKey = idempotencyScope(c);
   const stored = state.idempotency.get(idempotencyKey);
