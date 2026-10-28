@@ -1,6 +1,6 @@
 # HFT-R1-P1-QA-REREVIEW-002 — Targeted independent source review
 
-**Review exact CODE commit:** `57b0f5499e57460567d7951f6e20aa27580201ef`. **Do not use a floating branch as the review identity.**
+**Review exact SOURCE/TEST commit:** `72c6247a0eaba87977fa6e8984e1d294e244697f`. **Do not use a floating branch as the review identity.**
 **Reviewed predecessor:** `6a08d2bc7e1a79007b3234876f75d343cb1ad558`.
 **Repository:** `Anurag-5792/Hubblefly-FacilityOS`; existing draft PR #11.
 
@@ -15,3 +15,5 @@ Re-use the completed 67-file independent review and `HFT-R1-P1-QA-REVIEW-001`. I
 **Evidence:** 13 local Python source-contract tests PASSED, exit 0, isolated staging. SQL/Node and actual PostgreSQL tests NOT RUN. No governed database application history was independently attested. Do not call this PostgreSQL-qualified.
 
 **Output:** Separate finding-by-finding SOURCE ACCEPT / REQUEST CHANGES, exact files/lines, necessary negative tests, and explicit DB NOT RUN. Chat 10 to review material database posting/locking implications. Production NO-GO. No merge/deploy/real data.
+
+**Additional source file:** `db/provenance/superseded-0006-hft-posted-fact-integrity.sql` preserves the exact previous 0006 (SHA-256 `f6b92c...`); the updated offline test reads this committed path. Corrected executable 0006 stays pinned to `664c7fcb57bbc699cc8cd727046e8a1048ecb89792d27abe1dd3aef024754044`.

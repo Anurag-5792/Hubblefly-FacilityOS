@@ -51,3 +51,7 @@
 3. Continue existing Package 2 source engineering on the same branch after independent source defect reconciliation; don't duplicate posting authority.
 
 **No merge, production deployment, real inventory, ERPNext posting or U-09 action. Production NO-GO.**
+
+## Checkout-reproducible regression and provenance refinement
+
+Final corrective source/test revision: `72c6247a0eaba87977fa6e8984e1d294e244697f`. The exact superseded reviewed 0006 SQL is archived outside executable migration discovery at `db/provenance/superseded-0006-hft-posted-fact-integrity.sql`; original Git blob `583aa522035e1dba5be809277dc1e170a234e706`, SHA-256 `f6b92c89468b59b596dad6fa27453f78ccfeb3a2c578ed6d125cde54bbf5f371`. The offline source test now reads the committed archive instead of staging-only source. Source contract tests rerun locally: 13 passed / 0 failed, exit 0; not full exact-commit CI.

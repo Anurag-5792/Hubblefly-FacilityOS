@@ -162,3 +162,5 @@ Old 0006 SHA-256 `f6b92c89468b59b596dad6fa27453f78ccfeb3a2c578ed6d125cde54bbf5f3
 | QUALITY | PARTIAL | Only bounded 13-file correction; no whole repo rescanning, no new code path or branch; production deny preserved | Full Node/CI/typecheck/build, dependency lock, browser, real DB, security/QA and recovery remain blocked |
 
 **Release:** REQUEST CHANGES until independent source re-review and real PostgreSQL qualification. PRODUCTION NO-GO.
+
+**P1-QA-CORRECT-001 portability correction:** Source/test commit `72c6247a0eaba87977fa6e8984e1d294e244697f` archives original reviewed 0006 in `db/provenance` and corrects a staging-only fixture path. 13/13 offline P1 source-contract tests PASS locally, exit 0. SQL, full TypeScript/build and real database tests NOT RUN; H3/H5 independent acceptance pending, H4 source accepted unchanged. NO-GO.
