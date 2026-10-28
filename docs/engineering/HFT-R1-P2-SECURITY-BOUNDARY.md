@@ -1,7 +1,7 @@
 # P2 security control implementation boundary
 Status: SOURCE PARTIAL / PRODUCTION NO-GO.
 
-Canonical migration 0007 is a fail-closed foundation only. It removes PUBLIC
+The nonexecutable P2 security candidate is a fail-closed foundation only. It removes PUBLIC
 EXECUTE from the three Package 1 helpers and the new blocked entrypoint,
 retracts PUBLIC schema/table grants and migration-owner future defaults.
 It does not grant runtime EXECUTE, nor establish a full protected writer.
