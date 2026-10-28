@@ -8,7 +8,7 @@ import unittest
 ROOT=Path(__file__).resolve().parents[1]
 SQL=(ROOT/'db/migrations/0006_hft_posted_fact_integrity.sql').read_text()
 MANIFEST=json.loads((ROOT/'db/migrations/manifest.v1.json').read_text())
-ORIGINAL=(ROOT/'previous_0006_reviewed_immutable.sql').read_text()
+ORIGINAL=(ROOT/'db/provenance/superseded-0006-hft-posted-fact-integrity.sql').read_text()
 
 def fn_block(name):
     match=re.search(rf'CREATE OR REPLACE FUNCTION hft\.{name}\(.*?END \$\$;',SQL,re.S)
