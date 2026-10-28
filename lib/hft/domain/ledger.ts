@@ -62,10 +62,11 @@ export type EngineState = {
   readonly serialLocations: Map<string, string>;
   readonly idempotency: Map<string, StoredOutcome>;
   readonly sourceActions: ReadonlySet<string>;
+  readonly commandIds: ReadonlySet<string>;
   readonly facts: readonly StockFact[];
 };
 export function emptyEngineState(): EngineState {
-  return { balances: new Map(), versions: new Map(), issueRecords: new Map(), serialLocations: new Map(), idempotency: new Map(), sourceActions: new Set(), facts: [] };
+  return { balances: new Map(), versions: new Map(), issueRecords: new Map(), serialLocations: new Map(), idempotency: new Map(), sourceActions: new Set(), commandIds: new Set(), facts: [] };
 }
 export type TrustedMasterSnapshot = Readonly<{ item: Item; warehouse: Warehouse; employee?: Employee }>;
 
@@ -80,6 +81,7 @@ function fingerprint(c: StockCommand): string {
     c.quantity, c.sourceDocumentId, c.sourceActionKey, c.expectedBalanceVersion, c.employeeId || '', c.originalIssueId || '', c.serialNo || '', c.batchNo || '', c.condition || '']);
 }
 function idempotencyScope(c: StockCommand): string { return JSON.stringify([c.legalEntityId, c.idempotencyKey]); }
+function commandScope(c: StockCommand): string { return JSON.stringify([c.legalEntityId,c.commandId]); }
 function sourceActionScope(c: StockCommand): string { return JSON.stringify([c.legalEntityId, c.sourceDocumentId, c.sourceActionKey]); }
 function ensureIdentifier(v: string, code: string): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/.test(v)) throw new Error(code);
@@ -101,6 +103,7 @@ export function applyCommand(state: EngineState, command: StockCommand, principa
     if (stored.fingerprint !== requestFingerprint) throw new Error('IDEMPOTENCY_CONFLICT');
     return { state, result: { ...stored.result, replay: true } };
   }
+  if (state.commandIds.has(commandScope(c))) throw new Error('COMMAND_ID_ALREADY_POSTED');
   if (state.sourceActions.has(sourceActionScope(c))) throw new Error('SOURCE_ACTION_ALREADY_POSTED');
   if (!gate || gate.verifiedByServer !== true || !gate.approved || !gate.approvalId || gate.revision < 1 || gate.documentId !== c.sourceDocumentId ||
       gate.legalEntityId !== c.legalEntityId || gate.siteId !== c.siteId || gate.warehouseId !== c.warehouseId) throw new Error('APPROVAL_REQUIRED');
@@ -132,6 +135,7 @@ export function applyCommand(state: EngineState, command: StockCommand, principa
   const serials = new Map(state.serialLocations);
   const idempotency = new Map(state.idempotency);
   const sourceActions = new Set(state.sourceActions);
+  const commandIds = new Set(state.commandIds);
   const movement = (bucket: StockFact['movements'][number]['bucket'], n: bigint) => ({ bucket, delta: formatSignedQuantity(n) });
   let legs: StockFact['movements'];
   let employeeId: string | undefined;
@@ -191,6 +195,7 @@ export function applyCommand(state: EngineState, command: StockCommand, principa
     available: formatQuantity(next.get(key) ?? 0n), fact, replay: false };
   idempotency.set(idempotencyKey, { fingerprint: requestFingerprint, result });
   sourceActions.add(sourceActionScope(c));
+  commandIds.add(commandScope(c));
   return { state: { balances: next, versions, issueRecords: issues, serialLocations: serials,
-    idempotency, sourceActions, facts: [...state.facts, fact] }, result };
+    idempotency, sourceActions, commandIds, facts: [...state.facts, fact] }, result };
 }
