@@ -804,6 +804,33 @@ CREATE TRIGGER p2_policy_lock BEFORE INSERT ON hft.posting_action_policy
 CREATE TRIGGER p2_policy_epoch AFTER INSERT ON hft.posting_action_policy
  FOR EACH ROW EXECUTE FUNCTION hft.p2_bump_action_policy_epoch_v1();
 
+-- Acknowledgement authority changes serialize on the same warehouse gate.
+CREATE OR REPLACE FUNCTION hft.p2_lock_ack_exception_policy_v1()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $ack_policy$
+BEGIN
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+  'HFT:GATE:'||NEW.legal_entity_id||':'||NEW.site_id||':'||NEW.warehouse_id,0));
+ PERFORM 1 FROM hft.custody_ack_exception_policy AS pol
+ WHERE pol.legal_entity_id=NEW.legal_entity_id
+ AND pol.site_id=NEW.site_id AND pol.warehouse_id=NEW.warehouse_id
+ AND pol.policy_revision>=NEW.policy_revision;
+ IF FOUND THEN RAISE EXCEPTION 'P2_ACK_EXCEPTION_POLICY_NOT_MONOTONIC'; END IF;
+ RETURN NEW;
+END $ack_policy$;
+CREATE TRIGGER p2_ack_exception_policy_lock BEFORE INSERT ON hft.custody_ack_exception_policy
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_lock_ack_exception_policy_v1();
+CREATE TRIGGER p2_ack_exception_policy_epoch AFTER INSERT ON hft.custody_ack_exception_policy
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_bump_action_policy_epoch_v1();
+-- Employee-person enrollments and revocations cannot race a valid ACK.
+CREATE TRIGGER p2_employee_identity_enroll_gate BEFORE INSERT ON hft.employee_person_link
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_lock_human_revoke_v1();
+CREATE TRIGGER p2_employee_identity_enroll_epoch AFTER INSERT ON hft.employee_person_link
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_epoch_human_revoke_v1();
+CREATE TRIGGER p2_employee_identity_revoke_gate BEFORE INSERT ON hft.employee_person_link_revocation
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_lock_human_revoke_v1();
+CREATE TRIGGER p2_employee_identity_revoke_epoch AFTER INSERT ON hft.employee_person_link_revocation
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_epoch_human_revoke_v1();
+
 CREATE OR REPLACE FUNCTION hft.p2_revoke_scope_lock_v1() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
 DECLARE a hft.protected_stock_approval%ROWTYPE;
