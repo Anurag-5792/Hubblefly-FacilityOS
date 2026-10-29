@@ -1353,6 +1353,15 @@ BEGIN
       'result',outcome.result);
 END $recovery$;
 
+-- Audit readers verify nonce cardinality without viewing nonce secrets.
+CREATE VIEW hft.posting_nonce_audit_v1 AS
+ SELECT legal_entity_id,command_id,pg_catalog.count(*) AS nonce_count
+ FROM hft.posting_invocation_nonce AS nonce
+ JOIN hft.stock_command AS cmd ON cmd.command_id=nonce.command_id
+   AND cmd.payload_sha256=nonce.payload_sha256
+   AND cmd.actor_subject=nonce.actor_subject
+ GROUP BY legal_entity_id,command_id;
+
 -- Owner may access only the protected tables and internal helpers required to
 -- apply this single writer. Runtime has NO direct DML, no schema DDL and no
 -- individual seal/lock/assert helper EXECUTE.
@@ -1428,7 +1437,8 @@ GRANT SELECT ON hft.stock_command,hft.stock_entry,hft.stock_account,
  hft.audit_outbox,hft.stock_command_outcome,hft.stock_command_seal,
  hft.stock_account_reconstruction_v2,hft.stock_command_seal_reconstruction_v1,
  hft.invoice_line_receipt_reconstruction_v2,
- hft.custody_ack_status_v1
+ hft.custody_ack_status_v1,hft.posting_nonce_audit_v1,
+ hft.posting_fragment
  TO hft_r1_audit_verify;
 REVOKE ALL ON SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
 REVOKE ALL ON ALL TABLES IN SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
