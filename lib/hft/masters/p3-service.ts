@@ -1,73 +1,129 @@
-/** P3 application commands. All queries are parameterized and site-scoped.
- * A submitted request stays PENDING_APPROVAL; no server/API auto-activates.
+/**
+ * P3 Masters application boundary: one protected request writer, read-only
+ * database-authenticated scoped readers, independent Employee decision/apply.
+ * No direct master/stock table SQL is permitted to a shared runtime login.
  */
 import type {PgPool,IsolatedPgEnvironment} from '../persistence/isolated-pg-transaction.ts';
 import type {VerifiedRequestOperator} from '../security/verified-request.ts';
 import {assertVerifiedRequestOperator} from '../security/verified-request.ts';
 import {validateMasterRequest,issueMasterProof,type MasterRequest,
- type MasterChange} from './p3-contract.ts';
-import {withP3Database,requireMasterGrant} from './p3-database.ts';
-export type MastersResult=Readonly<{state:'AVAILABLE'|'PENDING_APPROVAL';records:readonly unknown[]}>;
-function signerKey(env:IsolatedPgEnvironment):{key:Uint8Array;version:number}{
- const raw=env.HFT_P3_SIGNING_KEY_BASE64;
+ type MasterQuery} from './p3-contract.ts';
+import {validateEmployeeDecision,issueMasterReadProof,issueEmployeeDecisionProof,
+ type EmployeeDecision} from './p3-employee-proofs.ts';
+import {withP3Database} from './p3-database.ts';
+
+export type MastersResult=Readonly<{
+ state:'AVAILABLE'|'PENDING_APPROVAL';records:readonly Record<string,unknown>[];
+}>;
+export type EmployeeDecisionResult=Readonly<{
+ state:'APPLIED'|'DENIED';requestId:string;recordId:string;
+ version:string|null;active:boolean|null;
+}>;
+function signerKey(env:IsolatedPgEnvironment,purpose:'REQUEST'|'DECISION'):
+ {key:Buffer;version:number}{
+ const prefix=purpose==='REQUEST'?'HFT_P3_SIGNING':'HFT_P3_DECISION_SIGNING';
+ const raw=env[prefix+'_KEY_BASE64'];
  if(!raw||!/^[A-Za-z0-9+/]+={0,2}$/.test(raw)||raw.length>512)
   throw new Error('P3_APPROVED_SIGNER_NOT_CONFIGURED');
  const key=Buffer.from(raw,'base64');
- if(key.byteLength<32||key.toString('base64')!==raw)
+ if(key.length<32||key.toString('base64')!==raw)
   throw new Error('P3_APPROVED_SIGNER_INVALID');
- const version=Number(env.HFT_P3_SIGNING_KEY_VERSION);
+ const version=Number(env[prefix+'_KEY_VERSION']);
  if(!Number.isSafeInteger(version)||version<1)
   throw new Error('P3_APPROVED_SIGNER_VERSION_INVALID');
  return {key,version};
+}
+function guardedRows(input:unknown,scope:MasterQuery):MastersResult{
+ if(!input||typeof input!=='object'||Array.isArray(input))
+  throw new Error('P3_PROTECTED_READ_RESPONSE_INVALID');
+ const value=input as Record<string,unknown>;
+ if(value.state!=='AVAILABLE'||!Array.isArray(value.records)||value.records.length>50)
+  throw new Error('P3_PROTECTED_READ_RESPONSE_INVALID');
+ for(const candidate of value.records){
+  if(!candidate||typeof candidate!=='object'||Array.isArray(candidate))
+   throw new Error('P3_PROTECTED_READ_ROW_INVALID');
+  const row=candidate as Record<string,unknown>;
+  if(row.legal_entity_id!==scope.legalEntityId)
+   throw new Error('P3_PROTECTED_READ_CROSS_ENTITY');
+  if(row.site_id!==scope.siteId && row.site_id!=='')
+   throw new Error('P3_PROTECTED_READ_CROSS_SITE');
+  if(row.warehouse_id!==scope.warehouseId && row.warehouse_id!=='')
+   throw new Error('P3_PROTECTED_READ_CROSS_WAREHOUSE');
+ }
+ return {state:'AVAILABLE',records:value.records as readonly Record<string,unknown>[]};
+}
+/** Qualified DB proof is mandatory even for a list request: no table SELECT. */
+async function readMasters(pool:PgPool,env:IsolatedPgEnvironment,
+ operator:VerifiedRequestOperator,query:MasterQuery):Promise<MastersResult>{
+ const key=signerKey(env,'REQUEST');
+ let proof;
+ try{proof=issueMasterReadProof(query,operator,key.key,key.version);}
+ finally{key.key.fill(0);}
+ return withP3Database(pool,env,true,async client=>{
+  const res=await client.query<{response:unknown}>(
+   'SELECT hft.p3_read_masters_v1($1::jsonb,$2::jsonb) AS response',
+   [JSON.stringify(query),JSON.stringify(proof)]);
+  if(res.rows.length!==1)throw new Error('P3_READBACK_MISSING');
+  return guardedRows(res.rows[0].response,query);
+ });
 }
 export async function handleP3MasterRequest(pool:PgPool,env:IsolatedPgEnvironment,
  operator:VerifiedRequestOperator,raw:unknown):Promise<MastersResult>{
  const input:MasterRequest=validateMasterRequest(raw);
  const scope=input.intent==='SUBMIT'?input.change:input;
- const actor=assertVerifiedRequestOperator(operator,scope);
- if(input.intent==='SUBMIT'){
-  const change:MasterChange=input.change;
-  // P3 signer is additional database proof, not an alternative P2 stock key.
-  const signer=signerKey(env);
-  const proof=issueMasterProof(change,operator,signer.key,signer.version);
-  signer.key.fill(0);
-  return withP3Database(pool,env,false,async client=>{
-   await requireMasterGrant(client,actor,change,'SUBMIT');
-   const submitted=await client.query<{request_id:string}>(
-    'SELECT hft.p3_submit_master_change_v1($1::jsonb,$2::jsonb)::text AS request_id',
-    [JSON.stringify(change),JSON.stringify(proof)]);
-   if(submitted.rows.length!==1||submitted.rows[0].request_id!==change.requestId)
-    throw new Error('P3_SUBMISSION_ID_MISMATCH');
-   const saved=await client.query<{request_id:string;state:string}>(
-    'SELECT request_id::text,state FROM hft.p3_master_request_status_v1 '+
-    'WHERE legal_entity_id=$1 AND request_id=$2::uuid AND site_id=$3 AND warehouse_id=$4',
-    [change.legalEntityId,change.requestId,change.siteId,change.warehouseId]);
-   if(saved.rows.length!==1||saved.rows[0].state!=='PENDING_APPROVAL')
-    throw new Error('P3_SUBMISSION_DURABLE_READBACK_MISSING');
-   return {state:'PENDING_APPROVAL',records:[saved.rows[0]]};
-  });
+ assertVerifiedRequestOperator(operator,scope);
+ if(input.intent!=='SUBMIT'){
+  if(input.intent==='REVIEW_QUEUE'&&input.kind!=='EMPLOYEE')
+   throw new Error('P3_REVIEW_QUEUE_EMPLOYEE_ONLY');
+  return readMasters(pool,env,operator,input);
  }
- return withP3Database(pool,env,true,async client=>{
-  await requireMasterGrant(client,actor,input,'READ');
-  if(input.intent==='REQUESTS'){
-   const data=await client.query(
-    'SELECT request_id::text,kind,operation,record_id,expected_version,'+
-    'state,reason,requested_at,requester_subject FROM hft.p3_master_request_status_v1 '+
-    'WHERE legal_entity_id=$1 AND site_id=$2 AND warehouse_id=$3 AND kind=$4 '+
-    'ORDER BY requested_at DESC,request_id DESC LIMIT 50',
-    [input.legalEntityId,input.siteId,input.warehouseId,input.kind]);
-   return {state:'AVAILABLE',records:data.rows};
-  }
-  const params=[input.legalEntityId,input.siteId,input.warehouseId,input.kind];
-  const sql='SELECT record_id,kind,legal_entity_id,site_id,warehouse_id,version,active,master_values AS "values" '+
-   'FROM hft.p3_master_read_v1 WHERE legal_entity_id=$1 AND (site_id=$2 OR site_id='+"''"+
-   ') AND (warehouse_id=$3 OR warehouse_id='+"''"+') AND kind=$4';
-  if(input.intent==='GET'){
-   const data=await client.query(sql+' AND record_id=$5 LIMIT 1', [...params,input.recordId||'']);
-   return {state:'AVAILABLE',records:data.rows};
-  }
-  const data=await client.query(sql+' AND strpos(lower(record_id),lower($5))>0 '+
-   'ORDER BY record_id LIMIT 50',[...params,input.search]);
-  return {state:'AVAILABLE',records:data.rows};
+ const change=input.change;
+ const key=signerKey(env,'REQUEST');
+ let proof;
+ try{proof=issueMasterProof(change,operator,key.key,key.version);}
+ finally{key.key.fill(0);}
+ await withP3Database(pool,env,false,async client=>{
+  const issued=await client.query<{request_id:string}>(
+   'SELECT hft.p3_submit_master_change_v1($1::jsonb,$2::jsonb)::text AS request_id',
+   [JSON.stringify(change),JSON.stringify(proof)]);
+  if(issued.rows.length!==1||issued.rows[0].request_id!==change.requestId)
+   throw new Error('P3_SUBMISSION_ID_MISMATCH');
+ });
+ // Independent second-connection read after committed submission. A missing
+ // readback is never cause to resubmit; report reconciliation required.
+ const observed=await readMasters(pool,env,operator,{intent:'REQUESTS',
+  kind:change.kind,legalEntityId:change.legalEntityId,siteId:change.siteId,
+  warehouseId:change.warehouseId,search:''});
+ const persisted=observed.records.find(row=>row.request_id===change.requestId);
+ if(!persisted||persisted.state!=='PENDING_APPROVAL')
+  throw new Error('P3_COMMITTED_REQUEST_RECONCILIATION_REQUIRED_NO_RETRY');
+ return {state:'PENDING_APPROVAL',records:[persisted]};
+}
+/** Decision and approved application share ONE database transaction.
+ * Eligibility and person independence are verified in PostgreSQL, not here.
+ */
+export async function handleP3EmployeeDecision(pool:PgPool,env:IsolatedPgEnvironment,
+ operator:VerifiedRequestOperator,raw:unknown):Promise<EmployeeDecisionResult>{
+ const decision:EmployeeDecision=validateEmployeeDecision(raw);
+ assertVerifiedRequestOperator(operator,decision);
+ const key=signerKey(env,'DECISION');
+ let proof;
+ try{proof=issueEmployeeDecisionProof(decision,operator,key.key,key.version);}
+ finally{key.key.fill(0);}
+ return withP3Database(pool,env,false,async client=>{
+  const data=await client.query<{response:unknown}>(
+   'SELECT hft.p3_decide_apply_employee_v1($1::jsonb,$2::jsonb) AS response',
+   [JSON.stringify(decision),JSON.stringify(proof)]);
+  if(data.rows.length!==1||!data.rows[0].response||
+   typeof data.rows[0].response!=='object'||Array.isArray(data.rows[0].response))
+   throw new Error('P3_EMPLOYEE_DECISION_RESPONSE_INVALID');
+  const result=data.rows[0].response as Record<string,unknown>;
+  if(!['APPLIED','DENIED'].includes(String(result.state))||
+    result.requestId!==decision.requestId||result.recordId!==decision.recordId||
+    (result.state==='APPLIED'&&(!/^[1-9][0-9]*$/.test(String(result.version))||
+       typeof result.active!=='boolean'))||
+    (result.state==='DENIED'&&(result.version!==null||result.active!==null)))
+   throw new Error('P3_EMPLOYEE_DECISION_RESPONSE_INVALID');
+  return result as EmployeeDecisionResult;
  });
 }
