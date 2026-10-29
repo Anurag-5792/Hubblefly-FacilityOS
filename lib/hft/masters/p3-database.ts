@@ -5,7 +5,6 @@ import {createRequire} from 'node:module';
 import {assertSecureStartup} from '../security/authorization.ts';
 import {CommitOutcomeUncertain,type PgPool,type PgQueryClient,
  type IsolatedPgEnvironment} from '../persistence/isolated-pg-transaction.ts';
-import type {MasterScope} from './p3-contract.ts';
 
 export function assertP3Environment(env:IsolatedPgEnvironment):void{
  assertSecureStartup(env);
@@ -65,14 +64,4 @@ export async function withP3Database<T>(pool:PgPool,env:IsolatedPgEnvironment,
   if(commitStarted){discard=true;throw new CommitOutcomeUncertain(err);}
   throw err;
  }finally{client.release(discard);}
-}
-export async function requireMasterGrant(client:PgQueryClient,actor:string,
- scope:MasterScope,action:'READ'|'SUBMIT'):Promise<void>{
- const res=await client.query<{may_read:boolean;may_submit:boolean}>(
-  'SELECT may_read,may_submit FROM hft.p3_master_actor_grant '+
-  'WHERE actor_subject=$1 AND legal_entity_id=$2 AND site_id=$3 '+
-  'AND warehouse_id=$4 AND active=true',
-  [actor,scope.legalEntityId,scope.siteId,scope.warehouseId]);
- if(res.rows.length!==1||!res.rows[0].may_read||(action==='SUBMIT'&&!res.rows[0].may_submit))
-  throw new Error('P3_PERSISTED_MASTER_PERMISSION_DENIED');
 }
