@@ -281,10 +281,16 @@ CREATE TABLE hft.protected_approval_supersession (
 );
 CREATE TABLE hft.return_inspection_attestation (
  legal_entity_id text NOT NULL,return_document_id text NOT NULL,evidence_id text NOT NULL,
+ approval_id text NOT NULL,approval_revision bigint NOT NULL CHECK(approval_revision>0),
  inspector_subject text NOT NULL,inspector_session_id text NOT NULL,
  evidence_sha256 text NOT NULL CHECK(evidence_sha256~'^[0-9a-f]{64}$'),
  inspected_at timestamptz NOT NULL,
- PRIMARY KEY(legal_entity_id,return_document_id,evidence_id)
+ manifest_id uuid NOT NULL UNIQUE REFERENCES hft.governance_evidence_manifest(manifest_id),
+ PRIMARY KEY(legal_entity_id,return_document_id,evidence_id),
+ UNIQUE(legal_entity_id,approval_id,approval_revision),
+ FOREIGN KEY(legal_entity_id,approval_id,approval_revision)
+ REFERENCES hft.protected_stock_approval(legal_entity_id,approval_id,approval_revision)
+ DEFERRABLE INITIALLY DEFERRED
 );
 -- Physical Stores release creates ACK_PENDING, never an invented employee ACK.
 CREATE TABLE hft.custody_ack_pending (
@@ -479,9 +485,14 @@ BEGIN
  OR d.inspection_evidence_id<>NEW.inspection_evidence_id OR
  inspector_person IS NULL OR NOT EXISTS (
  SELECT 1 FROM hft.return_inspection_attestation AS att
+ JOIN hft.governance_evidence_manifest AS signed
+ ON signed.manifest_id=att.manifest_id AND signed.purpose='RETURN_INSPECTION'
  WHERE att.legal_entity_id=NEW.legal_entity_id
  AND att.return_document_id=NEW.document_id
+ AND att.approval_id=NEW.approval_id AND att.approval_revision=NEW.approval_revision
  AND att.evidence_id=NEW.inspection_evidence_id
+ AND signed.payload->>'evidenceSha256'=att.evidence_sha256
+ AND signed.payload->>'decisionSha256'=d.decision_evidence_sha256
  AND att.inspector_subject=d.inspector_subject
  AND att.inspector_session_id=d.inspector_session_id)
  ) THEN RAISE EXCEPTION 'P2_RETURN_INSPECTION_AUTHORITY_INVALID'; END IF;
