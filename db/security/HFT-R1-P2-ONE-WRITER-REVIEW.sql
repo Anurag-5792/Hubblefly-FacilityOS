@@ -85,6 +85,49 @@ CREATE TABLE hft.posting_policy_epoch (
  FOREIGN KEY(legal_entity_id,warehouse_id,site_id)
  REFERENCES hft.warehouse(legal_entity_id,warehouse_id,site_id)
 );
+-- P2-QA-006: audited bootstrap of every preexisting warehouse scope,
+-- including scopes with existing actor grants or Holds. This is an observed
+-- initial snapshot, not authorization of any individual decision.
+CREATE TABLE hft.posting_policy_bootstrap (
+ legal_entity_id text NOT NULL,site_id text NOT NULL,warehouse_id text NOT NULL,
+ initial_generation bigint NOT NULL CHECK(initial_generation=1),
+ existing_actor_grants bigint NOT NULL CHECK(existing_actor_grants>=0),
+ existing_holds bigint NOT NULL CHECK(existing_holds>=0),
+ recorded_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ recorded_by text NOT NULL DEFAULT pg_catalog.session_user,
+ PRIMARY KEY(legal_entity_id,site_id,warehouse_id),
+ FOREIGN KEY(legal_entity_id,site_id,warehouse_id)
+ REFERENCES hft.posting_policy_epoch(legal_entity_id,site_id,warehouse_id)
+);
+CREATE TRIGGER p2_immutable_policy_bootstrap BEFORE UPDATE OR DELETE
+ ON hft.posting_policy_bootstrap FOR EACH ROW
+ EXECUTE FUNCTION hft.deny_fact_mutation();
+INSERT INTO hft.posting_policy_epoch(legal_entity_id,site_id,warehouse_id,generation)
+ SELECT w.legal_entity_id,w.site_id,w.warehouse_id,1
+ FROM hft.warehouse AS w ORDER BY w.legal_entity_id,w.site_id,w.warehouse_id;
+INSERT INTO hft.posting_policy_bootstrap(legal_entity_id,site_id,warehouse_id,
+ initial_generation,existing_actor_grants,existing_holds)
+ SELECT w.legal_entity_id,w.site_id,w.warehouse_id,1,
+ (SELECT pg_catalog.count(*) FROM hft.actor_warehouse_grant AS ag
+  WHERE ag.legal_entity_id=w.legal_entity_id AND ag.site_id=w.site_id
+    AND ag.warehouse_id=w.warehouse_id),
+ (SELECT pg_catalog.count(*) FROM hft.stock_hold AS hh
+  WHERE hh.legal_entity_id=w.legal_entity_id AND hh.site_id=w.site_id
+    AND hh.warehouse_id=w.warehouse_id)
+ FROM hft.warehouse AS w ORDER BY w.legal_entity_id,w.site_id,w.warehouse_id;
+-- New warehouse scopes bootstrap once; no missing default policy generation.
+CREATE OR REPLACE FUNCTION hft.p2_bootstrap_new_warehouse_v1()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
+BEGIN
+ INSERT INTO hft.posting_policy_epoch(legal_entity_id,site_id,warehouse_id,generation)
+ VALUES(NEW.legal_entity_id,NEW.site_id,NEW.warehouse_id,1);
+ INSERT INTO hft.posting_policy_bootstrap(legal_entity_id,site_id,warehouse_id,
+ initial_generation,existing_actor_grants,existing_holds)
+ VALUES(NEW.legal_entity_id,NEW.site_id,NEW.warehouse_id,1,0,0);
+ RETURN NULL;
+END $$;
+CREATE TRIGGER p2_new_warehouse_epoch AFTER INSERT ON hft.warehouse
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_bootstrap_new_warehouse_v1();
 CREATE TABLE hft.protected_stock_approval (
  legal_entity_id text NOT NULL,approval_id text NOT NULL,
  approval_revision bigint NOT NULL CHECK(approval_revision>0),
@@ -248,10 +291,10 @@ LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
 DECLARE v record;
 BEGIN
  IF TG_OP='DELETE' THEN v:=OLD; ELSE v:=NEW; END IF;
- INSERT INTO hft.posting_policy_epoch(legal_entity_id,site_id,warehouse_id,generation)
- VALUES(v.legal_entity_id,v.site_id,v.warehouse_id,2)
- ON CONFLICT(legal_entity_id,site_id,warehouse_id)
- DO UPDATE SET generation=hft.posting_policy_epoch.generation+1;
+ UPDATE hft.posting_policy_epoch SET generation=generation+1
+ WHERE legal_entity_id=v.legal_entity_id AND site_id=v.site_id
+ AND warehouse_id=v.warehouse_id;
+ IF NOT FOUND THEN RAISE EXCEPTION 'P2_POLICY_GENERATION_NOT_BOOTSTRAPPED'; END IF;
  RETURN NULL;
 END $$;
 CREATE TRIGGER p2_hold_epoch AFTER INSERT OR UPDATE OR DELETE ON hft.stock_hold
@@ -531,7 +574,7 @@ BEGIN
      approval.policy_generation,approval.condition,approval.inspection_evidence_id)
     IS DISTINCT FROM
     (action,doc_id,line_id,fragment,site,wh,item,location,lot,serial,holder,
-     origin_issue,qty,actor,doc_revision,policy.generation,condition,p->>'inspectionEvidenceId')
+     origin_issue,qty,actor,doc_revision,policy.generation,v_condition,p->>'inspectionEvidenceId')
  OR approval.approver_subject=actor
  THEN RAISE EXCEPTION 'P2_EXACT_PERSISTED_APPROVAL_REQUIRED'; END IF;
  PERFORM 1 FROM hft.stock_hold h WHERE h.active AND h.legal_entity_id=e
@@ -833,10 +876,23 @@ REVOKE EXECUTE ON FUNCTION hft.seal_stock_command_v1(uuid) FROM PUBLIC,hft_r1_ap
 REVOKE EXECUTE ON FUNCTION hft.lock_seal_posting_dependencies_v2(uuid) FROM PUBLIC,hft_r1_app_runtime;
 REVOKE EXECUTE ON FUNCTION hft.assert_command_seal_v1(uuid) FROM PUBLIC,hft_r1_app_runtime;
 
--- SECURITY DEFINER is secured by ownership, safe search_path and fully qualified
--- SQL. Runtime gets EXECUTE on ONE function, never on private codecs/helpers.
+-- P2-SEC-003-01: ownership transfer requires schema CREATE on PostgreSQL.
+-- Grant narrowly for this same transaction, revoke before COMMIT. No
+-- runtime CREATE privilege is ever issued.
+GRANT CREATE ON SCHEMA hft TO hft_r1_posting_owner;
 ALTER FUNCTION hft.post_stock_command_protected_v1(jsonb,jsonb)
  OWNER TO hft_r1_posting_owner;
+REVOKE CREATE ON SCHEMA hft FROM hft_r1_posting_owner;
+DO $verify_owner_acl$ BEGIN
+ IF (SELECT p.proowner<>r.oid FROM pg_catalog.pg_proc AS p
+     JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace
+     JOIN pg_catalog.pg_roles AS r ON r.rolname='hft_r1_posting_owner'
+     WHERE n.nspname='hft' AND p.proname='post_stock_command_protected_v1'
+       AND p.pronargs=2) IS DISTINCT FROM false
+    OR pg_catalog.has_schema_privilege('hft_r1_posting_owner','hft','CREATE')
+ THEN RAISE EXCEPTION 'P2_FUNCTION_OWNER_OR_SCHEMA_CREATE_NOT_REVOKED'; END IF;
+END $verify_owner_acl$;
+-- SECURITY DEFINER owner fixed; runtime gets EXECUTE on ONE writer only.
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA hft FROM PUBLIC,hft_r1_app_runtime;
 GRANT EXECUTE ON FUNCTION hft.post_stock_command_protected_v1(jsonb,jsonb)
  TO hft_r1_app_runtime;
@@ -847,4 +903,39 @@ GRANT SELECT ON hft.stock_command,hft.stock_entry,hft.stock_account,
  TO hft_r1_audit_verify;
 REVOKE ALL ON SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
 REVOKE ALL ON ALL TABLES IN SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
+-- P2-SEC-003-02: inspect ACTUAL login membership and effective privileges,
+-- not only the NOLOGIN group itself. Conservatively deny any membership in
+-- administrative roles, even if role inheritance/SET options vary by PG15+.
+DO $runtime_login_review$
+DECLARE login_row record; protected_table text; runtime_count integer:=0;
+BEGIN
+ FOR login_row IN SELECT oid,rolname,rolsuper,rolcreatedb,rolcreaterole
+     FROM pg_catalog.pg_roles
+     WHERE rolcanlogin AND
+       pg_catalog.pg_has_role(oid,'hft_r1_app_runtime'::pg_catalog.regrole,'MEMBER')
+ LOOP
+   runtime_count:=runtime_count+1;
+   IF login_row.rolsuper OR login_row.rolcreatedb OR login_row.rolcreaterole
+     OR pg_catalog.pg_has_role(login_row.oid,'hft_engineering'::pg_catalog.regrole,'MEMBER')
+     OR pg_catalog.pg_has_role(login_row.oid,'hft_r1_posting_owner'::pg_catalog.regrole,'MEMBER')
+     OR pg_catalog.has_schema_privilege(login_row.rolname,'hft','CREATE')
+     OR pg_catalog.has_schema_privilege(login_row.rolname,'hft_secret','USAGE')
+   THEN RAISE EXCEPTION 'P2_PRIVILEGED_RUNTIME_LOGIN_REFUSED:%',login_row.rolname; END IF;
+   FOREACH protected_table IN ARRAY ARRAY['hft.stock_command','hft.stock_entry',
+     'hft.stock_account','hft.stock_command_seal','hft.protected_stock_approval',
+     'hft.protected_approval_revocation','hft.stock_hold','hft.audit_outbox',
+     'hft.posting_invocation_nonce','hft.posting_fragment']
+   LOOP
+     IF pg_catalog.has_table_privilege(login_row.rolname,protected_table,'INSERT')
+        OR pg_catalog.has_table_privilege(login_row.rolname,protected_table,'UPDATE')
+        OR pg_catalog.has_table_privilege(login_row.rolname,protected_table,'DELETE')
+        OR pg_catalog.has_table_privilege(login_row.rolname,protected_table,'TRUNCATE')
+     THEN RAISE EXCEPTION 'P2_EFFECTIVE_RUNTIME_DML_REFUSED:%:%',
+       login_row.rolname,protected_table; END IF;
+   END LOOP;
+ END LOOP;
+ IF runtime_count=0 THEN RAISE EXCEPTION 'P2_NO_ATTESTED_RUNTIME_LOGIN'; END IF;
+ IF pg_catalog.has_schema_privilege('hft_r1_posting_owner','hft','CREATE')
+ THEN RAISE EXCEPTION 'P2_OWNER_CREATE_PRIVILEGE_STILL_EFFECTIVE'; END IF;
+END $runtime_login_review$;
 COMMIT;
