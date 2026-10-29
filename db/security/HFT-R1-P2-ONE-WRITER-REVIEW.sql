@@ -650,11 +650,16 @@ CREATE OR REPLACE FUNCTION hft.p2_revoke_scope_lock_v1() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
 DECLARE a hft.protected_stock_approval%ROWTYPE;
 BEGIN
+ -- Immutable approval scope is read without holding a row lock.
+ -- Lock the scope gate first, then lock the approval row as in the writer.
  SELECT * INTO a FROM hft.protected_stock_approval WHERE legal_entity_id=NEW.legal_entity_id
-  AND approval_id=NEW.approval_id AND approval_revision=NEW.approval_revision FOR SHARE;
+  AND approval_id=NEW.approval_id AND approval_revision=NEW.approval_revision;
  IF a.approval_id IS NULL THEN RAISE EXCEPTION 'P2_APPROVAL_NOT_FOUND'; END IF;
  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
   'HFT:GATE:'||a.legal_entity_id||':'||a.site_id||':'||a.warehouse_id,0));
+ PERFORM 1 FROM hft.protected_stock_approval WHERE legal_entity_id=a.legal_entity_id
+  AND approval_id=a.approval_id AND approval_revision=a.approval_revision FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'P2_APPROVAL_MISSING_AFTER_GATE'; END IF;
  UPDATE hft.posting_policy_epoch SET generation=generation+1
  WHERE legal_entity_id=a.legal_entity_id AND site_id=a.site_id AND warehouse_id=a.warehouse_id;
  RETURN NEW;
@@ -877,13 +882,14 @@ BEGIN
  doc_revision:=(p->>'sourceRevision')::bigint;
  expected_version:=(p->>'expectedBalanceVersion')::bigint;
  payload_sha:=hft.p2_payload_digest_v1(p);
- actor:=hft.p2_verify_invocation_v1(p,proof);
- -- Global canonical lock order: GATE, STOCK, source/approval/Hold,
- -- account+serial/custody sorted, command+entries+outcome+audit+seal.
+ -- Canonical transaction order: GATE -> STOCK -> proof/session ->
+ -- persisted source/approval/Hold -> deterministic accounts/custody ->
+ -- command, legs, outcome, audit and P1 seal. No early nonce write.
  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
   'HFT:GATE:'||e||':'||site||':'||wh,0));
  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
   'HFT:STOCK:'||e||':'||wh||':'||item||':'||lot||':'||serial,0));
+ actor:=hft.p2_verify_invocation_v1(p,proof);
  SELECT * INTO grant_row FROM hft.actor_warehouse_grant
  WHERE legal_entity_id=e AND site_id=site AND warehouse_id=wh
  AND actor_subject=actor FOR SHARE;
@@ -1421,7 +1427,8 @@ GRANT EXECUTE ON FUNCTION hft.reconcile_protected_stock_command_v1(jsonb,jsonb)
 GRANT SELECT ON hft.stock_command,hft.stock_entry,hft.stock_account,
  hft.audit_outbox,hft.stock_command_outcome,hft.stock_command_seal,
  hft.stock_account_reconstruction_v2,hft.stock_command_seal_reconstruction_v1,
- hft.invoice_line_receipt_reconstruction_v2
+ hft.invoice_line_receipt_reconstruction_v2,
+ hft.custody_ack_status_v1
  TO hft_r1_audit_verify;
 REVOKE ALL ON SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
 REVOKE ALL ON ALL TABLES IN SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
