@@ -876,6 +876,86 @@ BEGIN
  END LOOP;
  RETURN combined;
 END $$;
+-- Governance proof domain is distinct from posting invocation HMAC V1.
+CREATE OR REPLACE FUNCTION hft.p2_governance_manifest_fields_v1(p jsonb)
+RETURNS text[] LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog,pg_temp AS $gfields$
+DECLARE fields text[]:=ARRAY['purpose','legalEntityId','siteId','warehouseId','sourceDocumentId','sourceActionKey','sourceRevision','approvalId','approvalRevision','payloadSha256','commandId','employeeId','itemCode','locationId','batchNo','serialNo','condition','quantityMicro','evidenceId','evidenceSha256','decisionSha256','actorSubject','sessionId','personId','counterpartySubject','counterpartySessionId','policyRevision','holdId','holdPurpose','holdGeneration','scopeGenerationSha256','occurredAt','issuedAt','expiresAt','nonce','keyVersion']; n text;
+BEGIN
+ IF pg_catalog.jsonb_typeof(p)<>'object' OR
+  (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p))<>36
+ THEN RAISE EXCEPTION 'P2_GOV_MANIFEST_FIELDS_INVALID'; END IF;
+ FOREACH n IN ARRAY fields LOOP
+  IF NOT (p ? n) OR pg_catalog.jsonb_typeof(p->n)<>'string'
+  THEN RAISE EXCEPTION 'P2_GOV_MANIFEST_STRING_REQUIRED:%',n; END IF;
+ END LOOP;
+ IF (p->>'purpose') NOT IN ('RETURN_INSPECTION','EMPLOYEE_ACK','PARENT_HOLD_CLEARANCE')
+ OR (p->>'evidenceSha256') !~ '^[0-9a-f]{64}$'
+ OR (p->>'actorSubject') !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+ OR (p->>'sessionId') !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+ OR (p->>'nonce') !~ '^[0-9a-f]{48}$'
+ THEN RAISE EXCEPTION 'P2_GOV_MANIFEST_FORMAT_INVALID'; END IF;
+ RETURN ARRAY(SELECT p->>f.name FROM pg_catalog.unnest(fields)
+  WITH ORDINALITY AS f(name,ord) ORDER BY f.ord);
+END $gfields$;
+
+-- A governance issuer must authenticate a verified session and hold a
+-- separately approved signing key; the runtime login can never call this.
+CREATE OR REPLACE FUNCTION hft.p2_verify_governance_manifest_v1()
+RETURNS trigger LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $gverify$
+DECLARE
+ k hft_secret.governance_evidence_key%ROWTYPE;
+ fields text[]; f text; v text; issued bigint; expires bigint;
+ current_epoch bigint; mac_expected bytea;mac_given bytea;
+ different integer:=0; i integer;
+BEGIN
+ IF NOT pg_catalog.pg_has_role(session_user,'hft_r1_governance_issuer','MEMBER')
+ OR pg_catalog.pg_has_role(session_user,'hft_r1_app_runtime','MEMBER')
+ OR session_user='hft_engineering'
+ THEN RAISE EXCEPTION 'P2_GOV_INDEPENDENT_ISSUER_REQUIRED'; END IF;
+ fields:=hft.p2_governance_manifest_fields_v1(NEW.payload);
+ IF (NEW.purpose,NEW.nonce,NEW.key_version::text) IS DISTINCT FROM
+    (NEW.payload->>'purpose',NEW.payload->>'nonce',NEW.payload->>'keyVersion')
+ THEN RAISE EXCEPTION 'P2_GOV_PROOF_HEADER_MISMATCH'; END IF;
+ FOREACH f IN ARRAY ARRAY['issuedAt','expiresAt','occurredAt','keyVersion'] LOOP
+  v:=NEW.payload->>f;
+  IF v !~ '^[1-9][0-9]{0,18}$' OR v::numeric>9223372036854775807
+  THEN RAISE EXCEPTION 'P2_GOV_PROOF_DECIMAL_INVALID:%',f; END IF;
+ END LOOP;
+ IF (NEW.payload->>'keyVersion')::numeric>2147483647
+ THEN RAISE EXCEPTION 'P2_GOV_PROOF_KEY_VERSION_INVALID'; END IF;
+ issued:=(NEW.payload->>'issuedAt')::bigint;
+ expires:=(NEW.payload->>'expiresAt')::bigint;
+ current_epoch:=pg_catalog.floor(pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp()))::bigint;
+ IF issued>current_epoch+30 OR expires<=current_epoch OR expires<=issued
+ OR expires-issued>60 OR (NEW.payload->>'occurredAt')::bigint>issued+30
+ THEN RAISE EXCEPTION 'P2_GOV_PROOF_EXPIRED'; END IF;
+ SELECT * INTO k FROM hft_secret.governance_evidence_key AS key
+ WHERE key.purpose=NEW.purpose AND key.key_version=NEW.key_version FOR SHARE;
+ IF k.key_version IS NULL OR k.revoked_at IS NOT NULL
+ OR pg_catalog.clock_timestamp()<k.not_before OR pg_catalog.clock_timestamp()>=k.not_after
+ THEN RAISE EXCEPTION 'P2_GOV_SIGNING_KEY_UNAVAILABLE'; END IF;
+ mac_expected:=hft_crypto.hmac(hft.p2_length_prefixed_v1(
+  ARRAY['HFT-R1-P2-GOV-EVIDENCE-V1']||fields),k.key_bytes,'sha256');
+ mac_given:=pg_catalog.decode(NEW.mac_sha256,'hex');
+ IF pg_catalog.octet_length(mac_expected)<>32 OR pg_catalog.octet_length(mac_given)<>32
+ THEN RAISE EXCEPTION 'P2_GOV_PROOF_MAC_LENGTH_INVALID'; END IF;
+ FOR i IN 0..31 LOOP
+  different:=different | (pg_catalog.get_byte(mac_expected,i) #
+                           pg_catalog.get_byte(mac_given,i));
+ END LOOP;
+ IF different<>0 THEN RAISE EXCEPTION 'P2_GOV_PROOF_MAC_INVALID'; END IF;
+ PERFORM 1 FROM hft.posting_session AS sess WHERE
+ sess.session_id=NEW.payload->>'sessionId'
+ AND sess.actor_subject=NEW.payload->>'actorSubject'
+ AND sess.revoked_at IS NULL AND sess.expires_at>pg_catalog.clock_timestamp() FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'P2_GOV_VERIFIED_SESSION_REQUIRED'; END IF;
+ RETURN NEW;
+END $gverify$;
+CREATE TRIGGER p2_verify_governance_manifest BEFORE INSERT
+ ON hft.governance_evidence_manifest FOR EACH ROW
+ EXECUTE FUNCTION hft.p2_verify_governance_manifest_v1();
+
 CREATE OR REPLACE FUNCTION hft.p2_payload_digest_v1(p jsonb) RETURNS text
 LANGUAGE sql STABLE SET search_path=pg_catalog,pg_temp AS $$
  SELECT pg_catalog.encode(hft_crypto.digest(hft.p2_length_prefixed_v1(hft.p2_payload_fields_v1(p)),'sha256'),'hex')
