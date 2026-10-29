@@ -59,7 +59,7 @@ export async function handleP3MasterRequest(pool:PgPool,env:IsolatedPgEnvironmen
    return {state:'AVAILABLE',records:data.rows};
   }
   const params=[input.legalEntityId,input.siteId,input.warehouseId,input.kind];
-  const sql='SELECT record_id,kind,legal_entity_id,site_id,warehouse_id,version,active,values '+
+  const sql='SELECT record_id,kind,legal_entity_id,site_id,warehouse_id,version,active,master_values AS "values" '+
    'FROM hft.p3_master_read_v1 WHERE legal_entity_id=$1 AND (site_id=$2 OR site_id='+"''"+
    ') AND (warehouse_id=$3 OR warehouse_id='+"''"+') AND kind=$4';
   if(input.intent==='GET'){

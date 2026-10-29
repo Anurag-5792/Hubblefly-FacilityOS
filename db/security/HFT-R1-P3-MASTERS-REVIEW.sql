@@ -24,6 +24,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE hft_engineering
  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE hft_r1_p3_master_owner
  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+-- Temporary secret-schema CREATE for migration owner, revoked before COMMIT.
+GRANT CREATE ON SCHEMA hft_secret TO hft_engineering;
 -- Keys installed only by separate authorized governance/key authority.
 CREATE TABLE hft_secret.p3_master_invocation_key(
  key_version integer PRIMARY KEY CHECK(key_version>0),
@@ -32,6 +34,7 @@ CREATE TABLE hft_secret.p3_master_invocation_key(
  revoked_at timestamptz,CHECK(not_before<not_after)
 );
 REVOKE ALL ON hft_secret.p3_master_invocation_key FROM PUBLIC,hft_r1_p3_master_runtime;
+REVOKE CREATE ON SCHEMA hft_secret FROM hft_engineering;
 
 -- Scope grants are governed facts; P3 runtime never INSERTs/UPDATEs them.
 CREATE TABLE hft.p3_master_actor_grant(
@@ -56,13 +59,13 @@ CREATE TABLE hft.p3_master_change_request(
  operation text NOT NULL CHECK(operation IN ('CREATE','EDIT','ACTIVATE','DEACTIVATE')),
  legal_entity_id text NOT NULL,site_id text NOT NULL,warehouse_id text NOT NULL,
  record_id text NOT NULL,expected_version bigint NOT NULL CHECK(expected_version>=0),
- reason text NOT NULL,values jsonb NOT NULL,payload_sha256 text NOT NULL,
+ reason text NOT NULL,proposed_values jsonb NOT NULL,payload_sha256 text NOT NULL,
  requester_subject text NOT NULL,requester_session_id text NOT NULL,
  requested_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  FOREIGN KEY(legal_entity_id,warehouse_id,site_id)
  REFERENCES hft.warehouse(legal_entity_id,warehouse_id,site_id),
  CHECK(payload_sha256~'^[0-9a-f]{64}$'),
- CHECK(jsonb_typeof(values)='object'),
+ CHECK(jsonb_typeof(proposed_values)='object'),
  CHECK((operation='CREATE' AND expected_version=0) OR
        (operation<>'CREATE' AND expected_version>0))
 );
@@ -108,7 +111,7 @@ CREATE VIEW hft.p3_master_read_v1 AS
  SELECT 'EMPLOYEE'::text kind,legal_entity_id,site_id,''::text warehouse_id,
  employee_id record_id,version,active,
  pg_catalog.jsonb_build_object('fullName',full_name,'department',department,
-  'designation',designation,'siteId',site_id) AS values FROM hft.employee
+  'designation',designation,'siteId',site_id) AS master_values FROM hft.employee
  UNION ALL SELECT 'ITEM',legal_entity_id,''::text,''::text,item_code,
  version,active,pg_catalog.jsonb_build_object('uom',uom,'controlType',control_type)
  FROM hft.item
@@ -302,7 +305,7 @@ BEGIN
  actor_subject,session_id) VALUES(ver,proof->>'nonce',(p->>'requestId')::uuid,digest,
  actor,proof->>'sessionId');
  INSERT INTO hft.p3_master_change_request(request_id,kind,operation,legal_entity_id,
- site_id,warehouse_id,record_id,expected_version,reason,values,payload_sha256,
+ site_id,warehouse_id,record_id,expected_version,reason,proposed_values,payload_sha256,
  requester_subject,requester_session_id)
  VALUES((p->>'requestId')::uuid,p->>'kind',p->>'operation',e,s,w,p->>'recordId',
  (p->>'expectedVersion')::bigint,p->>'reason',p->'values',digest,actor,proof->>'sessionId');
