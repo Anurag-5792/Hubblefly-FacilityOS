@@ -902,32 +902,125 @@ END $employee_apply$;
 CREATE TRIGGER p3_employee_revision_immutable BEFORE UPDATE OR DELETE
  ON hft.employee_revision FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
 
--- Explicit ownership + least privilege. Runtime cannot bypass approval by
--- directly editing masters, decisions, audit, nonce, revisions or role grants.
-GRANT USAGE ON SCHEMA hft TO hft_r1_p3_master_runtime,hft_r1_p3_master_owner;
+-- P3 owner/runtime boundary. The migration-owner function transfer is
+-- temporary; hft_r1_p3_master_owner has NOLOGIN and no schema CREATE at COMMIT.
+GRANT USAGE ON SCHEMA hft TO hft_r1_p3_master_owner,hft_r1_p3_master_runtime;
 GRANT USAGE ON SCHEMA hft_secret TO hft_r1_p3_master_owner;
 GRANT SELECT ON hft.posting_session,hft.p3_master_actor_grant,
- hft.p3_master_read_v1,hft.p3_master_request_status_v1
- TO hft_r1_p3_master_owner;
-GRANT SELECT ON hft.legal_entity,hft.site,hft.warehouse
- TO hft_r1_p3_master_owner;
-GRANT SELECT ON hft_secret.p3_master_invocation_key TO hft_r1_p3_master_owner;
+ hft.p3_master_read_v1,hft.p3_master_request_status_v1,
+ hft.p3_master_change_request,hft.p3_master_decision,hft.p3_master_revision,
+ hft.p3_master_audit,hft.p3_master_decision_nonce,hft.p3_master_invocation_nonce,
+ hft.p3_master_action_policy,hft.p3_master_approver_qualification,
+ hft.p3_master_qualification_revocation,hft.approval_human,
+ hft.approval_human_login,hft.approval_human_revocation,
+ hft.employee_revision,hft.employee_custody,hft.legal_entity,hft.site,
+ hft.warehouse TO hft_r1_p3_master_owner;
+GRANT SELECT,INSERT,UPDATE ON hft.employee TO hft_r1_p3_master_owner;
+GRANT INSERT ON hft.employee_revision TO hft_r1_p3_master_owner;
+GRANT SELECT ON hft_secret.p3_master_invocation_key,
+ hft_secret.p3_master_decision_key TO hft_r1_p3_master_owner;
 GRANT INSERT ON hft.p3_master_invocation_nonce,hft.p3_master_change_request,
- hft.p3_master_audit TO hft_r1_p3_master_owner;
-GRANT SELECT ON hft.p3_master_actor_grant,hft.p3_master_read_v1,
- hft.p3_master_request_status_v1 TO hft_r1_p3_master_runtime;
+ hft.p3_master_audit,hft.p3_master_decision_nonce,hft.p3_master_decision,
+ hft.p3_master_revision TO hft_r1_p3_master_owner;
+-- Existing qualified P2 governance authority only; no runtime policy DML.
+GRANT INSERT,SELECT ON hft.p3_master_actor_grant,hft.p3_master_action_policy,
+ hft.p3_master_approver_qualification,hft.p3_master_qualification_revocation
+ TO hft_r1_governance_issuer;
 GRANT EXECUTE ON FUNCTION hft.p3_master_fields_v1(jsonb),
- hft.p3_master_digest_v1(jsonb),hft.p2_length_prefixed_v1(text[])
- TO hft_r1_p3_master_owner;
+ hft.p3_master_digest_v1(jsonb),hft.p3_master_read_fields_v1(jsonb),
+ hft.p3_master_read_digest_v1(jsonb),
+ hft.p3_employee_decision_fields_v1(jsonb),
+ hft.p3_employee_decision_digest_v1(jsonb),
+ hft.p2_length_prefixed_v1(text[]) TO hft_r1_p3_master_owner;
 GRANT CREATE ON SCHEMA hft TO hft_r1_p3_master_owner;
 ALTER FUNCTION hft.p3_submit_master_change_v1(jsonb,jsonb)
  OWNER TO hft_r1_p3_master_owner;
+ALTER FUNCTION hft.p3_read_masters_v1(jsonb,jsonb)
+ OWNER TO hft_r1_p3_master_owner;
+ALTER FUNCTION hft.p3_decide_apply_employee_v1(jsonb,jsonb)
+ OWNER TO hft_r1_p3_master_owner;
 REVOKE CREATE ON SCHEMA hft FROM hft_r1_p3_master_owner;
-REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA hft FROM PUBLIC,hft_r1_p3_master_runtime;
-GRANT EXECUTE ON FUNCTION hft.p3_submit_master_change_v1(jsonb,jsonb)
- TO hft_r1_p3_master_runtime;
-REVOKE ALL ON hft_secret.p3_master_invocation_key FROM PUBLIC,hft_r1_p3_master_runtime;
--- A future separately reviewed approval writer is mandatory to apply
--- APPROVED decisions, enforce independent humans and append master revisions.
--- No runtime INSERT privilege exists on decisions/revisions or master tables.
+-- No direct master SELECT, policy SELECT, table DML, sequence or helper
+-- EXECUTE by shared runtime or PUBLIC. Force privileged reads through
+-- the DB-verified signed-scope function, not through caller-supplied RLS vars.
+REVOKE ALL ON ALL TABLES IN SCHEMA hft,hft_secret
+ FROM PUBLIC,hft_r1_p3_master_runtime;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA hft,hft_secret
+ FROM PUBLIC,hft_r1_p3_master_runtime;
+REVOKE ALL ON SCHEMA hft_secret FROM PUBLIC,hft_r1_p3_master_runtime;
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA hft,hft_secret
+ FROM PUBLIC,hft_r1_p3_master_runtime;
+GRANT EXECUTE ON FUNCTION hft.p3_submit_master_change_v1(jsonb,jsonb),
+ hft.p3_read_masters_v1(jsonb,jsonb),
+ hft.p3_decide_apply_employee_v1(jsonb,jsonb) TO hft_r1_p3_master_runtime;
+-- Effective privileges include inherited roles and explicit SET ROLE.
+-- Real-login adversarial acceptance remains required separately.
+DO $p3_effective_acl$
+DECLARE who record; obj record; fn record; owners integer;nlogin integer:=0;
+BEGIN
+ SELECT pg_catalog.count(*) INTO owners FROM pg_catalog.pg_proc p
+ JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
+ WHERE p.oid IN (
+ 'hft.p3_submit_master_change_v1(jsonb,jsonb)'::pg_catalog.regprocedure,
+ 'hft.p3_read_masters_v1(jsonb,jsonb)'::pg_catalog.regprocedure,
+ 'hft.p3_decide_apply_employee_v1(jsonb,jsonb)'::pg_catalog.regprocedure)
+ AND r.rolname='hft_r1_p3_master_owner' AND NOT r.rolcanlogin
+ AND NOT r.rolsuper AND p.prosecdef
+ AND EXISTS(SELECT 1 FROM pg_catalog.unnest(p.proconfig) cfg
+  WHERE pg_catalog.replace(cfg,' ','')='search_path=pg_catalog,pg_temp');
+ IF owners<>3 THEN RAISE EXCEPTION 'P3_FUNCTION_OWNER_OR_PATH_INVALID'; END IF;
+ IF pg_catalog.has_schema_privilege('hft_r1_p3_master_owner','hft','CREATE')
+ THEN RAISE EXCEPTION 'P3_FUNCTION_OWNER_CREATE_ESCALATION'; END IF;
+ FOR who IN SELECT oid,rolname,rolcanlogin,rolsuper,rolcreatedb,rolcreaterole
+  FROM pg_catalog.pg_roles
+  WHERE rolname='hft_r1_p3_master_runtime' OR
+  (rolcanlogin AND pg_catalog.pg_has_role(oid,
+    'hft_r1_p3_master_runtime'::pg_catalog.regrole,'MEMBER'))
+ LOOP
+  IF who.rolcanlogin THEN nlogin:=nlogin+1; END IF;
+  IF who.rolsuper OR who.rolcreatedb OR who.rolcreaterole OR
+   pg_catalog.pg_has_role(who.oid,'hft_engineering'::pg_catalog.regrole,'MEMBER')
+   OR pg_catalog.pg_has_role(who.oid,'hft_r1_p3_master_owner'::pg_catalog.regrole,'MEMBER')
+   OR pg_catalog.pg_has_role(who.oid,'hft_r1_governance_issuer'::pg_catalog.regrole,'MEMBER')
+   OR pg_catalog.pg_has_role(who.oid,'hft_r1_posting_owner'::pg_catalog.regrole,'MEMBER')
+   OR pg_catalog.has_schema_privilege(who.rolname,'hft','CREATE')
+   OR pg_catalog.has_schema_privilege(who.rolname,'hft_secret','USAGE')
+   OR pg_catalog.has_schema_privilege(who.rolname,'public','CREATE')
+  THEN RAISE EXCEPTION 'P3_RUNTIME_ROLE_ESCALATION:%',who.rolname; END IF;
+  FOR obj IN SELECT c.oid,c.relkind,c.relname,n.nspname
+   FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+   WHERE n.nspname IN ('hft','hft_secret')
+    AND c.relkind IN ('r','p','v','m','f','S')
+  LOOP
+   IF obj.relkind='S' THEN
+    IF pg_catalog.has_sequence_privilege(who.rolname,obj.oid,'USAGE')
+    OR pg_catalog.has_sequence_privilege(who.rolname,obj.oid,'SELECT')
+    OR pg_catalog.has_sequence_privilege(who.rolname,obj.oid,'UPDATE')
+    THEN RAISE EXCEPTION 'P3_RUNTIME_SEQUENCE_LEAK:%:%.%',who.rolname,
+     obj.nspname,obj.relname; END IF;
+   ELSIF pg_catalog.has_table_privilege(who.rolname,obj.oid,'SELECT')
+    OR pg_catalog.has_table_privilege(who.rolname,obj.oid,'INSERT')
+    OR pg_catalog.has_table_privilege(who.rolname,obj.oid,'UPDATE')
+    OR pg_catalog.has_table_privilege(who.rolname,obj.oid,'DELETE')
+    OR pg_catalog.has_table_privilege(who.rolname,obj.oid,'TRUNCATE')
+    OR pg_catalog.has_table_privilege(who.rolname,obj.oid,'REFERENCES')
+    OR pg_catalog.has_table_privilege(who.rolname,obj.oid,'TRIGGER')
+   THEN RAISE EXCEPTION 'P3_RUNTIME_RELATION_LEAK:%:%.%',who.rolname,
+     obj.nspname,obj.relname; END IF;
+  END LOOP;
+  FOR fn IN SELECT p.oid,p.proname FROM pg_catalog.pg_proc p
+   JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+   WHERE n.nspname IN ('hft','hft_secret')
+  LOOP
+   IF pg_catalog.has_function_privilege(who.rolname,fn.oid,'EXECUTE')
+    AND fn.oid NOT IN (
+     'hft.p3_submit_master_change_v1(jsonb,jsonb)'::pg_catalog.regprocedure,
+     'hft.p3_read_masters_v1(jsonb,jsonb)'::pg_catalog.regprocedure,
+     'hft.p3_decide_apply_employee_v1(jsonb,jsonb)'::pg_catalog.regprocedure)
+   THEN RAISE EXCEPTION 'P3_RUNTIME_HELPER_LEAK:%:%',who.rolname,fn.proname; END IF;
+  END LOOP;
+ END LOOP;
+ IF nlogin=0 THEN RAISE EXCEPTION 'P3_RUNTIME_LOGIN_NOT_ATTESTED'; END IF;
+END $p3_effective_acl$;
+-- No executable migration 0007, role/extension provision or production use.
 COMMIT;
