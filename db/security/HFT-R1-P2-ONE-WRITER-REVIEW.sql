@@ -1251,6 +1251,102 @@ BEGIN
  RETURN result;
 END $writer$;
 
+
+-- P2-QA-003: readback is NOT a writer and does not consume a nonce.
+-- An original committed nonce is evidence the server-side proof verifier ran
+-- within the same atomic transaction. Absent nonce/command is INDETERMINATE,
+-- never a license to repost. This function itself uses SELECT-only operations.
+CREATE OR REPLACE FUNCTION hft.reconcile_protected_stock_command_v1(p jsonb,proof jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $recovery$
+DECLARE
+ cmd hft.stock_command%ROWTYPE;
+ nonce_row hft.posting_invocation_nonce%ROWTYPE;
+ outbox hft.audit_outbox%ROWTYPE;
+ outcome hft.stock_command_outcome%ROWTYPE;
+ seal hft.stock_command_seal%ROWTYPE;
+ payload_digest text; cnt bigint;
+BEGIN
+ PERFORM hft.p2_payload_fields_v1(p);
+ IF pg_catalog.jsonb_typeof(proof)<>'object'
+   OR (proof->>'actorSubject') !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+   OR (proof->>'sessionId') !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+   OR (proof->>'nonce') !~ '^[0-9a-f]{48}$'
+   OR (proof->>'keyVersion') !~ '^[1-9][0-9]{0,9}$'
+ THEN RAISE EXCEPTION 'P2_RECOVERY_PROOF_ENCODING_INVALID'; END IF;
+ payload_digest:=hft.p2_payload_digest_v1(p);
+ IF payload_digest IS DISTINCT FROM proof->>'payloadSha256' THEN
+   RAISE EXCEPTION 'P2_RECOVERY_PAYLOAD_DIGEST_MISMATCH'; END IF;
+ SELECT * INTO cmd FROM hft.stock_command AS sc
+ WHERE sc.legal_entity_id=p->>'legalEntityId'
+   AND sc.command_id=p->>'commandId';
+ IF cmd.id IS NULL THEN
+   PERFORM 1 FROM hft.stock_command AS existing
+   WHERE existing.legal_entity_id=p->>'legalEntityId'
+    AND existing.idempotency_key=p->>'idempotencyKey';
+   IF FOUND THEN RAISE EXCEPTION 'P2_RECOVERY_IDEMPOTENCY_CONFLICT'; END IF;
+   RETURN pg_catalog.jsonb_build_object('state','INDETERMINATE_NOT_FOUND',
+                                      'automaticRetryAllowed',false);
+ END IF;
+ IF cmd.payload_sha256<>payload_digest
+  OR cmd.actor_subject<>proof->>'actorSubject'
+  OR cmd.idempotency_key<>p->>'idempotencyKey'
+  OR cmd.kind<>p->>'kind'
+  OR cmd.source_document_id<>p->>'sourceDocumentId'
+  OR cmd.source_action_key<>p->>'sourceActionKey'
+  OR cmd.fragment_id<>p->>'fragmentId'
+  OR cmd.legal_entity_id<>p->>'legalEntityId'
+  OR cmd.site_id<>p->>'siteId'
+  OR cmd.warehouse_id<>p->>'warehouseId'
+  OR cmd.item_code<>p->>'itemCode'
+  OR cmd.location_id<>p->>'locationId'
+  OR cmd.batch_no<>p->>'batchNo'
+  OR cmd.serial_no<>p->>'serialNo'
+  OR cmd.quantity_micro::text<>p->>'quantityMicro'
+ THEN RAISE EXCEPTION 'P2_RECOVERY_PROTECTED_COMMAND_CONFLICT'; END IF;
+ SELECT * INTO nonce_row FROM hft.posting_invocation_nonce AS used
+ WHERE used.key_version=(proof->>'keyVersion')::integer
+   AND used.nonce=proof->>'nonce'
+   AND used.actor_subject=proof->>'actorSubject'
+   AND used.session_id=proof->>'sessionId'
+   AND used.command_id=cmd.command_id
+   AND used.payload_sha256=payload_digest;
+ IF nonce_row.nonce IS NULL THEN
+   RAISE EXCEPTION 'P2_RECOVERY_ORIGINAL_SIGNED_NONCE_NOT_COMMITTED'; END IF;
+ -- Current human session must still be active; recovered data stays scoped.
+ PERFORM 1 FROM hft.posting_session AS s
+ WHERE s.session_id=nonce_row.session_id
+ AND s.actor_subject=nonce_row.actor_subject
+ AND s.revoked_at IS NULL AND s.expires_at>pg_catalog.clock_timestamp();
+ IF NOT FOUND THEN RAISE EXCEPTION 'P2_RECOVERY_VERIFIED_SESSION_REVOKED'; END IF;
+ SELECT * INTO outcome FROM hft.stock_command_outcome
+ WHERE command_id=cmd.id;
+ SELECT * INTO outbox FROM hft.audit_outbox WHERE command_id=cmd.id;
+ SELECT * INTO seal FROM hft.stock_command_seal WHERE command_id=cmd.id;
+ IF outcome.command_id IS NULL OR outbox.id IS NULL OR seal.command_id IS NULL
+ OR outcome.committed_by<>nonce_row.actor_subject
+ OR outbox.canonical_sha256<>seal.audit_sha256
+ OR seal.outcome_sha256 IS DISTINCT FROM
+   pg_catalog.encode(hft_crypto.digest(pg_catalog.convert_to(outcome.result::text,'UTF8'),'sha256'),'hex')
+ OR NOT EXISTS (SELECT 1 FROM hft.audit_delivery d WHERE d.outbox_id=outbox.id)
+ THEN RAISE EXCEPTION 'P2_RECOVERY_IMMUTABLE_EVIDENCE_INCOMPLETE'; END IF;
+ IF cmd.kind IN ('ISSUE','RETURN') THEN
+   SELECT pg_catalog.count(*) INTO cnt FROM hft.posting_fragment AS fragment
+   WHERE fragment.command_uuid=cmd.id
+     AND fragment.legal_entity_id=cmd.legal_entity_id
+     AND fragment.fragment_id=cmd.fragment_id
+     AND fragment.quantity_micro=cmd.quantity_micro
+     AND fragment.document_id=cmd.source_document_id
+     AND fragment.source_action_key=cmd.source_action_key;
+   IF cnt<>1 THEN RAISE EXCEPTION 'P2_RECOVERY_FRAGMENT_INTEGRITY_FAILED'; END IF;
+ END IF;
+ -- P1 proof is lock-free and checks exact ledger legs/immutable attribution,
+ -- historic post-command available/version, audit/outcome and seal shape.
+ PERFORM hft.assert_command_seal_v1(cmd.id);
+ RETURN pg_catalog.jsonb_build_object('state','COMMITTED_VERIFIED',
+      'result',outcome.result);
+END $recovery$;
+
 -- Owner may access only the protected tables and internal helpers required to
 -- apply this single writer. Runtime has NO direct DML, no schema DDL and no
 -- individual seal/lock/assert helper EXECUTE.
