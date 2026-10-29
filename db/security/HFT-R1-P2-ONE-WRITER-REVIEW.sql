@@ -1371,6 +1371,7 @@ GRANT SELECT ON hft.legal_entity,hft.site,hft.item,hft.supplier,hft.warehouse,
  hft.posting_policy_bootstrap TO hft_r1_posting_owner;
 GRANT INSERT ON hft.posting_invocation_nonce,hft.posting_fragment,
  hft.custody_ack_pending TO hft_r1_posting_owner;
+GRANT SELECT ON hft.posting_invocation_nonce TO hft_r1_posting_owner;
 GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA hft TO hft_r1_posting_owner;
 -- Private SECURITY INVOKER validators are callable ONLY by the vetted
 -- non-login function owner, never by the app runtime or PUBLIC.
@@ -1392,6 +1393,8 @@ REVOKE EXECUTE ON FUNCTION hft.assert_command_seal_v1(uuid) FROM PUBLIC,hft_r1_a
 GRANT CREATE ON SCHEMA hft TO hft_r1_posting_owner;
 ALTER FUNCTION hft.post_stock_command_protected_v1(jsonb,jsonb)
  OWNER TO hft_r1_posting_owner;
+ALTER FUNCTION hft.reconcile_protected_stock_command_v1(jsonb,jsonb)
+ OWNER TO hft_r1_posting_owner;
 REVOKE CREATE ON SCHEMA hft FROM hft_r1_posting_owner;
 DO $verify_owner_acl$ BEGIN
  IF (SELECT p.proowner<>r.oid FROM pg_catalog.pg_proc AS p
@@ -1399,12 +1402,21 @@ DO $verify_owner_acl$ BEGIN
      JOIN pg_catalog.pg_roles AS r ON r.rolname='hft_r1_posting_owner'
      WHERE n.nspname='hft' AND p.proname='post_stock_command_protected_v1'
        AND p.pronargs=2) IS DISTINCT FROM false
+    OR (SELECT p.proowner<>r.oid FROM pg_catalog.pg_proc AS p
+     JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace
+     JOIN pg_catalog.pg_roles AS r ON r.rolname='hft_r1_posting_owner'
+     WHERE n.nspname='hft' AND p.proname='reconcile_protected_stock_command_v1'
+       AND p.pronargs=2) IS DISTINCT FROM false
     OR pg_catalog.has_schema_privilege('hft_r1_posting_owner','hft','CREATE')
  THEN RAISE EXCEPTION 'P2_FUNCTION_OWNER_OR_SCHEMA_CREATE_NOT_REVOKED'; END IF;
 END $verify_owner_acl$;
 -- SECURITY DEFINER owner fixed; runtime gets EXECUTE on ONE writer only.
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA hft FROM PUBLIC,hft_r1_app_runtime;
 GRANT EXECUTE ON FUNCTION hft.post_stock_command_protected_v1(jsonb,jsonb)
+ TO hft_r1_app_runtime;
+-- A distinct READ-ONLY reconciliation function is permitted; it never
+-- updates ledger facts or consumes a new invocation nonce.
+GRANT EXECUTE ON FUNCTION hft.reconcile_protected_stock_command_v1(jsonb,jsonb)
  TO hft_r1_app_runtime;
 GRANT SELECT ON hft.stock_command,hft.stock_entry,hft.stock_account,
  hft.audit_outbox,hft.stock_command_outcome,hft.stock_command_seal,
@@ -1438,7 +1450,9 @@ BEGIN
    FOREACH protected_table IN ARRAY ARRAY['hft.stock_command','hft.stock_entry',
      'hft.stock_account','hft.stock_command_seal','hft.protected_stock_approval',
      'hft.protected_approval_revocation','hft.stock_hold','hft.audit_outbox',
-     'hft.posting_invocation_nonce','hft.posting_fragment']
+     'hft.posting_invocation_nonce','hft.posting_fragment',
+     'hft.custody_ack_pending','hft.posting_parent_hold',
+     'hft.protected_approval_decision','hft.posting_action_policy']
    LOOP
      IF pg_catalog.has_table_privilege(login_row.rolname,protected_table,'INSERT')
         OR pg_catalog.has_table_privilege(login_row.rolname,protected_table,'UPDATE')
