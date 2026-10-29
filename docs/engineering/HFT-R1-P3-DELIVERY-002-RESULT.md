@@ -54,3 +54,7 @@ The source-only P3 candidate was found to omit explicit `hft_crypto` USAGE and e
 The submit function now refuses a SECOND unresolved request for the same entity/master identity/action/expected revision while allowing a new governed request after a recorded DENIED decision. This avoids ambiguity-driven duplicate pending Employee registrations without blind repost or fabricating a decision. New real-PostgreSQL negative test source is authored but NOT RUN.
 
 **Qualification:** Source statically inspected only; actual PostgreSQL parser/role/extension/function ownership, live read isolation, two-person approval, atomic Employee revision, browser and npm clean-build remain NOT RUN. No new production date. 26 October live-use remains MISSED, PR #11 Draft/unmerged, production NO-GO.
+
+## Additional bounded source regression — denied signed scoped reads
+
+`tests/pg/hft_p3_employee_read_negative.sql` now prepares real restricted-login / READ ONLY assertions against the existing P3 signed read function. Requires an exact eligible synthetic proof and checks positive read shape; forged entity/site/warehouse/search with the original HMAC, altered actor/session/MAC and expired proof all must deny. This is authored source only: PostgreSQL not run, no migration/credential/key installed. The original 26 October 2026 delivery remains MISSED, no replacement date authorized.
