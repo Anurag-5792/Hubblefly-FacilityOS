@@ -12,6 +12,10 @@ BEGIN
   OR NOT EXISTS(SELECT 1 FROM hft.schema_revision WHERE version=6)
   OR to_regclass('hft.posting_session') IS NULL
   OR to_regprocedure('hft.p2_length_prefixed_v1(text[])') IS NULL
+  OR NOT pg_catalog.pg_has_role(session_user,'hft_r1_p3_master_owner','MEMBER')
+  OR to_regclass('hft.approval_human_login') IS NULL
+  OR to_regclass('hft.approval_human_revocation') IS NULL
+  OR to_regclass('hft.employee_custody') IS NULL
   OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles
     WHERE rolname='hft_r1_p3_master_owner' AND NOT rolsuper AND NOT rolcanlogin)
   OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles
@@ -935,6 +939,11 @@ GRANT INSERT ON hft.p3_master_invocation_nonce,hft.p3_master_change_request,
  hft.p3_master_audit,hft.p3_master_decision_nonce,hft.p3_master_decision,
  hft.p3_master_revision TO hft_r1_p3_master_owner;
 -- Existing qualified P2 governance authority only; no runtime policy DML.
+-- Independent audit verifier has read access, never writer/issuer rights.
+-- Separate audit retention and external integrity remain release gates.
+GRANT SELECT ON hft.p3_master_change_request,hft.p3_master_decision,
+ hft.p3_master_revision,hft.p3_master_audit,hft.p3_master_decision_nonce,
+ hft.employee_revision TO hft_r1_audit_verify;
 GRANT INSERT,SELECT ON hft.p3_master_actor_grant,hft.p3_master_action_policy,
  hft.p3_master_approver_qualification,hft.p3_master_qualification_revocation
  TO hft_r1_governance_issuer;
