@@ -189,12 +189,36 @@ CREATE TABLE hft.approval_role_qualification (
  FOREIGN KEY(legal_entity_id,person_id) REFERENCES hft.approval_human(legal_entity_id,person_id),
  CHECK(qualified_from<qualified_until)
 );
+-- Revocation is a NEW immutable fact, never UPDATE of verified person history.
+CREATE TABLE hft.approval_human_revocation (
+ legal_entity_id text NOT NULL,person_id text NOT NULL,
+ revoked_by text NOT NULL,reason text NOT NULL CHECK(length(pg_catalog.btrim(reason))>0),
+ revoked_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ PRIMARY KEY(legal_entity_id,person_id),
+ FOREIGN KEY(legal_entity_id,person_id)
+ REFERENCES hft.approval_human(legal_entity_id,person_id)
+);
+CREATE TABLE hft.approval_role_revocation (
+ legal_entity_id text NOT NULL,person_id text NOT NULL,
+ action_kind text NOT NULL,duty text NOT NULL,
+ revoked_by text NOT NULL,reason text NOT NULL CHECK(length(pg_catalog.btrim(reason))>0),
+ revoked_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ PRIMARY KEY(legal_entity_id,person_id,action_kind,duty),
+ FOREIGN KEY(legal_entity_id,person_id,action_kind,duty)
+ REFERENCES hft.approval_role_qualification(legal_entity_id,person_id,action_kind,duty)
+);
+CREATE TRIGGER p2_person_revocation_immutable BEFORE UPDATE OR DELETE ON hft.approval_human_revocation
+ FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+CREATE TRIGGER p2_role_revocation_immutable BEFORE UPDATE OR DELETE ON hft.approval_role_revocation
+ FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+
 CREATE TABLE hft.posting_action_policy (
  legal_entity_id text NOT NULL,site_id text NOT NULL,warehouse_id text NOT NULL,
  action_kind text NOT NULL CHECK(action_kind IN ('RECEIVE','ISSUE','RETURN')),
  policy_revision bigint NOT NULL CHECK(policy_revision>0),
  require_checker boolean NOT NULL,require_independent_approver boolean NOT NULL,
  require_inspector boolean NOT NULL,require_preparer boolean NOT NULL,
+ require_independent_inspector boolean NOT NULL,
  valid_from timestamptz NOT NULL,valid_until timestamptz NOT NULL,
  decision_evidence_sha256 text NOT NULL CHECK(decision_evidence_sha256~'^[0-9a-f]{64}$'),
  PRIMARY KEY(legal_entity_id,site_id,warehouse_id,action_kind,policy_revision),
@@ -328,6 +352,12 @@ BEGIN
  WHERE login.legal_entity_id=p_entity AND login.actor_subject=p_subject
  AND human.revoked_at IS NULL AND human.valid_from<=p_at AND human.valid_until>p_at
  AND q.qualified_from<=p_at AND q.qualified_until>p_at
+ AND NOT EXISTS(SELECT 1 FROM hft.approval_human_revocation AS rev
+   WHERE rev.legal_entity_id=human.legal_entity_id
+   AND rev.person_id=human.person_id)
+ AND NOT EXISTS(SELECT 1 FROM hft.approval_role_revocation AS rr
+   WHERE rr.legal_entity_id=human.legal_entity_id
+   AND rr.person_id=human.person_id AND rr.action_kind=p_kind AND rr.duty=p_duty)
  AND sess.revoked_at IS NULL AND sess.expires_at>p_at;
  IF v_id IS NULL THEN RAISE EXCEPTION 'P2_UNQUALIFIED_HUMAN_OR_SESSION:%',p_duty; END IF;
  RETURN v_id;
@@ -411,6 +441,11 @@ BEGIN
  (approver_person=actor_person OR approver_person=maker_person
  OR approver_person=checker_person) THEN
    RAISE EXCEPTION 'P2_APPROVER_HUMAN_NOT_INDEPENDENT'; END IF;
+ IF pol.require_independent_inspector AND NEW.kind='RETURN' AND
+ (inspector_person IS NULL OR inspector_person=approver_person OR
+  inspector_person=actor_person OR inspector_person=maker_person OR
+  inspector_person=checker_person)
+ THEN RAISE EXCEPTION 'P2_INSPECTOR_HUMAN_NOT_INDEPENDENT'; END IF;
  IF NEW.kind='RETURN' AND (
  NEW.inspection_evidence_id='' OR v_evidence<>NEW.inspection_evidence_id
  OR d.inspection_evidence_id<>NEW.inspection_evidence_id OR
@@ -967,8 +1002,37 @@ BEGIN
  AND h.revoked_at IS NULL AND h.valid_from<=pg_catalog.clock_timestamp()
  AND h.valid_until>pg_catalog.clock_timestamp()
  AND q.qualified_from<=pg_catalog.clock_timestamp()
- AND q.qualified_until>pg_catalog.clock_timestamp() FOR SHARE OF l,h,q;
+ AND q.qualified_until>pg_catalog.clock_timestamp()
+ AND NOT EXISTS(SELECT 1 FROM hft.approval_human_revocation AS revoked
+   WHERE revoked.legal_entity_id=h.legal_entity_id
+     AND revoked.person_id=h.person_id)
+ AND NOT EXISTS(SELECT 1 FROM hft.approval_role_revocation AS revoked_role
+   WHERE revoked_role.legal_entity_id=h.legal_entity_id
+     AND revoked_role.person_id=h.person_id
+     AND revoked_role.action_kind=action AND revoked_role.duty='APPROVER')
+ FOR SHARE OF l,h,q;
  IF NOT FOUND THEN RAISE EXCEPTION 'P2_APPROVER_NO_LONGER_QUALIFIED'; END IF;
+ IF action='RETURN' THEN
+   PERFORM 1 FROM hft.approval_human_login AS l
+    JOIN hft.approval_human AS h ON h.person_id=l.person_id
+     AND h.legal_entity_id=l.legal_entity_id
+    JOIN hft.approval_role_qualification AS q ON q.person_id=h.person_id
+     AND q.legal_entity_id=h.legal_entity_id
+     AND q.action_kind='RETURN' AND q.duty='INSPECTOR'
+   WHERE l.legal_entity_id=e
+     AND l.actor_subject=approval_decision.inspector_subject
+     AND h.revoked_at IS NULL AND h.valid_from<=pg_catalog.clock_timestamp()
+     AND h.valid_until>pg_catalog.clock_timestamp()
+     AND q.qualified_from<=pg_catalog.clock_timestamp()
+     AND q.qualified_until>pg_catalog.clock_timestamp()
+     AND NOT EXISTS(SELECT 1 FROM hft.approval_human_revocation AS rev
+      WHERE rev.legal_entity_id=h.legal_entity_id AND rev.person_id=h.person_id)
+     AND NOT EXISTS(SELECT 1 FROM hft.approval_role_revocation AS rev
+      WHERE rev.legal_entity_id=h.legal_entity_id AND rev.person_id=h.person_id
+        AND rev.action_kind='RETURN' AND rev.duty='INSPECTOR')
+   FOR SHARE OF l,h,q;
+   IF NOT FOUND THEN RAISE EXCEPTION 'P2_RETURN_INSPECTOR_NO_LONGER_QUALIFIED'; END IF;
+ END IF;
  -- Parent ENTITY and SITE Holds must be projected and locked, even when
  -- no exact warehouse-level Hold exists.
  PERFORM 1 FROM hft.posting_parent_hold AS parent_hold
@@ -1381,7 +1445,8 @@ GRANT SELECT ON hft.legal_entity,hft.site,hft.item,hft.supplier,hft.warehouse,
  hft.protected_approval_revocation,hft.posting_policy_epoch,hft.posting_session,
  hft.posting_fragment,hft.posting_action_policy,hft.protected_approval_decision,
  hft.protected_approval_supersession,hft.approval_human,hft.approval_human_login,
- hft.approval_role_qualification,hft.return_inspection_attestation,
+ hft.approval_role_qualification,hft.approval_human_revocation,
+ hft.approval_role_revocation,hft.return_inspection_attestation,
  hft.posting_parent_hold,hft.posting_parent_hold_clearance,
  hft.posting_policy_bootstrap TO hft_r1_posting_owner;
 GRANT INSERT ON hft.posting_invocation_nonce,hft.posting_fragment,
@@ -1469,6 +1534,7 @@ BEGIN
      'hft.protected_approval_revocation','hft.stock_hold','hft.audit_outbox',
      'hft.posting_invocation_nonce','hft.posting_fragment',
      'hft.custody_ack_pending','hft.posting_parent_hold',
+     'hft.approval_human_revocation','hft.approval_role_revocation',
      'hft.protected_approval_decision','hft.posting_action_policy']
    LOOP
      IF pg_catalog.has_table_privilege(login_row.rolname,protected_table,'INSERT')
