@@ -80,8 +80,8 @@ export default function ItemVersionGallery(){
    const data=result.gallery;
    setGallery(data);setSelected(data.versions[0].versionCode);
    setMessage(data.status==='COMPLETE'?
-    'Every recorded version has an approved primary photograph.':
-    'One or more recorded versions are missing an approved primary photograph.');
+    'Every recorded version has approved primary metadata. Image bytes are separately verified when viewed.':
+    'One or more versions lack approved primary metadata. Actual image bytes remain separately verified.');
   }catch(error){setMessage(error instanceof Error?error.message:'Item gallery unavailable');}
   finally{setBusy(false);}
  }

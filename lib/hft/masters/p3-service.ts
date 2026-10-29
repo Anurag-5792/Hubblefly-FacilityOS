@@ -67,6 +67,17 @@ async function readMasters(pool:PgPool,env:IsolatedPgEnvironment,
   return guardedRows(res.rows[0].response,query);
  });
 }
+/** Internal item-gallery read for the dedicated media route only.
+ * The generic Masters API must never expose HFT-owned storage keys.
+ */
+export async function readP3ItemGallery(pool:PgPool,env:IsolatedPgEnvironment,
+ operator:VerifiedRequestOperator,raw:unknown):Promise<MastersResult>{
+ const input=validateMasterRequest(raw);
+ if(input.intent!=='ITEM_GALLERY'||input.kind!=='ITEM')
+  throw new Error('P3_ITEM_GALLERY_DEDICATED_ROUTE_REQUIRED');
+ assertVerifiedRequestOperator(operator,input);
+ return readMasters(pool,env,operator,input);
+}
 export async function handleP3MasterRequest(pool:PgPool,env:IsolatedPgEnvironment,
  operator:VerifiedRequestOperator,raw:unknown):Promise<MastersResult>{
  const input:MasterRequest=validateMasterRequest(raw);
@@ -75,8 +86,8 @@ export async function handleP3MasterRequest(pool:PgPool,env:IsolatedPgEnvironmen
  if(input.intent!=='SUBMIT'){
   if(input.intent==='REVIEW_QUEUE'&&input.kind!=='EMPLOYEE')
    throw new Error('P3_REVIEW_QUEUE_EMPLOYEE_ONLY');
-  if(input.intent==='ITEM_GALLERY'&&input.kind!=='ITEM')
-   throw new Error('P3_ITEM_GALLERY_KIND_REQUIRED');
+  if(input.intent==='ITEM_GALLERY')
+   throw new Error('P3_ITEM_GALLERY_DEDICATED_ROUTE_REQUIRED');
   return readMasters(pool,env,operator,input);
  }
  const change=input.change;

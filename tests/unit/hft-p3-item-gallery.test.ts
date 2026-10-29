@@ -2,6 +2,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {validateMasterRequest} from '../../lib/hft/masters/p3-contract.ts';
+import {handleP3MasterRequest} from '../../lib/hft/masters/p3-service.ts';
+import {verifiedFixtureOperator} from '../support/signed-session-fixture.ts';
+import type {PgPool} from '../../lib/hft/persistence/isolated-pg-transaction.ts';
 import {validateItemGalleryRequest,parseScopedItemGallery,
  publicItemGallery,readApprovedHftPhoto} from '../../lib/hft/masters/p3-item-gallery.ts';
 const scope={legalEntityId:'HFT',siteId:'SITE1',warehouseId:'WH1'};
@@ -87,4 +90,11 @@ test('not found photo or unqualified HFT-owned root never yields image bytes',as
  /P3_GALLERY_HFT_MEDIA_ROOT_NOT_QUALIFIED/);
  await assert.rejects(readApprovedHftPhoto(g,'V1',mediaId,'/'),
  /P3_GALLERY_HFT_MEDIA_ROOT_NOT_QUALIFIED/);
+});
+
+test('generic Masters handler refuses storage-bearing gallery intent before DB',async()=>{
+ const pool:PgPool={async connect(){throw new Error('UNEXPECTED_DATABASE_CONNECTION');}};
+ await assert.rejects(handleP3MasterRequest(pool,{},verifiedFixtureOperator(),{
+  intent:'ITEM_GALLERY',kind:'ITEM',...scope,recordId:itemCode,search:''
+ }),/P3_ITEM_GALLERY_DEDICATED_ROUTE_REQUIRED/);
 });

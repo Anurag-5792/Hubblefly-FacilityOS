@@ -4,7 +4,7 @@
  */
 import {resolveVerifiedRequestOperator} from '../../../../../lib/hft/security/verified-request.ts';
 import {openP3Pool,assertP3Environment} from '../../../../../lib/hft/masters/p3-database.ts';
-import {handleP3MasterRequest} from '../../../../../lib/hft/masters/p3-service.ts';
+import {readP3ItemGallery} from '../../../../../lib/hft/masters/p3-service.ts';
 import {validateItemGalleryRequest,parseScopedItemGallery,publicItemGallery,
  readApprovedHftPhoto} from '../../../../../lib/hft/masters/p3-item-gallery.ts';
 export const runtime='nodejs';
@@ -28,7 +28,7 @@ export async function POST(request:Request):Promise<Response>{
   const pool=openP3Pool(process.env);
   try{
    const {legalEntityId,siteId,warehouseId,itemCode}=input;
-   const reply=await handleP3MasterRequest(pool,process.env,actor,{
+   const reply=await readP3ItemGallery(pool,process.env,actor,{
     intent:'ITEM_GALLERY',kind:'ITEM',legalEntityId,siteId,warehouseId,
     recordId:itemCode,search:''
    });
