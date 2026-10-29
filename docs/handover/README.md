@@ -11,6 +11,7 @@ This area is intended for the people who will operate, administer and support Fa
 | Product overview | Purpose, supported modules, approved limits and responsibilities | To be qualified |
 | Access and administration | Organization/site setup, employees, roles, access management and approvals | To be qualified |
 | Stores operations | Item Master, receiving, quality checks, material issue/return and inventory reconciliation | To be qualified |
+| Stores IN/OUT and location control | Physical receiving, employee/work-order issue, count-by-bin, rack/location transfer and exceptions | Draft instructions; not qualified |
 | Item versions and photographs | Creating/verifying item versions, primary images, additional views and missing-image exceptions | Draft instructions below |
 | Operations and support | Backup/restore, incident handling, monitoring, troubleshooting, support and upgrades | To be qualified |
 | Acceptance and release | Accepted functional scenarios, known limitations, product/document versions and acknowledgement | Not accepted |
