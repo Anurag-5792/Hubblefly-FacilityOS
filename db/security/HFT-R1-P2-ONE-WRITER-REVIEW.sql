@@ -24,6 +24,11 @@ DO $preflight$ BEGIN
       ON n.oid=e.extnamespace WHERE e.extname='pgcrypto' AND n.nspname='hft_crypto')
  THEN RAISE EXCEPTION 'P2_APPROVED_ROLE_PGCRYPTO_AND_V6_PREREQUISITES_REQUIRED'; END IF;
 END $preflight$;
+-- P2-QA-007: refuse historic ISSUE/RETURN commands before fragment ALTER.
+DO $legacy_fragments$ BEGIN
+ IF EXISTS(SELECT 1 FROM hft.stock_command WHERE kind IN ('ISSUE','RETURN'))
+ THEN RAISE EXCEPTION 'P2_HISTORICAL_ISSUE_RETURN_FRAGMENT_CUTOVER_REQUIRED'; END IF;
+END $legacy_fragments$;
 
 -- Global FUNCTION defaults are essential. Per-schema REVOKE does NOT cancel
 -- PostgreSQL's global PUBLIC EXECUTE defaults. These act for the real creators.
@@ -69,7 +74,8 @@ REVOKE ALL ON hft_secret.invocation_key FROM PUBLIC,hft_r1_app_runtime,hft_r1_au
 CREATE TABLE hft.posting_session (
  session_id text NOT NULL,actor_subject text NOT NULL,
  expires_at timestamptz NOT NULL,revoked_at timestamptz,
- PRIMARY KEY(session_id,actor_subject),
+ PRIMARY KEY(session_id),
+ UNIQUE(session_id,actor_subject),
  CHECK(length(session_id)>0 AND length(actor_subject)>0)
 );
 CREATE TABLE hft.posting_policy_epoch (
@@ -348,7 +354,10 @@ BEGIN
     OR (p->>'originalIssueId')='' OR (p->>'inspectionEvidenceId')=''
     OR p->>'condition' NOT IN ('GOOD','DAMAGED','QUARANTINE'))
  THEN RAISE EXCEPTION 'P2_RETURN_SCOPE_INVALID'; END IF;
- RETURN ARRAY(SELECT p->>x.field FROM pg_catalog.unnest(names) AS x(field));
+ -- Explicit proof-field order. Never depend on unnest planner output order.
+ RETURN ARRAY(SELECT p->>x.field
+    FROM pg_catalog.unnest(names) WITH ORDINALITY AS x(field,ordinality)
+    ORDER BY x.ordinality);
 END $$;
 CREATE OR REPLACE FUNCTION hft.p2_length_prefixed_v1(fields text[]) RETURNS bytea
 LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog,pg_temp AS $$
@@ -374,6 +383,7 @@ DECLARE k text; names text[]:=ARRAY['proofVersion','actorSubject','sessionId',
  'payloadSha256','issuedAt','expiresAt','nonce','keyVersion','macSha256'];
  v text; issued bigint; expires bigint; ver integer; now_epoch bigint;
  key hft_secret.invocation_key%ROWTYPE; payload_sha text; mac_data bytea; mac_expected bytea;
+ mac_claimed bytea; mac_difference integer:=0; mac_offset integer;
 BEGIN
  IF pg_catalog.jsonb_typeof(proof)<>'object' OR
   (SELECT count(*) FROM pg_catalog.jsonb_object_keys(proof))<>9
@@ -414,8 +424,18 @@ BEGIN
   p->>'sourceDocumentId',p->>'sourceActionKey',p->>'fragmentId',p->>'quantityMicro',
   proof->>'issuedAt',proof->>'expiresAt',proof->>'nonce',proof->>'keyVersion']);
  mac_expected:=hft_crypto.hmac(mac_data,key.key_bytes,'sha256');
- IF pg_catalog.encode(mac_expected,'hex') IS DISTINCT FROM proof->>'macSha256'
- THEN RAISE EXCEPTION 'P2_INVOCATION_PROOF_MAC_INVALID'; END IF;
+ mac_claimed:=pg_catalog.decode(proof->>'macSha256','hex');
+ IF pg_catalog.octet_length(mac_expected)<>32 OR
+    pg_catalog.octet_length(mac_claimed)<>32 THEN
+   RAISE EXCEPTION 'P2_INVOCATION_MAC_LENGTH_INVALID';
+ END IF;
+ -- Fixed-work 32-byte comparison; actual timing needs independent acceptance.
+ FOR mac_offset IN 0..31 LOOP
+   mac_difference:=mac_difference |
+     (pg_catalog.get_byte(mac_expected,mac_offset) #
+      pg_catalog.get_byte(mac_claimed,mac_offset));
+ END LOOP;
+ IF mac_difference<>0 THEN RAISE EXCEPTION 'P2_INVOCATION_PROOF_MAC_INVALID'; END IF;
  -- Shared runtime login does not establish a human. HMAC + active session do.
  PERFORM 1 FROM hft.posting_session s
  WHERE s.session_id=proof->>'sessionId' AND s.actor_subject=proof->>'actorSubject'
@@ -442,14 +462,14 @@ DECLARE
  action text:=p->>'kind'; actor text;
  doc_id text:=p->>'sourceDocumentId'; line_id text:=p->>'sourceActionKey';
  fragment text:=p->>'fragmentId'; holder text:=p->>'employeeId';
- origin_issue text:=p->>'originalIssueId'; condition text:=p->>'condition';
+ origin_issue text:=p->>'originalIssueId'; v_condition text:=p->>'condition';
  qty bigint; expected_version bigint; doc_revision bigint; generation bigint;
  grant_row hft.actor_warehouse_grant%ROWTYPE;
  approval hft.protected_stock_approval%ROWTYPE;
  policy hft.posting_policy_epoch%ROWTYPE;
  available hft.stock_account%ROWTYPE; target hft.stock_account%ROWTYPE;
  source_revision bigint; source_approver text; ceiling bigint; cumulative bigint;
- control_type text; source_uuid uuid; receipt_uuid uuid; invoice_line_uuid uuid;
+ v_control_type text; source_uuid uuid; receipt_uuid uuid; invoice_line_uuid uuid; receipt_line_no integer;
  origin_custody hft.employee_custody%ROWTYPE;
  command_uuid uuid; outbox_uuid uuid; result jsonb; fact jsonb; event jsonb; audit_text text;
  audit_sha text; payload_sha text; debit_bucket text; credit_bucket text;
@@ -523,12 +543,12 @@ BEGIN
  PERFORM 1 FROM hft.location l WHERE l.legal_entity_id=e AND l.warehouse_id=wh
  AND l.location_id=location AND l.active FOR SHARE;
  IF NOT FOUND THEN RAISE EXCEPTION 'P2_LOCATION_NOT_ACTIVE'; END IF;
- SELECT control_type INTO control_type FROM hft.item i
+ SELECT i.control_type INTO v_control_type FROM hft.item i
  WHERE i.legal_entity_id=e AND i.item_code=item AND i.active FOR SHARE;
- IF control_type IS NULL THEN RAISE EXCEPTION 'P2_ITEM_NOT_ACTIVE'; END IF;
- IF (control_type='SERIAL' AND (serial='' OR qty<>1000000)) OR
-    (control_type='BATCH' AND lot='') OR
-    (control_type='NONE' AND (lot<>'' OR serial<>''))
+ IF v_control_type IS NULL THEN RAISE EXCEPTION 'P2_ITEM_NOT_ACTIVE'; END IF;
+ IF (v_control_type='SERIAL' AND (serial='' OR qty<>1000000)) OR
+    (v_control_type='BATCH' AND (lot='' OR serial<>'')) OR
+    (v_control_type='NONE' AND (lot<>'' OR serial<>''))
  THEN RAISE EXCEPTION 'P2_ITEM_SERIAL_BATCH_INVALID'; END IF;
  IF action IN ('ISSUE','RETURN') THEN
   PERFORM 1 FROM hft.employee emp WHERE emp.legal_entity_id=e
@@ -537,18 +557,30 @@ BEGIN
  END IF;
  -- Lock typed source document and line, enforce exact authorization revision.
  IF action='RECEIVE' THEN
-   SELECT g.authorization_revision,g.authorized_by,r.accepted_micro,r.id,gl.invoice_line_id
-   INTO source_revision,source_approver,ceiling,receipt_uuid,invoice_line_uuid
+   SELECT g.authorization_revision,g.authorized_by,r.accepted_micro,r.id,
+      gl.invoice_line_id,r.line_no
+   INTO source_revision,source_approver,ceiling,receipt_uuid,invoice_line_uuid,receipt_line_no
    FROM hft.grn g
    JOIN hft.grn_partial_receipt r ON r.grn_id=g.id
    JOIN hft.grn_line gl ON gl.grn_id=r.grn_id AND gl.line_no=r.line_no
+   JOIN hft.supplier AS supplier ON supplier.legal_entity_id=g.legal_entity_id
+        AND supplier.supplier_id=g.supplier_id
+   JOIN hft.supplier_invoice AS invoice ON invoice.id=g.invoice_id
+        AND invoice.legal_entity_id=g.legal_entity_id
+        AND invoice.supplier_id=g.supplier_id
+        AND invoice.invoice_key=g.invoice_key AND invoice.invoice_date=g.invoice_date
+   JOIN hft.supplier_invoice_line AS invline ON invline.id=gl.invoice_line_id
+        AND invline.invoice_id=invoice.id AND invline.legal_entity_id=g.legal_entity_id
+        AND invline.item_code=gl.item_code
    WHERE g.id::text=doc_id AND g.legal_entity_id=e AND g.warehouse_id=wh
      AND r.receipt_key||':'||r.line_no::text=line_id
      AND r.legal_entity_id=e AND r.warehouse_id=wh AND r.location_id=location
      AND r.batch_no=lot AND r.serial_no=serial AND gl.item_code=item
      AND r.qc_state='ACCEPTED' AND length(trim(r.evidence_reference))>0
      AND r.evidence_reference=p->>'inspectionEvidenceId'
-     AND g.status IN ('AUTHORIZED','PARTIALLY_RECEIVED') FOR UPDATE OF g,r,gl;
+     AND supplier.active=true AND invoice.status='VERIFIED'
+     AND g.status IN ('AUTHORIZED','PARTIALLY_RECEIVED')
+     FOR UPDATE OF g,r,gl FOR SHARE OF supplier,invoice,invline;
    IF source_revision IS NULL OR ceiling<>qty
    THEN RAISE EXCEPTION 'P2_GRN_PHYSICAL_RECEIPT_UNVERIFIED'; END IF;
  ELSIF action='ISSUE' THEN
@@ -569,7 +601,7 @@ BEGIN
    JOIN hft.material_return_line l ON l.return_id=mr.id
    WHERE mr.id::text=doc_id AND mr.legal_entity_id=e AND mr.warehouse_id=wh
       AND origin.employee_id=holder AND mr.status IN ('AUTHORIZED','RETURNED')
-      AND mr.condition=condition AND length(trim(mr.evidence_reference))>0
+      AND mr.condition=v_condition AND length(trim(mr.evidence_reference))>0
       AND l.source_action_key=line_id AND l.legal_entity_id=e AND l.warehouse_id=wh
       AND l.item_code=item AND l.location_id=location AND l.batch_no=lot
       AND l.serial_no=serial AND l.original_issue_command_id=origin_issue
@@ -602,20 +634,20 @@ BEGIN
  INSERT INTO hft.stock_account(legal_entity_id,warehouse_id,item_code,location_key,
    batch_key,serial_key,condition,account_kind,custodian_employee_id)
  VALUES(e,wh,item,location,lot,serial,'GOOD','AVAILABLE','') ON CONFLICT DO NOTHING;
- SELECT * INTO available FROM hft.stock_account
+ SELECT * INTO available FROM hft.stock_account AS a
  WHERE legal_entity_id=e AND warehouse_id=wh AND item_code=item AND location_key=location
-   AND batch_key=lot AND serial_key=serial AND condition='GOOD' AND account_kind='AVAILABLE'
+   AND batch_key=lot AND serial_key=serial AND a.condition='GOOD' AND account_kind='AVAILABLE'
    AND custodian_employee_id='' FOR UPDATE;
  IF available.id IS NULL OR available.version<>expected_version
  THEN RAISE EXCEPTION 'P2_STALE_AVAILABLE_VERSION'; END IF;
  before_available:=available.qty_micro;
  debit_bucket:=CASE action WHEN 'RECEIVE' THEN 'EXTERNAL' WHEN 'ISSUE' THEN 'AVAILABLE' ELSE 'CUSTODY' END;
  credit_bucket:=CASE action WHEN 'ISSUE' THEN 'CUSTODY'
-   WHEN 'RETURN' THEN (CASE WHEN condition='GOOD' THEN 'AVAILABLE' ELSE condition END)
+   WHEN 'RETURN' THEN (CASE WHEN v_condition='GOOD' THEN 'AVAILABLE' ELSE v_condition END)
    ELSE 'AVAILABLE' END;
  IF action='ISSUE' AND before_available-qty<available.reserved_micro
  THEN RAISE EXCEPTION 'P2_INSUFFICIENT_AVAILABLE_QUANTITY'; END IF;
- IF action='RETURN' AND condition='GOOD' THEN after_available:=before_available+qty;
+ IF action='RETURN' AND v_condition='GOOD' THEN after_available:=before_available+qty;
  ELSIF action='RECEIVE' THEN after_available:=before_available+qty;
  ELSIF action='ISSUE' THEN after_available:=before_available-qty;
  ELSE after_available:=before_available; END IF;
@@ -673,7 +705,7 @@ BEGIN
  VALUES(e,p->>'commandId',p->>'idempotencyKey',payload_sha,action,doc_id,line_id,fragment,
    actor,approval.approval_id,approval.approval_revision,
    CASE WHEN action='RECEIVE' THEN receipt_uuid ELSE NULL END,
-   CASE WHEN action='RECEIVE' THEN pg_catalog.split_part(line_id,':',2)::integer ELSE NULL END,
+   CASE WHEN action='RECEIVE' THEN receipt_line_no ELSE NULL END,
    wh,item,location,lot,serial,site,qty,'HFT_STOCK_POST_V1') RETURNING id INTO command_uuid;
  IF action IN ('ISSUE','RETURN') THEN
   INSERT INTO hft.posting_fragment(legal_entity_id,fragment_id,kind,document_id,
@@ -694,7 +726,7 @@ BEGIN
        (command_uuid,credit_account,credit_bucket,qty,NULLIF(holder,''),NULLIF(lot,''),NULLIF(serial,''));
  IF action='RECEIVE' THEN
     UPDATE hft.grn_line SET accepted_micro=accepted_micro+qty
-     WHERE grn_id=doc_id::uuid AND line_no=pg_catalog.split_part(line_id,':',2)::integer
+     WHERE grn_id=doc_id::uuid AND line_no=receipt_line_no
        AND accepted_micro+qty<=ordered_micro;
     IF NOT FOUND THEN RAISE EXCEPTION 'P2_GRN_ACCEPTED_EXCEEDED'; END IF;
     UPDATE hft.supplier_invoice_line SET received_micro=received_micro+qty
@@ -728,13 +760,13 @@ BEGIN
       THEN 'AUTHORIZED' ELSE 'RETURNED' END WHERE id=doc_id::uuid;
  END IF;
  -- Lock+check serial state, once per unique asset. Partial SERIAL is forbidden.
- IF serial<>'' THEN
+ IF v_control_type='SERIAL' AND serial<>'' THEN
    IF action='RECEIVE' THEN
      INSERT INTO hft.serial_registry(legal_entity_id,item_code,serial_no,warehouse_id,state)
      VALUES(e,item,serial,wh,'AVAILABLE');
    ELSE
      UPDATE hft.serial_registry SET state=CASE WHEN action='ISSUE' THEN 'CUSTODY'
-       WHEN condition='GOOD' THEN 'AVAILABLE' ELSE condition END,
+       WHEN v_condition='GOOD' THEN 'AVAILABLE' ELSE v_condition END,
        custodian_employee_id=CASE WHEN action='ISSUE' THEN holder ELSE NULL END,
        version=version+1 WHERE legal_entity_id=e AND item_code=item AND serial_no=serial
        AND state=CASE WHEN action='ISSUE' THEN 'AVAILABLE' ELSE 'CUSTODY' END;
