@@ -7,13 +7,13 @@ import {assertVerifiedRequestOperator} from '../security/verified-request.ts';
 export const MASTER_KINDS=['EMPLOYEE','ITEM','SUPPLIER','WAREHOUSE','LOCATION'] as const;
 export type MasterKind=typeof MASTER_KINDS[number];
 export type MasterAction='CREATE'|'EDIT'|'ACTIVATE'|'DEACTIVATE';
-export type MasterIntent='LIST'|'GET'|'REQUESTS'|'REVIEW_QUEUE'|'SUBMIT';
+export type MasterIntent='LIST'|'GET'|'REQUESTS'|'REVIEW_QUEUE'|'ITEM_GALLERY'|'SUBMIT';
 export type MasterScope=Readonly<{legalEntityId:string;siteId:string;warehouseId:string}>;
 export type MasterChange=Readonly<MasterScope&{
  contractVersion:'HFT-R1-P3-MASTER-V1';requestId:string;kind:MasterKind;operation:MasterAction;
  recordId:string;expectedVersion:string;reason:string;values:Readonly<Record<string,string>>;
 }>;
-export type MasterQuery=Readonly<MasterScope&{intent:'LIST'|'GET'|'REQUESTS'|'REVIEW_QUEUE';kind:MasterKind;search:string;recordId?:string}>;
+export type MasterQuery=Readonly<MasterScope&{intent:'LIST'|'GET'|'REQUESTS'|'REVIEW_QUEUE'|'ITEM_GALLERY';kind:MasterKind;search:string;recordId?:string}>;
 export type MasterRequest=Readonly<{intent:'SUBMIT';change:MasterChange}>|MasterQuery;
 export type MasterProof=Readonly<{
  proofVersion:'HFT-R1-P3-MASTER-HMAC-V1';actorSubject:string;sessionId:string;
@@ -101,15 +101,16 @@ export function validateMasterChange(input:unknown):MasterChange {
 export function validateMasterRequest(input:unknown):MasterRequest{
  const o=obj(input);
  if(o.intent==='SUBMIT'){exact(o,['intent','change']);return {intent:'SUBMIT',change:validateMasterChange(o.change)};}
- if(!['LIST','GET','REQUESTS','REVIEW_QUEUE'].includes(o.intent as string))throw new Error('P3_INTENT_INVALID');
+ if(!['LIST','GET','REQUESTS','REVIEW_QUEUE','ITEM_GALLERY'].includes(o.intent as string))throw new Error('P3_INTENT_INVALID');
  const intent=o.intent as MasterQuery['intent'];
- const names=intent==='GET'?['intent','kind','legalEntityId','siteId','warehouseId','search','recordId']:
+ const names=(intent==='GET'||intent==='ITEM_GALLERY')?['intent','kind','legalEntityId','siteId','warehouseId','search','recordId']:
   ['intent','kind','legalEntityId','siteId','warehouseId','search'];
  exact(o,names);const kind=kindOf(o.kind),scope=scopeOf(o);
  const search=o.search;
  if(typeof search!=='string'||search.length>80||!/^[A-Za-z0-9 ._-]*$/.test(search))
   throw new Error('P3_SEARCH_INVALID');
- const recordId=intent==='GET'?ident(o.recordId,'P3_RECORD_ID_INVALID'):undefined;
+ const recordId=(intent==='GET'||intent==='ITEM_GALLERY')?ident(o.recordId,'P3_RECORD_ID_INVALID'):undefined;
+ if(intent==='ITEM_GALLERY'&&kind!=='ITEM')throw new Error('P3_ITEM_GALLERY_KIND_REQUIRED');
  if(recordId&&kind==='WAREHOUSE'&&recordId!==scope.warehouseId)
   throw new Error('P3_WAREHOUSE_ANCHOR_MISMATCH');
  return {intent,kind,...scope,search, ...(recordId?{recordId}:{})};
