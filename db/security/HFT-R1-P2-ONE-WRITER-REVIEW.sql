@@ -94,7 +94,7 @@ CREATE TABLE hft.posting_policy_bootstrap (
  existing_actor_grants bigint NOT NULL CHECK(existing_actor_grants>=0),
  existing_holds bigint NOT NULL CHECK(existing_holds>=0),
  recorded_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
- recorded_by text NOT NULL DEFAULT pg_catalog.session_user,
+ recorded_by text NOT NULL DEFAULT session_user,
  PRIMARY KEY(legal_entity_id,site_id,warehouse_id),
  FOREIGN KEY(legal_entity_id,site_id,warehouse_id)
  REFERENCES hft.posting_policy_epoch(legal_entity_id,site_id,warehouse_id)
@@ -470,13 +470,18 @@ CREATE TABLE hft.posting_invocation_nonce (
  key_version integer NOT NULL,nonce text NOT NULL,
  actor_subject text NOT NULL,session_id text NOT NULL,
  command_id text NOT NULL,payload_sha256 text NOT NULL,
+ legal_entity_id text NOT NULL,
  -- Preserve a fingerprint of the already-verified HMAC for exact readback.
  -- No raw MAC, key or external HMAC-SHA-256 V1 protocol change is introduced.
  proof_mac_sha256 text NOT NULL CHECK(proof_mac_sha256~'^[0-9a-f]{64}$'),
  proof_issued_at_epoch bigint NOT NULL CHECK(proof_issued_at_epoch>0),
  expires_at timestamptz NOT NULL,used_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  PRIMARY KEY(key_version,nonce),
- CHECK(nonce ~ '^[0-9a-f]{48}$')
+ CHECK(nonce ~ '^[0-9a-f]{48}$'),
+ -- No immutable proof record may commit without an exact durable command.
+ FOREIGN KEY(legal_entity_id,command_id)
+  REFERENCES hft.stock_command(legal_entity_id,command_id)
+  DEFERRABLE INITIALLY DEFERRED
 );
 CREATE TRIGGER immutable_posting_invocation_nonce BEFORE UPDATE OR DELETE
  ON hft.posting_invocation_nonce FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
@@ -912,9 +917,9 @@ BEGIN
  AND s.revoked_at IS NULL AND s.expires_at>pg_catalog.clock_timestamp() FOR SHARE;
  IF NOT FOUND THEN RAISE EXCEPTION 'P2_SESSION_REVOKED_OR_UNKNOWN'; END IF;
  INSERT INTO hft.posting_invocation_nonce(key_version,nonce,actor_subject,session_id,
-  command_id,payload_sha256,proof_mac_sha256,proof_issued_at_epoch,expires_at)
+  command_id,payload_sha256,legal_entity_id,proof_mac_sha256,proof_issued_at_epoch,expires_at)
  VALUES(ver,proof->>'nonce',proof->>'actorSubject',proof->>'sessionId',
-  p->>'commandId',payload_sha,
+  p->>'commandId',payload_sha,p->>'legalEntityId',
   pg_catalog.encode(hft_crypto.digest(mac_claimed,'sha256'),'hex'),
   issued,pg_catalog.to_timestamp(expires));
  -- Unique (version,nonce) forbids signed request replay regardless of idempotency.
@@ -968,6 +973,15 @@ BEGIN
   'HFT:GATE:'||e||':'||site||':'||wh,0));
  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
   'HFT:STOCK:'||e||':'||wh||':'||item||':'||lot||':'||serial,0));
+ -- P2-QA-008: verify authoritative warehouse/legal-entity/site status
+ -- under locks before verifying a proof or consuming a nonce.
+ PERFORM 1 FROM hft.warehouse AS w
+ JOIN hft.site AS s ON s.legal_entity_id=w.legal_entity_id AND s.id=w.site_id
+ JOIN hft.legal_entity AS le ON le.id=w.legal_entity_id
+ WHERE w.legal_entity_id=e AND w.warehouse_id=wh AND w.site_id=site
+  AND w.active AND s.active AND le.active
+ FOR SHARE OF w,s,le;
+ IF NOT FOUND THEN RAISE EXCEPTION 'P2_WAREHOUSE_SCOPE_INACTIVE_OR_INVALID'; END IF;
  actor:=hft.p2_verify_invocation_v1(p,proof);
  SELECT * INTO grant_row FROM hft.actor_warehouse_grant
  WHERE legal_entity_id=e AND site_id=site AND warehouse_id=wh
@@ -1441,6 +1455,7 @@ BEGIN
    AND used.actor_subject=proof->>'actorSubject'
    AND used.session_id=proof->>'sessionId'
    AND used.command_id=cmd.command_id
+   AND used.legal_entity_id=cmd.legal_entity_id
    AND used.payload_sha256=payload_digest
    AND used.proof_issued_at_epoch=(proof->>'issuedAt')::bigint
    AND used.expires_at=pg_catalog.to_timestamp((proof->>'expiresAt')::bigint)
@@ -1488,6 +1503,7 @@ CREATE VIEW hft.posting_nonce_audit_v1 AS
  SELECT cmd.legal_entity_id,cmd.command_id,pg_catalog.count(*) AS nonce_count
  FROM hft.posting_invocation_nonce AS nonce
  JOIN hft.stock_command AS cmd ON cmd.command_id=nonce.command_id
+   AND cmd.legal_entity_id=nonce.legal_entity_id
    AND cmd.payload_sha256=nonce.payload_sha256
    AND cmd.actor_subject=nonce.actor_subject
  GROUP BY cmd.legal_entity_id,cmd.command_id;
@@ -1573,45 +1589,74 @@ GRANT SELECT ON hft.stock_command,hft.stock_entry,hft.stock_account,
  TO hft_r1_audit_verify;
 REVOKE ALL ON SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
 REVOKE ALL ON ALL TABLES IN SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
 -- New governance tables are private by default; reassert explicit current
 -- restrictions after all CREATE TABLE operations.
 REVOKE ALL ON ALL TABLES IN SCHEMA hft FROM PUBLIC,hft_r1_app_runtime;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA hft FROM PUBLIC,hft_r1_app_runtime;
--- P2-SEC-003-02: inspect ACTUAL login membership and effective privileges,
--- not only the NOLOGIN group itself. Conservatively deny any membership in
--- administrative roles, even if role inheritance/SET options vary by PG15+.
+-- P2-SEC-003-02/006: exhaustive relation, sequence and function ACLs.
+-- Runtime allowlist is hft schema USAGE and exactly two protected function
+-- EXECUTEs; ZERO direct protected-relation and sequence privileges.
 DO $runtime_login_review$
-DECLARE login_row record; protected_table text; runtime_count integer:=0;
+DECLARE who record; obj record; fn record; nlogin integer:=0;
 BEGIN
- FOR login_row IN SELECT oid,rolname,rolsuper,rolcreatedb,rolcreaterole
-     FROM pg_catalog.pg_roles
-     WHERE rolcanlogin AND
-       pg_catalog.pg_has_role(oid,'hft_r1_app_runtime'::pg_catalog.regrole,'MEMBER')
+ FOR who IN SELECT oid,rolname,rolcanlogin,rolsuper,rolcreatedb,rolcreaterole
+  FROM pg_catalog.pg_roles
+  WHERE rolname='hft_r1_app_runtime' OR (rolcanlogin AND
+   pg_catalog.pg_has_role(oid,'hft_r1_app_runtime'::pg_catalog.regrole,'MEMBER'))
  LOOP
-   runtime_count:=runtime_count+1;
-   IF login_row.rolsuper OR login_row.rolcreatedb OR login_row.rolcreaterole
-     OR pg_catalog.pg_has_role(login_row.oid,'hft_engineering'::pg_catalog.regrole,'MEMBER')
-     OR pg_catalog.pg_has_role(login_row.oid,'hft_r1_posting_owner'::pg_catalog.regrole,'MEMBER')
-     OR pg_catalog.has_schema_privilege(login_row.rolname,'hft','CREATE')
-     OR pg_catalog.has_schema_privilege(login_row.rolname,'hft_secret','USAGE')
-   THEN RAISE EXCEPTION 'P2_PRIVILEGED_RUNTIME_LOGIN_REFUSED:%',login_row.rolname; END IF;
-   FOREACH protected_table IN ARRAY ARRAY['hft.stock_command','hft.stock_entry',
-     'hft.stock_account','hft.stock_command_seal','hft.protected_stock_approval',
-     'hft.protected_approval_revocation','hft.stock_hold','hft.audit_outbox',
-     'hft.posting_invocation_nonce','hft.posting_fragment',
-     'hft.custody_ack_pending','hft.posting_parent_hold',
-     'hft.approval_human_revocation','hft.approval_role_revocation',
-     'hft.protected_approval_decision','hft.posting_action_policy']
-   LOOP
-     IF pg_catalog.has_table_privilege(login_row.rolname,protected_table,'INSERT')
-        OR pg_catalog.has_table_privilege(login_row.rolname,protected_table,'UPDATE')
-        OR pg_catalog.has_table_privilege(login_row.rolname,protected_table,'DELETE')
-        OR pg_catalog.has_table_privilege(login_row.rolname,protected_table,'TRUNCATE')
-     THEN RAISE EXCEPTION 'P2_EFFECTIVE_RUNTIME_DML_REFUSED:%:%',
-       login_row.rolname,protected_table; END IF;
-   END LOOP;
+  IF who.rolcanlogin THEN nlogin:=nlogin+1; END IF;
+  IF who.rolsuper OR who.rolcreatedb OR who.rolcreaterole
+   OR pg_catalog.pg_has_role(who.oid,'hft_engineering'::pg_catalog.regrole,'MEMBER')
+   OR pg_catalog.pg_has_role(who.oid,'hft_r1_posting_owner'::pg_catalog.regrole,'MEMBER')
+   OR pg_catalog.has_schema_privilege(who.rolname,'hft','CREATE')
+   OR pg_catalog.has_schema_privilege(who.rolname,'hft_secret','USAGE')
+   OR pg_catalog.has_schema_privilege(who.rolname,'hft_secret','CREATE')
+   OR pg_catalog.has_schema_privilege(who.rolname,'public','CREATE')
+  THEN RAISE EXCEPTION 'P2_RUNTIME_ROLE_PRIVILEGE_ESCALATION:%',who.rolname; END IF;
+  IF NOT pg_catalog.has_schema_privilege(who.rolname,'hft','USAGE')
+  THEN RAISE EXCEPTION 'P2_RUNTIME_SCHEMA_USAGE_MISSING:%',who.rolname; END IF;
+  FOR obj IN SELECT c.oid,c.relkind,n.nspname,c.relname FROM pg_catalog.pg_class c
+   JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+   WHERE n.nspname IN ('hft','hft_secret') AND c.relkind IN ('r','p','v','m','f','S')
+  LOOP
+   IF obj.relkind='S' THEN
+    IF pg_catalog.has_sequence_privilege(who.rolname,obj.oid,'USAGE')
+     OR pg_catalog.has_sequence_privilege(who.rolname,obj.oid,'SELECT')
+     OR pg_catalog.has_sequence_privilege(who.rolname,obj.oid,'UPDATE')
+    THEN RAISE EXCEPTION 'P2_RUNTIME_SEQUENCE_PRIVILEGE:%:%.%',
+       who.rolname,obj.nspname,obj.relname; END IF;
+   ELSE
+    IF pg_catalog.has_table_privilege(who.rolname,obj.oid,'SELECT')
+     OR pg_catalog.has_table_privilege(who.rolname,obj.oid,'INSERT')
+     OR pg_catalog.has_table_privilege(who.rolname,obj.oid,'UPDATE')
+     OR pg_catalog.has_table_privilege(who.rolname,obj.oid,'DELETE')
+     OR pg_catalog.has_table_privilege(who.rolname,obj.oid,'TRUNCATE')
+     OR pg_catalog.has_table_privilege(who.rolname,obj.oid,'REFERENCES')
+     OR pg_catalog.has_table_privilege(who.rolname,obj.oid,'TRIGGER')
+    THEN RAISE EXCEPTION 'P2_RUNTIME_RELATION_PRIVILEGE:%:%.%',
+       who.rolname,obj.nspname,obj.relname; END IF;
+   END IF;
+  END LOOP;
+  FOR fn IN SELECT p.oid,n.nspname,p.proname FROM pg_catalog.pg_proc p
+   JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+   WHERE n.nspname IN ('hft','hft_secret')
+  LOOP
+   IF pg_catalog.has_function_privilege(who.rolname,fn.oid,'EXECUTE')
+     AND fn.oid NOT IN (
+      'hft.post_stock_command_protected_v1(jsonb,jsonb)'::pg_catalog.regprocedure,
+      'hft.reconcile_protected_stock_command_v1(jsonb,jsonb)'::pg_catalog.regprocedure)
+   THEN RAISE EXCEPTION 'P2_RUNTIME_HELPER_EXECUTE:%:%.%',
+      who.rolname,fn.nspname,fn.proname; END IF;
+  END LOOP;
+  IF NOT pg_catalog.has_function_privilege(who.rolname,
+    'hft.post_stock_command_protected_v1(jsonb,jsonb)'::pg_catalog.regprocedure,'EXECUTE')
+   OR NOT pg_catalog.has_function_privilege(who.rolname,
+    'hft.reconcile_protected_stock_command_v1(jsonb,jsonb)'::pg_catalog.regprocedure,'EXECUTE')
+  THEN RAISE EXCEPTION 'P2_RUNTIME_ALLOWLIST_INCOMPLETE:%',who.rolname; END IF;
  END LOOP;
- IF runtime_count=0 THEN RAISE EXCEPTION 'P2_NO_ATTESTED_RUNTIME_LOGIN'; END IF;
+ IF nlogin=0 THEN RAISE EXCEPTION 'P2_NO_ATTESTED_RUNTIME_LOGIN'; END IF;
  IF pg_catalog.has_schema_privilege('hft_r1_posting_owner','hft','CREATE')
  THEN RAISE EXCEPTION 'P2_OWNER_CREATE_PRIVILEGE_STILL_EFFECTIVE'; END IF;
 END $runtime_login_review$;
