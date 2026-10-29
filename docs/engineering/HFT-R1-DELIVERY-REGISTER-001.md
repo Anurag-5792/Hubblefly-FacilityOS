@@ -31,3 +31,7 @@ Images from DD, if ever copied, need independently approved rights, exact
 version match, file digest and HFT-owned storage.
 
 The original 26 October live-use date remains missed and unrevised.
+
+## Two-part documentation deliverable — binding
+
+Engineering must maintain a restricted internal source/reuse dossier for each copied/adapted module, including provenance, exact changes, rights, security, verification and maintenance. Recipient handover documentation must be separately authored and **source-free**, covering only approved functions, user/admin procedures, support and release acceptance. Public repository paths are not access-control boundaries. See `docs/engineering/HFT-R1-DOCUMENTATION-SEGREGATION-001.md` for the governing rule. Handover drafts are not production evidence; no replacement live-use date is authorized.

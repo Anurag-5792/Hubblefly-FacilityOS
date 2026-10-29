@@ -115,3 +115,8 @@ See `HFT-R1-P3-ITEM-VERSION-PHOTOS-001.md` and `lib/hft/domain/item-version-phot
 Existing DD warehouse photos are *reference files*, not HFT inventory records.
 A verified rights/identity/byte-digest process is required before separately
 copying selected photos into HFT-owned storage. No remote connection.
+
+## Two-part documentation rule for all copied/adapted code
+
+The definitive document policy is `HFT-R1-DOCUMENTATION-SEGREGATION-001.md`.
+Every actual reused HFT module must have a **restricted internal source dossier** recording original source, exact changes, rights, architecture, security review, tests and maintenance evidence. The separate **handover documentation** contains only validated product operation, administration, support, release limits and user training, **not source code, source repositories, development history or developer details**. This public repository cannot serve as private storage for confidential DD source dossiers.

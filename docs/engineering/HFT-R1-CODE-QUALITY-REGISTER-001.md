@@ -231,3 +231,12 @@ No PostgreSQL migration 0007, real PostgreSQL test, extension/credential/role op
 - CQ-P3-09 / MEDIUM / REFACTOR — protected master request source rejects a second still-pending action/revision for the same record while permitting a new separately authorized proposal after committed denial. App still never blindly retries ambiguous COMMIT.
 - CQ-P3-10 / ADD SOURCE TEST — `tests/pg/hft_p3_employee_pending_request_conflict.sql`, updated P3 owner effective-ACL source assertions; real SQL, two-human, full browser and clean build NOT RUN.
 - KEEP — P2 code, reviewed PR #11, canonical 0001–0006 and manifest, no real key/extension/role provisioning or live stock posting. 26 October missed; no replacement date.
+
+
+## HFT-R1-DOC-SEGREGATION-001 — Two-part documentation acceptance (29 October 2026)
+
+- **INTERNAL:** complete code reuse dossiers, immutable source origin, exact modifications, licensing/IP evidence, architecture/security, test results and engineering maintenance history belong in approved **restricted** internal storage. The current repository is public; `docs/engineering/` is NOT a confidential access boundary. Only non-sensitive engineering policies, templates and summaries may be committed here.
+- **HANDOVER:** independent operational documentation under `docs/handover/`; no source code, donor/repository details, code file paths, commit identities or confidential internal findings. Release packaging is an explicit handover-only allowlist, with independent review.
+- **Required policy:** `docs/engineering/HFT-R1-DOCUMENTATION-SEGREGATION-001.md`; internal template `docs/engineering/templates/HFT-R1-REUSE-DOSSIER-TEMPLATE.md` (blank only); handover index and Item Version/Photo draft instructions.
+- **Automated guard:** `tools/hft_check_handover_docs.py` added to `npm run verify` through `verify:handover`. Source-only focused test: 7/7 Python unit tests PASS and current 2 recipient-facing Markdown files pass the source-reference scan. These checks are NOT a substitute for human disclosure or production QA.
+- **Status:** Restrict populated source dossiers before storing confidential content; user handover docs remain DRAFT, no release handover or production authorization. Original 26 October go-live missed and unchanged.

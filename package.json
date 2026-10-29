@@ -14,8 +14,9 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "node --experimental-strip-types --test tests/unit/*.test.ts",
     "test:migrations:contract": "python3 -m unittest discover -s tests -p 'test_*.py'",
-    "verify": "node tools/hft_check_lockfile.mjs && npm run lint && npm run typecheck && npm run test:unit && npm run test:migrations:contract && npm run build",
-    "verify:lock": "node tools/hft_check_lockfile.mjs"
+    "verify": "node tools/hft_check_lockfile.mjs && npm run lint && npm run typecheck && npm run test:unit && npm run test:migrations:contract && npm run verify:handover && npm run build",
+    "verify:lock": "node tools/hft_check_lockfile.mjs",
+    "verify:handover": "python3 tools/hft_check_handover_docs.py"
   },
   "dependencies": {
     "next": "15.5.28",
