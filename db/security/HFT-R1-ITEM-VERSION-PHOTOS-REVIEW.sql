@@ -86,6 +86,7 @@ CREATE UNIQUE INDEX item_version_one_active_primary_v1 ON hft.item_version_photo
 CREATE VIEW hft.item_version_photo_coverage_v1 AS
  SELECT v.legal_entity_id,v.item_code,v.version_code,v.state,
  COUNT(l.media_id) FILTER(WHERE l.active AND rev.media_id IS NULL) AS linked_count,
+ COUNT(l.media_id) FILTER(WHERE l.active AND rev.media_id IS NULL AND l.photo_role='PRIMARY') AS primary_link_count,
  COUNT(l.media_id) FILTER(WHERE l.active AND rev.media_id IS NULL
   AND a.review_state='APPROVED' AND a.rights_evidence_sha256 IS NOT NULL
   AND a.verified_by IS NOT NULL AND a.verified_at IS NOT NULL) AS approved_count,

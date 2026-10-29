@@ -452,7 +452,8 @@ BEGIN
   SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(
     pg_catalog.jsonb_build_object(
      'versionCode',v.version_code,'state',v.state,
-     'linkedCount',v.linked_count,'approvedCount',v.approved_count,
+     'linkedCount',v.linked_count,'primaryLinkedCount',v.primary_link_count,
+     'approvedCount',v.approved_count,
      'approvedPrimaryCount',v.approved_primary_count,
      'photos',pg_catalog.coalesce((
        SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(

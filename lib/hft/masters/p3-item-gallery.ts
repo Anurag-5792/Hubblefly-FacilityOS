@@ -73,7 +73,8 @@ export function validateItemGalleryRequest(value:unknown):ItemGalleryRequest{
 }
 function parsePhoto(x:unknown,versionCode:string):VerifiedGalleryPhoto{
  const p=record(x,'P3_GALLERY_PHOTO_SHAPE_INVALID');
- if(p.versionCode!==versionCode||!media.test(String(p.mediaId))||
+ if(p.versionCode!==versionCode||typeof p.mediaId!=='string'||
+  !media.test(p.mediaId)||
   !roles.has(String(p.role))||!mimeTypes.has(String(p.mimeType))||
   !sources.has(String(p.source))||p.verification!=='APPROVED'||
   !digest.test(String(p.sha256))||!digest.test(String(p.rightsEvidenceSha256)))
@@ -86,7 +87,7 @@ function parsePhoto(x:unknown,versionCode:string):VerifiedGalleryPhoto{
   key.includes('..')||key.includes('//'))
   throw new Error('P3_GALLERY_STORAGE_REFERENCE_INVALID');
  return Object.freeze({
-  mediaId:String(p.mediaId),versionCode,role:p.role as VerifiedGalleryPhoto['role'],
+  mediaId:p.mediaId,versionCode,role:p.role as VerifiedGalleryPhoto['role'],
   mimeType:p.mimeType as VerifiedGalleryPhoto['mimeType'],sha256:String(p.sha256),
   byteSize,width,height,source:p.source as HftItemPhotoAsset['source'],
   rightsEvidenceSha256:String(p.rightsEvidenceSha256),storageKey:key
@@ -112,7 +113,7 @@ export function parseScopedItemGallery(response:unknown,scope:MasterScope,
  const versions:HftItemVersion[]=[];
  const assets:HftItemPhotoAsset[]=[];
  const links:HftItemVersionPhotoLink[]=[];
- const details:{versionCode:string;state:VerifiedVersion['state'];linked:number;approved:number;primary:number;photos:VerifiedGalleryPhoto[]}[]=[];
+ const details:{versionCode:string;state:VerifiedVersion['state'];linked:number;approved:number;primary:number;primaryLinked:number;photos:VerifiedGalleryPhoto[]}[]=[];
  const seen=new Set<string>();
  for(const input of versionsRaw){
   const v=record(input,'P3_GALLERY_VERSION_SHAPE_INVALID');
@@ -122,14 +123,16 @@ export function parseScopedItemGallery(response:unknown,scope:MasterScope,
   const linked=count(v.linkedCount,'P3_GALLERY_LINK_COUNT_INVALID');
   const approved=count(v.approvedCount,'P3_GALLERY_APPROVED_COUNT_INVALID');
   const primary=count(v.approvedPrimaryCount,'P3_GALLERY_PRIMARY_COUNT_INVALID');
-  if(linked<approved||primary>1||primary>approved||!Array.isArray(v.photos)||
+  const primaryLinked=count(v.primaryLinkedCount,'P3_GALLERY_PRIMARY_LINK_COUNT_INVALID');
+  if(linked<approved||primary>1||primary>approved||primaryLinked>1||primaryLinked>linked||
+    primary>primaryLinked||!Array.isArray(v.photos)||
     v.photos.length!==approved||v.photos.length>100)
    throw new Error('P3_GALLERY_COUNTER_MISMATCH');
   const photos=v.photos.map(p=>parsePhoto(p,code));
   const version: HftItemVersion={legalEntityId:scope.legalEntityId,
    itemCode,versionCode:code,state:v.state as HftItemVersion['state']};
   versions.push(version);
-  details.push({versionCode:code,state:version.state,linked,approved,primary,photos});
+  details.push({versionCode:code,state:version.state,linked,approved,primary,primaryLinked,photos});
   for(const p of photos){
    assets.push({mediaId:p.mediaId,legalEntityId:scope.legalEntityId,itemCode,
     capturedVersionCode:code,sha256:p.sha256,mimeType:p.mimeType,
@@ -144,7 +147,7 @@ export function parseScopedItemGallery(response:unknown,scope:MasterScope,
  const verified=evaluateHftItemVersionPhotos(versions,assets,links);
  const result:VerifiedVersion[]=details.map((v,i)=>{
   const status=verified[i].approvedPrimaryMediaId?'COMPLETE':
-   v.linked>0?'PENDING_VERIFICATION':'MISSING_PRIMARY';
+   v.primaryLinked>0?'PENDING_VERIFICATION':'MISSING_PRIMARY';
   if(verified[i].approvedPhotoCount!==v.approved||
     (verified[i].approvedPrimaryMediaId?1:0)!==v.primary)
    throw new Error('P3_GALLERY_PRIMARY_EVIDENCE_MISMATCH');
@@ -172,7 +175,7 @@ function assertImageMagic(bytes:Buffer,mimeType:VerifiedGalleryPhoto['mimeType']
    throw new Error('P3_GALLERY_IMAGE_MAGIC_INVALID');
  }else if(mimeType==='image/jpeg'){
   if(bytes.length<4||bytes[0]!==255||bytes[1]!==216||bytes[bytes.length-2]!==255||
-    bytes[bytes.length-1]!==217||bytes.includes(Buffer.from('Exif\0\0'),'binary'))
+    bytes[bytes.length-1]!==217||bytes.includes(Buffer.from('Exif\0\0')))
    throw new Error('P3_GALLERY_JPEG_NOT_SANITIZED');
  }else if(bytes.length<12||bytes.toString('ascii',0,4)!=='RIFF'||
   bytes.toString('ascii',8,12)!=='WEBP')throw new Error('P3_GALLERY_WEBP_MAGIC_INVALID');
