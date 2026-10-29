@@ -33,14 +33,16 @@ export function assertProtectedPostingEnvironment(env:IsolatedPgEnvironment):Rea
 }
 
 /** Caller must not retry on uncertain COMMIT. Read back via a fresh connection. */
-export async function withProtectedPostingTransaction<T>(pool:PgPool,env:IsolatedPgEnvironment,
-  callback:(client:PgQueryClient)=>Promise<T>):Promise<T>{
+async function runProtectedTransaction<T>(pool:PgPool,env:IsolatedPgEnvironment,
+  callback:(client:PgQueryClient)=>Promise<T>,readOnly:boolean):Promise<T>{
   const expected=assertProtectedPostingEnvironment(env);
   const client=await pool.connect();
   let began=false,commitStarted=false,discard=false;
   try {
     began=true;
-    await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+    await client.query(readOnly
+      ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'
+      : 'BEGIN ISOLATION LEVEL SERIALIZABLE');
     await client.query("SET LOCAL lock_timeout = '2500ms'");
     await client.query("SET LOCAL statement_timeout = '15000ms'");
     const check=await client.query<{db_name:string;db_login:string;db_role:string;
@@ -68,4 +70,15 @@ export async function withProtectedPostingTransaction<T>(pool:PgPool,env:Isolate
     if(commitStarted){discard=true;throw new CommitOutcomeUncertain(err);}
     throw err;
   }finally {client.release(discard);}
+}
+
+/** Only one protected writer; readback is an independently restricted,
+ * SELECT-only operation and cannot repost after ambiguous COMMIT. */
+export function withProtectedPostingTransaction<T>(pool:PgPool,env:IsolatedPgEnvironment,
+ callback:(client:PgQueryClient)=>Promise<T>):Promise<T>{
+ return runProtectedTransaction(pool,env,callback,false);
+}
+export function withProtectedReadbackTransaction<T>(pool:PgPool,env:IsolatedPgEnvironment,
+ callback:(client:PgQueryClient)=>Promise<T>):Promise<T>{
+ return runProtectedTransaction(pool,env,callback,true);
 }

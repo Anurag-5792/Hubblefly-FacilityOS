@@ -10,6 +10,8 @@ import {assertVerifiedRequestOperator} from '../security/verified-request.ts';
 import {postingPayloadFromCommand,type ProtectedPostingPayload} from '../security/posting-invocation-proof.ts';
 import {issueServerInvocationProof} from '../security/posting-proof-issuer.ts';
 import {withProtectedPostingTransaction} from './protected-posting-transaction.ts';
+import {CommitOutcomeUncertain} from './isolated-pg-transaction.ts';
+import {reconcileProtectedStockCommand} from './protected-stock-readback.ts';
 import type {PgPool,IsolatedPgEnvironment} from './isolated-pg-transaction.ts';
 
 export type PersistedApprovalReference=Readonly<{
@@ -37,11 +39,25 @@ export async function postProtectedStockCommand(pool:PgPool,env:IsolatedPgEnviro
   const payload=postingPayloadFromCommand(command,approved);
   // Only after a real verified request, never from forwarded caller actor data.
   const proof=issueServerInvocationProof(payload,operator,signer.keyBytes,signer.keyVersion);
-  return withProtectedPostingTransaction(pool,env,async client=>{
-    const rows=await client.query<{result:unknown}>(
-      'SELECT hft.post_stock_command_protected_v1($1::jsonb,$2::jsonb) AS result',
-      [JSON.stringify(payload),JSON.stringify(proof)]);
-    if(rows.rows.length!==1)throw new Error('PROTECTED_WRITER_RESULT_MISSING');
-    return resultShape(rows.rows[0].result,payload);
-  });
+  try {
+    return await withProtectedPostingTransaction(pool,env,async client=>{
+      const rows=await client.query<{result:unknown}>(
+        'SELECT hft.post_stock_command_protected_v1($1::jsonb,$2::jsonb) AS result',
+        [JSON.stringify(payload),JSON.stringify(proof)]);
+      if(rows.rows.length!==1)throw new Error('PROTECTED_WRITER_RESULT_MISSING');
+      return resultShape(rows.rows[0].result,payload);
+    });
+  }catch(err){
+    if(!(err instanceof CommitOutcomeUncertain))throw err;
+    // Same original nonce/payload, new attested connection, READ ONLY.
+    // No automatic re-post even if the record cannot be found.
+    try {
+      const recovered=await reconcileProtectedStockCommand(pool,env,payload,proof,operator);
+      if(recovered.state==='COMMITTED_VERIFIED')return recovered.result;
+    }catch(readbackError){
+      throw new AggregateError([err,readbackError],
+        'P2_COMMIT_UNCERTAIN_RECOVERY_UNVERIFIED_NO_RETRY');
+    }
+    throw err;
+  }
 }
