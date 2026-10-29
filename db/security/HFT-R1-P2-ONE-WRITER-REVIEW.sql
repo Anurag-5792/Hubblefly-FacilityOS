@@ -852,6 +852,27 @@ CREATE TRIGGER p2_employee_identity_revoke_gate BEFORE INSERT ON hft.employee_pe
 CREATE TRIGGER p2_employee_identity_revoke_epoch AFTER INSERT ON hft.employee_person_link_revocation
  FOR EACH ROW EXECUTE FUNCTION hft.p2_epoch_human_revoke_v1();
 
+-- Parent-Hold policy issuance uses the same sorted descendant scope gates
+-- as Hold placement, clearance and stock posting. No stale policy revision.
+CREATE TRIGGER p2_parent_clearance_policy_gate BEFORE INSERT ON hft.parent_hold_clearance_policy
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_lock_parent_governance_v1();
+CREATE TRIGGER p2_parent_clearance_policy_epoch AFTER INSERT ON hft.parent_hold_clearance_policy
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_bump_parent_epoch_v1();
+CREATE OR REPLACE FUNCTION hft.p2_parent_clearance_policy_monotonic_v1()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $hold_policy$
+BEGIN
+ PERFORM 1 FROM hft.parent_hold_clearance_policy AS pol
+ WHERE pol.legal_entity_id=NEW.legal_entity_id AND pol.scope_kind=NEW.scope_kind
+  AND pol.site_id=NEW.site_id AND pol.hold_purpose=NEW.hold_purpose
+  AND pol.policy_revision>=NEW.policy_revision;
+ IF FOUND THEN RAISE EXCEPTION 'P2_PARENT_CLEARANCE_POLICY_NOT_MONOTONIC'; END IF;
+ RETURN NEW;
+END $hold_policy$;
+-- Alphabetically after the p2_parent_clearance_policy_gate lock trigger.
+CREATE TRIGGER p2_z_parent_clearance_policy_monotonic BEFORE INSERT
+ ON hft.parent_hold_clearance_policy FOR EACH ROW
+ EXECUTE FUNCTION hft.p2_parent_clearance_policy_monotonic_v1();
+
 CREATE OR REPLACE FUNCTION hft.p2_revoke_scope_lock_v1() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
 DECLARE a hft.protected_stock_approval%ROWTYPE;
