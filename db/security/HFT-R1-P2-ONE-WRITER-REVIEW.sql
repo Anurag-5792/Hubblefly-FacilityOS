@@ -207,6 +207,24 @@ CREATE TABLE hft.approval_human_login (
  PRIMARY KEY(legal_entity_id,actor_subject),
  FOREIGN KEY(legal_entity_id,person_id) REFERENCES hft.approval_human(legal_entity_id,person_id)
 );
+-- Independently verified employee ↔ stable person enrollment; immutable,
+-- never inferred from a username matching employee_id.
+CREATE TABLE hft.employee_person_link (
+ legal_entity_id text NOT NULL,employee_id text NOT NULL,person_id text NOT NULL,
+ identity_evidence_sha256 text NOT NULL CHECK(identity_evidence_sha256~'^[0-9a-f]{64}$'),
+ verified_by_subject text NOT NULL,valid_from timestamptz NOT NULL,
+ valid_until timestamptz NOT NULL,PRIMARY KEY(legal_entity_id,employee_id),
+ FOREIGN KEY(legal_entity_id,employee_id) REFERENCES hft.employee(legal_entity_id,employee_id),
+ FOREIGN KEY(legal_entity_id,person_id) REFERENCES hft.approval_human(legal_entity_id,person_id),
+ CHECK(valid_from<valid_until)
+);
+CREATE TABLE hft.employee_person_link_revocation (
+ legal_entity_id text NOT NULL,employee_id text NOT NULL,person_id text NOT NULL,
+ revoked_by text NOT NULL,reason text NOT NULL CHECK(pg_catalog.length(pg_catalog.btrim(reason))>0),
+ revoked_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ PRIMARY KEY(legal_entity_id,employee_id),
+ FOREIGN KEY(legal_entity_id,employee_id) REFERENCES hft.employee_person_link(legal_entity_id,employee_id)
+);
 CREATE TABLE hft.approval_role_qualification (
  legal_entity_id text NOT NULL,person_id text NOT NULL,
  action_kind text NOT NULL CHECK(action_kind IN ('RECEIVE','ISSUE','RETURN','ACK_EXCEPTION','HOLD_CLEARANCE')),
@@ -299,12 +317,30 @@ CREATE TABLE hft.custody_ack_pending (
  posted_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
  FOREIGN KEY(legal_entity_id,employee_id) REFERENCES hft.employee(legal_entity_id,employee_id)
 );
+-- Exception recipient policy is separate from physical ISSUE posting and
+-- admits NO default. Only exact current policy revision permits exceptions.
+CREATE TABLE hft.custody_ack_exception_policy (
+ legal_entity_id text NOT NULL,site_id text NOT NULL,warehouse_id text NOT NULL,
+ policy_revision bigint NOT NULL CHECK(policy_revision>0),
+ allow_exception boolean NOT NULL,require_independent_approver boolean NOT NULL,
+ valid_from timestamptz NOT NULL,valid_until timestamptz NOT NULL,
+ decision_evidence_sha256 text NOT NULL CHECK(decision_evidence_sha256~'^[0-9a-f]{64}$'),
+ PRIMARY KEY(legal_entity_id,site_id,warehouse_id,policy_revision),
+ FOREIGN KEY(legal_entity_id,warehouse_id,site_id)
+ REFERENCES hft.warehouse(legal_entity_id,warehouse_id,site_id),
+ CHECK(valid_from<valid_until)
+);
 CREATE TABLE hft.custody_employee_ack_event (
  issue_command_uuid uuid PRIMARY KEY REFERENCES hft.custody_ack_pending(issue_command_uuid),
- actor_subject text NOT NULL,session_id text NOT NULL,
+ legal_entity_id text NOT NULL,employee_id text NOT NULL,
+ actor_subject text NOT NULL,session_id text NOT NULL,recipient_person_id text NOT NULL,
+ recipient_kind text NOT NULL CHECK(recipient_kind IN ('EMPLOYEE','EXCEPTION')),
+ exception_policy_revision bigint NOT NULL DEFAULT 0 CHECK(exception_policy_revision>=0),
  acknowledgement text NOT NULL CHECK(acknowledgement IN ('ACKNOWLEDGED','DISPUTED')),
  signed_evidence_sha256 text NOT NULL CHECK(signed_evidence_sha256~'^[0-9a-f]{64}$'),
- acknowledged_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()
+ manifest_id uuid NOT NULL UNIQUE REFERENCES hft.governance_evidence_manifest(manifest_id),
+ acknowledged_at timestamptz NOT NULL,
+ FOREIGN KEY(legal_entity_id,employee_id) REFERENCES hft.employee(legal_entity_id,employee_id)
 );
 CREATE VIEW hft.custody_ack_status_v1 AS
  SELECT p.issue_command_uuid,p.legal_entity_id,p.employee_id,
@@ -333,7 +369,8 @@ BEGIN
  FOREACH tab IN ARRAY ARRAY['approval_human','approval_human_login',
   'approval_role_qualification','posting_action_policy',
   'protected_approval_decision','protected_approval_supersession',
-  'return_inspection_attestation','custody_ack_pending','custody_employee_ack_event']
+  'return_inspection_attestation','custody_ack_pending','custody_employee_ack_event',
+  'employee_person_link','employee_person_link_revocation','custody_ack_exception_policy']
  LOOP
   EXECUTE pg_catalog.format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON hft.%I FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation()',
     'immutable_'||tab||'_v1',tab);
@@ -1713,7 +1750,10 @@ GRANT SELECT ON hft.legal_entity,hft.site,hft.item,hft.supplier,hft.warehouse,
  hft.approval_role_qualification,hft.approval_human_revocation,
  hft.approval_role_revocation,hft.return_inspection_attestation,
  hft.posting_parent_hold,hft.posting_parent_hold_clearance,
- hft.posting_policy_bootstrap,hft.governance_evidence_manifest TO hft_r1_posting_owner;
+ hft.posting_policy_bootstrap,hft.governance_evidence_manifest,
+ hft.employee_person_link,hft.employee_person_link_revocation,
+ hft.custody_ack_exception_policy,hft.custody_ack_pending,
+ hft.custody_employee_ack_event TO hft_r1_posting_owner;
 GRANT INSERT ON hft.posting_invocation_nonce,hft.posting_fragment,
  hft.custody_ack_pending TO hft_r1_posting_owner;
 GRANT SELECT ON hft.posting_invocation_nonce TO hft_r1_posting_owner;
@@ -1772,6 +1812,8 @@ GRANT EXECUTE ON FUNCTION hft.reconcile_protected_stock_command_v1(jsonb,jsonb)
 GRANT INSERT ON hft.governance_evidence_manifest TO hft_r1_governance_issuer;
 GRANT SELECT(manifest_id) ON hft.governance_evidence_manifest TO hft_r1_governance_issuer;
 GRANT INSERT ON hft.return_inspection_attestation TO hft_r1_governance_issuer;
+GRANT INSERT ON hft.employee_person_link,hft.employee_person_link_revocation,
+ hft.custody_ack_exception_policy,hft.custody_employee_ack_event TO hft_r1_governance_issuer;
 GRANT SELECT ON hft.stock_command,hft.stock_entry,hft.stock_account,
  hft.audit_outbox,hft.audit_delivery,hft.stock_command_outcome,hft.stock_command_seal,
  hft.stock_account_reconstruction_v2,hft.stock_command_seal_reconstruction_v1,
