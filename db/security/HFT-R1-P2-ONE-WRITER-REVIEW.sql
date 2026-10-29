@@ -1434,7 +1434,7 @@ GRANT EXECUTE ON FUNCTION hft.post_stock_command_protected_v1(jsonb,jsonb)
 GRANT EXECUTE ON FUNCTION hft.reconcile_protected_stock_command_v1(jsonb,jsonb)
  TO hft_r1_app_runtime;
 GRANT SELECT ON hft.stock_command,hft.stock_entry,hft.stock_account,
- hft.audit_outbox,hft.stock_command_outcome,hft.stock_command_seal,
+ hft.audit_outbox,hft.audit_delivery,hft.stock_command_outcome,hft.stock_command_seal,
  hft.stock_account_reconstruction_v2,hft.stock_command_seal_reconstruction_v1,
  hft.invoice_line_receipt_reconstruction_v2,
  hft.custody_ack_status_v1,hft.posting_nonce_audit_v1,
