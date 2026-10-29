@@ -1,12 +1,36 @@
--- P2-SEC-T05 — nonexecuted two-connection schedule specification.
--- Client A and B must exercise opposing document/account source-lock orders
--- on the SAME disposable data. A and B use independent actual PG sessions.
--- A: sign approved ISSUE fragment X, acquire GATE then STOCK then SOURCE.
--- B: sign approved RETURN/ISSUE fragment Y with opposite source ordering.
--- Record backend PID, order and SQLSTATE. If PG signals deadlock 40P01 or
--- serialization anomaly 40001, ensure full rollback, destroy connection if
--- cleanup uncertain, and do not blindly retry/reuse a consumed nonce.
--- Ambiguous COMMIT: lose response after COMMIT and invoke qualified readback
--- on a fresh attested connection; verify no second stock movement.
--- Accept only strict serializable state, balances, custody, seal/audit counts.
-SELECT 'P2_SEC_T05_NOT_EXECUTED_SCHEDULER_REQUIRED' AS test_authoring_marker;
+-- P2-SEC-T05 B: assertion test under a controlled opposing-lock schedule.
+-- NOT RUN; Session A must hold gate/stock using the companion script.
+-- Run ONLY on accepted disposable PG under actual restricted LOGIN.
+\set ON_ERROR_STOP on
+\if :{?payload_json}
+\else
+ \echo 'STOP P2_T05_NO_PAYLOAD'
+ \quit
+\endif
+\if :{?proof_json}
+\else
+ \echo 'STOP P2_T05_NO_PROOF'
+ \quit
+\endif
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+SELECT pg_catalog.set_config('hft.test.payload',:'payload_json',true);
+SELECT pg_catalog.set_config('hft.test.proof',:'proof_json',true);
+DO $opposition$
+DECLARE st text;msg text;
+BEGIN
+ BEGIN
+   PERFORM hft.post_stock_command_protected_v1(
+    pg_catalog.current_setting('hft.test.payload')::jsonb,
+    pg_catalog.current_setting('hft.test.proof')::jsonb);
+   RAISE EXCEPTION 'P2_T05_UNEXPECTED_COMMIT_BEFORE_BARRIER_RELEASE';
+ EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS st=RETURNED_SQLSTATE,msg=MESSAGE_TEXT;
+  IF st NOT IN ('40001','40P01','55P03','57014') OR
+      msg='P2_T05_UNEXPECTED_COMMIT_BEFORE_BARRIER_RELEASE' THEN
+    RAISE EXCEPTION 'P2_T05_UNEXPECTED_SQLSTATE:%:%',st,msg;
+  END IF;
+ END;
+END $opposition$;
+ROLLBACK;
+-- Independent audit LOGIN verifies zero partial stock/custody/nonce/audit.
+-- A valid posting-first schedule is a SEPARATE case with own fresh proof.

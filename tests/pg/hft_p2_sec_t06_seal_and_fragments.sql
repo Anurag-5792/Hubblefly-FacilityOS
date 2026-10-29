@@ -1,14 +1,32 @@
--- P2-SEC-T06 — SOURCE ONLY; NOT RUN. Real test must use actual non-owner
--- runtime login, qualified single writer, synthetic posted ISSUE fragments.
--- Fixture contracts: RECEIVE 5; ISSUE fragment A 2; ISSUE fragment B 3;
--- reject issue fragment C 1 (original 5 ceiling); RETURN fragment A1 1;
--- RETURN fragment A2 1 (custody for original ISSUE-A exhausted), and reject
--- return A3 1. Check remaining custody B=3, available per transfers,
--- source authorized counters, one seal/outbox/outcome/nonce per new command.
--- Negative: direct SQL stock_entry insert and direct seal function call denied.
--- Negative: wrong buckets/signs, extra/missing ledger legs, mismatched audit
--- actor/source/quantity, and wrong historical accountVersion all fail at COMMIT
--- or SET CONSTRAINTS ALL IMMEDIATE, not merely ROLLBACK-only queries.
--- Negative: deliberate lost COMMIT returns INDETERMINATE until fresh, bounded
--- readback verifies signed command fingerprint, sealed immutable facts.
-SELECT 'P2_SEC_T06_NOT_EXECUTED_FIXTURE_REQUIRED' AS test_authoring_marker;
+-- P2-SEC-T06: authorized synthetic positive fragments and exactly-once.
+-- NOT RUN. Fixture issuer supplies six distinct MAC-protected payload/proof
+-- pairs after qualified human approvals, active policy/roles, and stock count.
+-- Use REAL restricted LOGIN. Execute each command in its own transaction.
+\set ON_ERROR_STOP on
+\if :{?receive_payload}
+\else
+ \echo 'STOP P2_T06_NO_AUTHORIZED_FIXTURE'
+ \quit
+\endif
+\if :{?receive_proof}
+\else
+ \echo 'STOP P2_T06_NO_PROOF'
+ \quit
+\endif
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+DO $pre$ BEGIN
+ IF current_database() !~ '^hft_r1_disposable_[a-z0-9_]{6,40}$'
+ OR current_user<>session_user
+ OR NOT pg_catalog.pg_has_role(session_user,'hft_r1_app_runtime','MEMBER')
+ THEN RAISE EXCEPTION 'P2_T06_RESTRICTED_RUNTIME_REQUIRED'; END IF;
+END $pre$;
+SELECT hft.post_stock_command_protected_v1(:'receive_payload'::jsonb,
+ : 'receive_proof'::jsonb);
+COMMIT;
+-- Subsequent independent committed calls must be issued by fixture runner:
+-- ISSUE-A 2, ISSUE-B 3 (distinct fragment+approval+nonce), RETURN-A1 1,
+-- RETURN-A2 1, then attempt ISSUE-C 1 and RETURN-A3 1 as denied negatives.
+-- A real verifier must prove account/custody source ceilings and one
+-- command/seal/outbox/nonce for each committed positive; no double movement.
+-- The fixture runner must record SQLSTATE and durable readback after each
+-- separate COMMIT. Never automatically retry an uncertain outcome.
