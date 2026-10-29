@@ -20,8 +20,11 @@ BEGIN
     WHERE rolname='hft_r1_p3_master_owner' AND NOT rolsuper AND NOT rolcanlogin)
   OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles
     WHERE rolname='hft_r1_p3_master_runtime' AND NOT rolsuper AND NOT rolcanlogin)
-  OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_extension
-    WHERE extname='pgcrypto')
+  OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_extension ext
+    JOIN pg_catalog.pg_namespace ns ON ns.oid=ext.extnamespace
+    WHERE ext.extname='pgcrypto' AND ns.nspname='hft_crypto')
+  OR pg_catalog.to_regprocedure('hft_crypto.hmac(bytea,bytea,text)') IS NULL
+  OR pg_catalog.to_regprocedure('hft_crypto.digest(bytea,text)') IS NULL
  THEN RAISE EXCEPTION 'P3_MASTER_ROLE_P2_CODEC_AND_DISPOSABLE_DB_REQUIRED'; END IF;
 END $preflight$;
 ALTER DEFAULT PRIVILEGES FOR ROLE hft_engineering
@@ -592,6 +595,17 @@ BEGIN
  rec.legal_entity_id=e AND rec.kind=p->>'kind' AND rec.record_id=p->>'recordId'
  AND (rec.site_id=s OR rec.site_id='')
  AND (rec.warehouse_id=w OR rec.warehouse_id='');
+ -- Identity advisory lock above serializes all entity/kind/record candidates.
+ -- Reject a second undetermined request for the same source action/revision
+ -- regardless of a fresh request UUID or replacement MAC. A DENIED request
+ -- is no longer pending; a new governed proposal remains possible.
+ PERFORM 1 FROM hft.p3_master_change_request prior
+ WHERE prior.legal_entity_id=e AND prior.kind=p->>'kind'
+   AND prior.record_id=p->>'recordId' AND prior.operation=p->>'operation'
+   AND prior.expected_version=(p->>'expectedVersion')::bigint
+   AND NOT EXISTS(SELECT 1 FROM hft.p3_master_decision recorded_decision
+     WHERE recorded_decision.request_id=prior.request_id);
+ IF FOUND THEN RAISE EXCEPTION 'P3_PENDING_MASTER_REQUEST_ALREADY_EXISTS'; END IF;
  IF p->>'operation'='CREATE' AND existing.record_id IS NOT NULL
  THEN RAISE EXCEPTION 'P3_MASTER_ALREADY_EXISTS'; END IF;
  IF p->>'operation'<>'CREATE' AND (
@@ -950,6 +964,12 @@ CREATE TRIGGER p3_employee_revision_immutable BEFORE UPDATE OR DELETE
 -- temporary; hft_r1_p3_master_owner has NOLOGIN and no schema CREATE at COMMIT.
 GRANT USAGE ON SCHEMA hft TO hft_r1_p3_master_owner,hft_r1_p3_master_runtime;
 GRANT USAGE ON SCHEMA hft_secret TO hft_r1_p3_master_owner;
+-- SECURITY DEFINER runs with its nonlogin owner. Without these two
+-- precise pgcrypto capabilities all three signed P3 entrypoints can fail
+-- despite valid proofs. No PUBLIC/runtime crypto or key-table grant added.
+GRANT USAGE ON SCHEMA hft_crypto TO hft_r1_p3_master_owner;
+GRANT EXECUTE ON FUNCTION hft_crypto.digest(bytea,text),
+ hft_crypto.hmac(bytea,bytea,text) TO hft_r1_p3_master_owner;
 GRANT SELECT ON hft.posting_session,hft.p3_master_actor_grant,
  hft.p3_master_read_v1,hft.p3_master_request_status_v1,
  hft.p3_master_change_request,hft.p3_master_decision,hft.p3_master_revision,
@@ -1022,6 +1042,12 @@ BEGIN
  IF owners<>3 THEN RAISE EXCEPTION 'P3_FUNCTION_OWNER_OR_PATH_INVALID'; END IF;
  IF pg_catalog.has_schema_privilege('hft_r1_p3_master_owner','hft','CREATE')
  THEN RAISE EXCEPTION 'P3_FUNCTION_OWNER_CREATE_ESCALATION'; END IF;
+ IF NOT pg_catalog.has_schema_privilege('hft_r1_p3_master_owner','hft_crypto','USAGE')
+  OR NOT pg_catalog.has_function_privilege('hft_r1_p3_master_owner',
+    'hft_crypto.digest(bytea,text)','EXECUTE')
+  OR NOT pg_catalog.has_function_privilege('hft_r1_p3_master_owner',
+    'hft_crypto.hmac(bytea,bytea,text)','EXECUTE')
+ THEN RAISE EXCEPTION 'P3_HMAC_OWNER_CRYPTO_PRIVILEGES_MISSING'; END IF;
  FOR who IN SELECT oid,rolname,rolcanlogin,rolsuper,rolcreatedb,rolcreaterole
   FROM pg_catalog.pg_roles
   WHERE rolname='hft_r1_p3_master_runtime' OR

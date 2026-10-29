@@ -19,6 +19,12 @@ BEGIN
  SELECT 1 FROM pg_catalog.unnest(p.proconfig) cfg
  WHERE pg_catalog.replace(cfg,' ','')='search_path=pg_catalog,pg_temp');
  IF owners<>3 THEN RAISE EXCEPTION 'P3_PROTECTED_OWNERS_INVALID:%',owners; END IF;
+ IF NOT pg_catalog.has_schema_privilege('hft_r1_p3_master_owner','hft_crypto','USAGE')
+  OR NOT pg_catalog.has_function_privilege('hft_r1_p3_master_owner',
+   'hft_crypto.digest(bytea,text)','EXECUTE')
+  OR NOT pg_catalog.has_function_privilege('hft_r1_p3_master_owner',
+   'hft_crypto.hmac(bytea,bytea,text)','EXECUTE')
+ THEN RAISE EXCEPTION 'P3_SIGNED_ENTRYPOINT_OWNER_CRYPTO_GRANTS_MISSING'; END IF;
  IF pg_catalog.has_schema_privilege('hft_r1_p3_master_owner','hft','CREATE')
  OR pg_catalog.has_schema_privilege('hft_r1_p3_master_runtime','hft','CREATE')
  OR pg_catalog.has_schema_privilege('hft_r1_p3_master_runtime','hft_secret','USAGE')

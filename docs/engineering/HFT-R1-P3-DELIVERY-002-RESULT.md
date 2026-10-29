@@ -46,3 +46,11 @@ Remaining Items, Supplier, Warehouse, Location governance, GRN/QC, Issue, Return
 - Chat 11: maker/approver person independence, action policy, denied/blocked, checker-required fail closed, external evidence custody and outstanding custody on deactivation.
 
 **GO/NO-GO:** source review candidate; **PRODUCTION NO-GO**.
+
+## HFT-R1-P3-DELIVERY-002 — targeted SQL owner and pending-request correction (2026-10-29)
+
+The source-only P3 candidate was found to omit explicit `hft_crypto` USAGE and exactly qualified `digest(bytea,text)` / `hmac(bytea,bytea,text)` EXECUTE privileges for its dedicated NOLOGIN SECURITY DEFINER owner. This could make valid signed read/submit/decision invocations fail at PostgreSQL privilege checking. The candidate now preflights the extension in `hft_crypto`, grants only the required owner privileges, and checks them in the effective ACL and PostgreSQL test source. No key or extension installed.
+
+The submit function now refuses a SECOND unresolved request for the same entity/master identity/action/expected revision while allowing a new governed request after a recorded DENIED decision. This avoids ambiguity-driven duplicate pending Employee registrations without blind repost or fabricating a decision. New real-PostgreSQL negative test source is authored but NOT RUN.
+
+**Qualification:** Source statically inspected only; actual PostgreSQL parser/role/extension/function ownership, live read isolation, two-person approval, atomic Employee revision, browser and npm clean-build remain NOT RUN. No new production date. 26 October live-use remains MISSED, PR #11 Draft/unmerged, production NO-GO.

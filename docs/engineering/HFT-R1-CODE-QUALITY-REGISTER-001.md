@@ -224,3 +224,10 @@ No PostgreSQL migration 0007, real PostgreSQL test, extension/credential/role op
 | CQ-P3-SCOPE-002 | KEEP / DEFER | Migrations 0001–0006, manifest, P1 immutable facts, P2 protected writer and production-deny source unchanged. Existing HRMS reuse work from concurrent commit preserved. Employee remains source-only, other four masters and GRN/QC/Issue/Return integration deferred. |
 
 **Business delivery register:** Original HFT live-use target **26 October 2026 — MISSED**. New live-use date **NOT AUTHORIZED**. P3 Employee source does not satisfy operational acceptance. **PRODUCTION NO-GO**.
+
+## HFT-R1-P3-DELIVERY-002 — owner privilege and idempotency source correction
+
+- CQ-P3-08 / HIGH / REFACTOR — `db/security/HFT-R1-P3-MASTERS-REVIEW.sql`: explicit hft_crypto function-owner USAGE and only required digest/HMAC EXECUTE, independent extension-function preflight and catalog assertions; prior candidate omitted them. PostgreSQL NOT RUN.
+- CQ-P3-09 / MEDIUM / REFACTOR — protected master request source rejects a second still-pending action/revision for the same record while permitting a new separately authorized proposal after committed denial. App still never blindly retries ambiguous COMMIT.
+- CQ-P3-10 / ADD SOURCE TEST — `tests/pg/hft_p3_employee_pending_request_conflict.sql`, updated P3 owner effective-ACL source assertions; real SQL, two-human, full browser and clean build NOT RUN.
+- KEEP — P2 code, reviewed PR #11, canonical 0001–0006 and manifest, no real key/extension/role provisioning or live stock posting. 26 October missed; no replacement date.
