@@ -291,6 +291,128 @@ CREATE TABLE hft.protected_approval_revocation (
 );
 CREATE TRIGGER immutable_protected_approval_revocation BEFORE UPDATE OR DELETE
  ON hft.protected_approval_revocation FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+
+-- Admission is CLOSED unless independently governed human IDs, signing-session
+-- custody, source role evidence and per-action policy have been enrolled.
+CREATE OR REPLACE FUNCTION hft.p2_qualified_human_v1(
+ p_entity text,p_subject text,p_session text,p_kind text,p_duty text,p_at timestamptz)
+RETURNS text LANGUAGE plpgsql STABLE SET search_path=pg_catalog,pg_temp AS $qual$
+DECLARE v_id text;
+BEGIN
+ SELECT human.person_id INTO v_id
+ FROM hft.approval_human_login AS login
+ JOIN hft.approval_human AS human ON human.legal_entity_id=login.legal_entity_id
+ AND human.person_id=login.person_id
+ JOIN hft.approval_role_qualification AS q ON q.legal_entity_id=human.legal_entity_id
+ AND q.person_id=human.person_id AND q.action_kind=p_kind AND q.duty=p_duty
+ JOIN hft.posting_session AS sess ON sess.session_id=p_session
+ AND sess.actor_subject=login.actor_subject
+ WHERE login.legal_entity_id=p_entity AND login.actor_subject=p_subject
+ AND human.revoked_at IS NULL AND human.valid_from<=p_at AND human.valid_until>p_at
+ AND q.qualified_from<=p_at AND q.qualified_until>p_at
+ AND sess.revoked_at IS NULL AND sess.expires_at>p_at;
+ IF v_id IS NULL THEN RAISE EXCEPTION 'P2_UNQUALIFIED_HUMAN_OR_SESSION:%',p_duty; END IF;
+ RETURN v_id;
+END $qual$;
+
+CREATE OR REPLACE FUNCTION hft.p2_assert_governed_approval_v1()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $gov$
+DECLARE
+ d hft.protected_approval_decision%ROWTYPE;
+ pol hft.posting_action_policy%ROWTYPE;
+ v_rev bigint; v_maker text:='';v_checker text:='';v_approver text;v_evidence text:='';
+ maker_person text;checker_person text;approver_person text;inspector_person text;actor_person text;
+BEGIN
+ SELECT * INTO d FROM hft.protected_approval_decision
+ WHERE legal_entity_id=NEW.legal_entity_id AND approval_id=NEW.approval_id
+ AND approval_revision=NEW.approval_revision FOR SHARE;
+ IF d.approval_id IS NULL OR d.policy_revision<>NEW.policy_revision
+ OR d.source_revision<>NEW.document_revision
+ OR d.payload_sha256<>NEW.payload_sha256
+ OR d.approver_subject<>NEW.approver_subject
+ OR d.inspection_evidence_id<>NEW.inspection_evidence_id
+ THEN RAISE EXCEPTION 'P2_GOVERNED_APPROVAL_DECISION_MISSING_OR_FORGED'; END IF;
+ SELECT * INTO pol FROM hft.posting_action_policy AS x
+ WHERE x.legal_entity_id=NEW.legal_entity_id AND x.site_id=NEW.site_id
+ AND x.warehouse_id=NEW.warehouse_id AND x.action_kind=NEW.kind
+ ORDER BY x.policy_revision DESC LIMIT 1 FOR SHARE;
+ IF pol.policy_revision IS NULL OR pol.policy_revision<>NEW.policy_revision
+ OR d.recorded_at<pol.valid_from OR d.recorded_at>=pol.valid_until
+ OR d.recorded_at<NEW.valid_from OR d.recorded_at>=NEW.valid_until
+ OR NEW.valid_until>pol.valid_until THEN
+   RAISE EXCEPTION 'P2_ACTION_POLICY_MISSING_OR_EXPIRED'; END IF;
+ IF NEW.kind='RECEIVE' THEN
+   SELECT g.authorization_revision,g.prepared_by,g.checked_by,g.authorized_by
+   INTO v_rev,v_maker,v_checker,v_approver
+   FROM hft.grn AS g WHERE g.id::text=NEW.document_id
+   AND g.legal_entity_id=NEW.legal_entity_id
+   AND g.warehouse_id=NEW.warehouse_id
+   AND g.status IN ('AUTHORIZED','PARTIALLY_RECEIVED') FOR SHARE;
+ ELSIF NEW.kind='ISSUE' THEN
+   SELECT i.authorization_revision,i.prepared_by,i.approved_by
+   INTO v_rev,v_maker,v_approver
+   FROM hft.material_issue AS i WHERE i.id::text=NEW.document_id
+   AND i.legal_entity_id=NEW.legal_entity_id AND i.warehouse_id=NEW.warehouse_id
+   AND i.status IN ('AUTHORIZED','ISSUED') FOR SHARE;
+ ELSIF NEW.kind='RETURN' THEN
+   SELECT mr.authorization_revision,mr.accepted_by,mr.evidence_reference
+   INTO v_rev,v_approver,v_evidence
+   FROM hft.material_return AS mr WHERE mr.id::text=NEW.document_id
+   AND mr.legal_entity_id=NEW.legal_entity_id AND mr.warehouse_id=NEW.warehouse_id
+   AND mr.status IN ('AUTHORIZED','RETURNED') FOR SHARE;
+ ELSE RAISE EXCEPTION 'P2_UNKNOWN_APPROVAL_ACTION'; END IF;
+ IF v_rev IS NULL OR v_rev<>NEW.document_revision
+ OR v_approver IS DISTINCT FROM NEW.approver_subject
+ OR pg_catalog.coalesce(v_maker,'')<>NEW.prepared_by
+ OR pg_catalog.coalesce(v_checker,'')<>NEW.checked_by
+ OR d.prepared_subject IS DISTINCT FROM pg_catalog.nullif(NEW.prepared_by,'')
+ OR d.checked_subject IS DISTINCT FROM pg_catalog.nullif(NEW.checked_by,'')
+ THEN RAISE EXCEPTION 'P2_APPROVAL_SOURCE_ROLE_OR_REVISION_MISMATCH'; END IF;
+ IF (pol.require_preparer AND (d.prepared_subject IS NULL OR d.prepared_session_id IS NULL))
+ OR (pol.require_checker AND (d.checked_subject IS NULL OR d.checked_session_id IS NULL))
+ OR (pol.require_inspector AND (d.inspector_subject IS NULL OR d.inspector_session_id IS NULL))
+ THEN RAISE EXCEPTION 'P2_MANDATORY_HUMAN_DUTY_ABSENT'; END IF;
+ IF d.prepared_subject IS NOT NULL THEN
+ maker_person:=hft.p2_qualified_human_v1(NEW.legal_entity_id,
+ d.prepared_subject,d.prepared_session_id,NEW.kind,'PREPARER',d.recorded_at); END IF;
+ IF d.checked_subject IS NOT NULL THEN
+ checker_person:=hft.p2_qualified_human_v1(NEW.legal_entity_id,
+ d.checked_subject,d.checked_session_id,NEW.kind,'CHECKER',d.recorded_at); END IF;
+ approver_person:=hft.p2_qualified_human_v1(NEW.legal_entity_id,
+ d.approver_subject,d.approver_session_id,NEW.kind,'APPROVER',d.recorded_at);
+ IF d.inspector_subject IS NOT NULL THEN
+ inspector_person:=hft.p2_qualified_human_v1(NEW.legal_entity_id,
+ d.inspector_subject,d.inspector_session_id,NEW.kind,'INSPECTOR',d.recorded_at); END IF;
+ SELECT login.person_id INTO actor_person FROM hft.approval_human_login AS login
+ WHERE login.legal_entity_id=NEW.legal_entity_id
+ AND login.actor_subject=NEW.actor_subject;
+ IF actor_person IS NULL THEN RAISE EXCEPTION 'P2_ACTOR_HUMAN_NOT_REGISTERED'; END IF;
+ IF pol.require_checker AND maker_person=checker_person THEN
+   RAISE EXCEPTION 'P2_CHECKER_HUMAN_NOT_INDEPENDENT'; END IF;
+ IF pol.require_independent_approver AND
+ (approver_person=actor_person OR approver_person=maker_person
+ OR approver_person=checker_person) THEN
+   RAISE EXCEPTION 'P2_APPROVER_HUMAN_NOT_INDEPENDENT'; END IF;
+ IF NEW.kind='RETURN' AND (
+ NEW.inspection_evidence_id='' OR v_evidence<>NEW.inspection_evidence_id
+ OR d.inspection_evidence_id<>NEW.inspection_evidence_id OR
+ inspector_person IS NULL OR NOT EXISTS (
+ SELECT 1 FROM hft.return_inspection_attestation AS att
+ WHERE att.legal_entity_id=NEW.legal_entity_id
+ AND att.return_document_id=NEW.document_id
+ AND att.evidence_id=NEW.inspection_evidence_id
+ AND att.inspector_subject=d.inspector_subject
+ AND att.inspector_session_id=d.inspector_session_id)
+ ) THEN RAISE EXCEPTION 'P2_RETURN_INSPECTION_AUTHORITY_INVALID'; END IF;
+ RETURN NULL;
+END $gov$;
+CREATE CONSTRAINT TRIGGER p2_requires_governed_approval
+ AFTER INSERT ON hft.protected_stock_approval
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+ EXECUTE FUNCTION hft.p2_assert_governed_approval_v1();
+-- Real approval issuance requires separately qualified governance service
+-- authentication and decision signatures. No runtime INSERT privilege here.
+
 CREATE TABLE hft.posting_invocation_nonce (
  key_version integer NOT NULL,nonce text NOT NULL,
  actor_subject text NOT NULL,session_id text NOT NULL,
