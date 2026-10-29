@@ -954,10 +954,10 @@ END $$;
 -- Governance proof domain is distinct from posting invocation HMAC V1.
 CREATE OR REPLACE FUNCTION hft.p2_governance_manifest_fields_v1(p jsonb)
 RETURNS text[] LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog,pg_temp AS $gfields$
-DECLARE fields text[]:=ARRAY['purpose','legalEntityId','siteId','warehouseId','sourceDocumentId','sourceActionKey','sourceRevision','approvalId','approvalRevision','payloadSha256','commandId','employeeId','itemCode','locationId','batchNo','serialNo','condition','quantityMicro','evidenceId','evidenceSha256','decisionSha256','actorSubject','sessionId','personId','counterpartySubject','counterpartySessionId','policyRevision','holdId','holdPurpose','holdGeneration','scopeGenerationSha256','occurredAt','issuedAt','expiresAt','nonce','keyVersion']; n text;
+DECLARE fields text[]:=ARRAY['purpose','legalEntityId','siteId','warehouseId','sourceDocumentId','sourceActionKey','sourceRevision','approvalId','approvalRevision','payloadSha256','commandId','employeeId','itemCode','locationId','batchNo','serialNo','condition','quantityMicro','evidenceId','evidenceSha256','decisionSha256','actorSubject','sessionId','personId','recipientKind','counterpartySubject','counterpartySessionId','policyRevision','holdId','holdPurpose','holdGeneration','scopeGenerationSha256','occurredAt','issuedAt','expiresAt','nonce','keyVersion']; n text;
 BEGIN
  IF pg_catalog.jsonb_typeof(p)<>'object' OR
-  (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p))<>36
+  (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p))<>37
  THEN RAISE EXCEPTION 'P2_GOV_MANIFEST_FIELDS_INVALID'; END IF;
  FOREACH n IN ARRAY fields LOOP
   IF NOT (p ? n) OR pg_catalog.jsonb_typeof(p->n)<>'string'
@@ -1094,6 +1094,139 @@ CREATE CONSTRAINT TRIGGER p2_require_signed_return_manifest
  AFTER INSERT ON hft.return_inspection_attestation
  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
  EXECUTE FUNCTION hft.p2_assert_return_manifest_v1();
+
+-- P2-G11-03: only a verified employee or explicitly permitted exceptional
+-- recipient can record an ACK, with a separately signed immutable event.
+-- This NEVER runs during physical stock ISSUE and cannot create stock facts.
+CREATE OR REPLACE FUNCTION hft.p2_assert_employee_ack_v1()
+RETURNS trigger LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $ack$
+DECLARE
+ pending hft.custody_ack_pending%ROWTYPE; cmd hft.stock_command%ROWTYPE;
+ custody hft.employee_custody%ROWTYPE; approved hft.protected_stock_approval%ROWTYPE;
+ decision hft.protected_approval_decision%ROWTYPE;
+ m hft.governance_evidence_manifest%ROWTYPE;
+ actor_person text; employee_person text; approval_person text;
+ policy hft.custody_ack_exception_policy%ROWTYPE;
+BEGIN
+ SELECT * INTO cmd FROM hft.stock_command WHERE id=NEW.issue_command_uuid;
+ IF cmd.id IS NULL OR cmd.kind<>'ISSUE' OR cmd.legal_entity_id<>NEW.legal_entity_id
+ THEN RAISE EXCEPTION 'P2_ACK_ORIGINAL_ISSUE_NOT_VERIFIED'; END IF;
+ -- Scope gate first, then command/custody and governance records.
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+   'HFT:GATE:'||cmd.legal_entity_id||':'||cmd.site_id||':'||cmd.warehouse_id,0));
+ SELECT * INTO cmd FROM hft.stock_command WHERE id=NEW.issue_command_uuid FOR SHARE;
+ SELECT * INTO pending FROM hft.custody_ack_pending
+  WHERE issue_command_uuid=NEW.issue_command_uuid FOR SHARE;
+ SELECT * INTO custody FROM hft.employee_custody AS ec
+  WHERE ec.issue_command_id=NEW.issue_command_uuid
+    AND ec.legal_entity_id=NEW.legal_entity_id FOR SHARE;
+ PERFORM 1 FROM hft.employee AS e WHERE e.legal_entity_id=NEW.legal_entity_id
+  AND e.employee_id=NEW.employee_id AND e.site_id=cmd.site_id AND e.active FOR SHARE;
+ IF NOT FOUND OR pending.issue_command_uuid IS NULL OR custody.issue_command_id IS NULL
+ OR pending.legal_entity_id<>NEW.legal_entity_id OR pending.employee_id<>NEW.employee_id
+ OR custody.employee_id<>NEW.employee_id OR custody.issued_micro<>cmd.quantity_micro
+ OR custody.item_code<>cmd.item_code OR custody.warehouse_id<>cmd.warehouse_id
+ THEN RAISE EXCEPTION 'P2_ACK_EMPLOYEE_CUSTODY_SCOPE_MISMATCH'; END IF;
+ SELECT * INTO approved FROM hft.protected_stock_approval AS a
+ WHERE a.legal_entity_id=cmd.legal_entity_id AND a.approval_id=cmd.approval_id
+  AND a.approval_revision=cmd.approval_revision FOR SHARE;
+ SELECT * INTO decision FROM hft.protected_approval_decision AS d
+ WHERE d.legal_entity_id=cmd.legal_entity_id AND d.approval_id=cmd.approval_id
+  AND d.approval_revision=cmd.approval_revision FOR SHARE;
+ IF approved.approval_id IS NULL OR decision.approval_id IS NULL
+ OR approved.payload_sha256<>cmd.payload_sha256 OR approved.kind<>'ISSUE'
+ THEN RAISE EXCEPTION 'P2_ACK_ORIGINAL_APPROVAL_EVIDENCE_MISSING'; END IF;
+ SELECT * INTO m FROM hft.governance_evidence_manifest
+ WHERE manifest_id=NEW.manifest_id FOR SHARE;
+ IF m.manifest_id IS NULL OR m.purpose<>'EMPLOYEE_ACK'
+ OR m.payload->>'legalEntityId'<>cmd.legal_entity_id
+ OR m.payload->>'siteId'<>cmd.site_id
+ OR m.payload->>'warehouseId'<>cmd.warehouse_id
+ OR m.payload->>'sourceDocumentId'<>cmd.source_document_id
+ OR m.payload->>'sourceActionKey'<>cmd.source_action_key
+ OR m.payload->>'sourceRevision'<>approved.document_revision::text
+ OR m.payload->>'approvalId'<>cmd.approval_id
+ OR m.payload->>'approvalRevision'<>cmd.approval_revision::text
+ OR m.payload->>'payloadSha256'<>cmd.payload_sha256
+ OR m.payload->>'decisionSha256'<>decision.decision_evidence_sha256
+ OR m.payload->>'commandId'<>cmd.command_id
+ OR m.payload->>'employeeId'<>NEW.employee_id
+ OR m.payload->>'itemCode'<>cmd.item_code
+ OR m.payload->>'locationId'<>cmd.location_id
+ OR m.payload->>'batchNo'<>cmd.batch_no OR m.payload->>'serialNo'<>cmd.serial_no
+ OR m.payload->>'condition'<>NEW.acknowledgement
+ OR m.payload->>'quantityMicro'<>cmd.quantity_micro::text
+ OR m.payload->>'evidenceId'<>NEW.issue_command_uuid::text
+ OR m.payload->>'evidenceSha256'<>NEW.signed_evidence_sha256
+ OR m.payload->>'actorSubject'<>NEW.actor_subject
+ OR m.payload->>'sessionId'<>NEW.session_id
+ OR m.payload->>'personId'<>NEW.recipient_person_id
+ OR m.payload->>'recipientKind'<>NEW.recipient_kind
+ OR m.payload->>'policyRevision'<>NEW.exception_policy_revision::text
+ OR m.payload->>'occurredAt'<>pg_catalog.floor(
+    pg_catalog.extract(epoch FROM NEW.acknowledged_at))::bigint::text
+ OR (m.payload->>'expiresAt')::bigint<=pg_catalog.floor(
+    pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp()))::bigint
+ OR EXISTS(SELECT 1 FROM hft_secret.governance_evidence_key AS k
+    WHERE k.purpose='EMPLOYEE_ACK' AND k.key_version=m.key_version
+     AND k.revoked_at IS NOT NULL)
+ THEN RAISE EXCEPTION 'P2_ACK_SIGNED_MANIFEST_OR_SOURCE_MISMATCH'; END IF;
+ SELECT login.person_id INTO actor_person FROM hft.approval_human_login AS login
+ JOIN hft.approval_human AS human
+  ON human.legal_entity_id=login.legal_entity_id AND human.person_id=login.person_id
+ JOIN hft.posting_session AS sess ON sess.session_id=NEW.session_id
+  AND sess.actor_subject=login.actor_subject
+ WHERE login.legal_entity_id=NEW.legal_entity_id
+  AND login.actor_subject=NEW.actor_subject
+  AND human.revoked_at IS NULL
+  AND human.valid_from<=pg_catalog.clock_timestamp()
+  AND human.valid_until>pg_catalog.clock_timestamp()
+  AND sess.revoked_at IS NULL AND sess.expires_at>pg_catalog.clock_timestamp()
+  AND NOT EXISTS(SELECT 1 FROM hft.approval_human_revocation AS r
+   WHERE r.legal_entity_id=human.legal_entity_id AND r.person_id=human.person_id)
+ FOR SHARE OF login,human,sess;
+ IF actor_person IS NULL OR actor_person<>NEW.recipient_person_id
+ THEN RAISE EXCEPTION 'P2_ACK_UNVERIFIED_RECIPIENT_SESSION'; END IF;
+ SELECT link.person_id INTO employee_person FROM hft.employee_person_link AS link
+ WHERE link.legal_entity_id=NEW.legal_entity_id AND link.employee_id=NEW.employee_id
+  AND link.valid_from<=pg_catalog.clock_timestamp()
+  AND link.valid_until>pg_catalog.clock_timestamp()
+  AND NOT EXISTS(SELECT 1 FROM hft.employee_person_link_revocation AS r
+   WHERE r.legal_entity_id=link.legal_entity_id AND r.employee_id=link.employee_id)
+ FOR SHARE;
+ IF NEW.recipient_kind='EMPLOYEE' THEN
+  IF employee_person IS NULL OR employee_person<>actor_person
+   OR NEW.exception_policy_revision<>0
+   OR m.payload->>'counterpartySubject'<>''
+   OR m.payload->>'counterpartySessionId'<>''
+  THEN RAISE EXCEPTION 'P2_ACK_RECEIVING_EMPLOYEE_NOT_VERIFIED'; END IF;
+ ELSE
+  SELECT * INTO policy FROM hft.custody_ack_exception_policy AS pol
+  WHERE pol.legal_entity_id=cmd.legal_entity_id
+   AND pol.site_id=cmd.site_id AND pol.warehouse_id=cmd.warehouse_id
+  ORDER BY pol.policy_revision DESC LIMIT 1 FOR SHARE;
+  IF policy.policy_revision IS NULL OR NOT policy.allow_exception
+   OR policy.policy_revision<>NEW.exception_policy_revision
+   OR pg_catalog.clock_timestamp()<policy.valid_from
+   OR pg_catalog.clock_timestamp()>=policy.valid_until
+  THEN RAISE EXCEPTION 'P2_ACK_EXCEPTION_POLICY_NOT_AUTHORIZED'; END IF;
+  IF hft.p2_qualified_human_v1(NEW.legal_entity_id,NEW.actor_subject,
+   NEW.session_id,'ACK_EXCEPTION','PREPARER',pg_catalog.clock_timestamp())<>actor_person
+  THEN RAISE EXCEPTION 'P2_ACK_EXCEPTION_RECIPIENT_NOT_QUALIFIED'; END IF;
+  approval_person:=hft.p2_qualified_human_v1(NEW.legal_entity_id,
+   m.payload->>'counterpartySubject',m.payload->>'counterpartySessionId',
+   'ACK_EXCEPTION','APPROVER',pg_catalog.clock_timestamp());
+  IF approval_person IS NULL OR
+   (policy.require_independent_approver AND
+    (approval_person=actor_person OR approval_person=employee_person))
+  THEN RAISE EXCEPTION 'P2_ACK_EXCEPTION_NOT_INDEPENDENT'; END IF;
+ END IF;
+ RETURN NEW;
+END $ack$;
+CREATE TRIGGER p2_require_signed_employee_ack BEFORE INSERT
+ ON hft.custody_employee_ack_event FOR EACH ROW
+ EXECUTE FUNCTION hft.p2_assert_employee_ack_v1();
 
 CREATE OR REPLACE FUNCTION hft.p2_payload_digest_v1(p jsonb) RETURNS text
 LANGUAGE sql STABLE SET search_path=pg_catalog,pg_temp AS $$
@@ -1811,6 +1944,8 @@ ALTER FUNCTION hft.reconcile_protected_stock_command_v1(jsonb,jsonb)
 ALTER FUNCTION hft.p2_verify_governance_manifest_v1()
  OWNER TO hft_r1_posting_owner;
 ALTER FUNCTION hft.p2_assert_return_manifest_v1()
+ OWNER TO hft_r1_posting_owner;
+ALTER FUNCTION hft.p2_assert_employee_ack_v1()
  OWNER TO hft_r1_posting_owner;
 REVOKE CREATE ON SCHEMA hft FROM hft_r1_posting_owner;
 DO $verify_owner_acl$ BEGIN
