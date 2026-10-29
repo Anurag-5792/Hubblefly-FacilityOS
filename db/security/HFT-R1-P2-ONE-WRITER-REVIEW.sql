@@ -1355,12 +1355,12 @@ END $recovery$;
 
 -- Audit readers verify nonce cardinality without viewing nonce secrets.
 CREATE VIEW hft.posting_nonce_audit_v1 AS
- SELECT legal_entity_id,command_id,pg_catalog.count(*) AS nonce_count
+ SELECT cmd.legal_entity_id,cmd.command_id,pg_catalog.count(*) AS nonce_count
  FROM hft.posting_invocation_nonce AS nonce
  JOIN hft.stock_command AS cmd ON cmd.command_id=nonce.command_id
    AND cmd.payload_sha256=nonce.payload_sha256
    AND cmd.actor_subject=nonce.actor_subject
- GROUP BY legal_entity_id,command_id;
+ GROUP BY cmd.legal_entity_id,cmd.command_id;
 
 -- Owner may access only the protected tables and internal helpers required to
 -- apply this single writer. Runtime has NO direct DML, no schema DDL and no

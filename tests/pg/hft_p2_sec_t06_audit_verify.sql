@@ -26,8 +26,8 @@ DECLARE
  v_ack_pending bigint;v_nonce_count numeric;
 BEGIN
  IF pg_catalog.current_database() !~ '^hft_r1_disposable_[a-z0-9_]{6,40}$'
- OR pg_catalog.current_user<>pg_catalog.session_user
- OR NOT pg_catalog.pg_has_role(pg_catalog.session_user,
+ OR current_user<>session_user
+ OR NOT pg_catalog.pg_has_role(session_user,
      'hft_r1_audit_verify','MEMBER')
  THEN RAISE EXCEPTION 'P2_T06_INDEPENDENT_AUDITOR_REQUIRED'; END IF;
  SELECT pg_catalog.count(*),
