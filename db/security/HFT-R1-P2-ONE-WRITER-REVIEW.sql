@@ -17,6 +17,9 @@ DO $preflight$ BEGIN
      AND NOT rolsuper AND NOT rolcanlogin AND NOT rolcreaterole AND NOT rolcreatedb)
  OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='hft_r1_audit_verify'
      AND NOT rolsuper AND NOT rolcanlogin AND NOT rolcreaterole AND NOT rolcreatedb)
+ OR NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='hft_r1_governance_issuer'
+    AND NOT rolsuper AND NOT rolcanlogin AND NOT rolcreaterole AND NOT rolcreatedb)
+ OR pg_has_role('hft_r1_app_runtime','hft_r1_governance_issuer','MEMBER')
  OR NOT pg_has_role(current_user,'hft_r1_posting_owner','MEMBER')
  OR pg_has_role('hft_r1_app_runtime','hft_r1_posting_owner','MEMBER')
  OR pg_has_role('hft_r1_app_runtime','hft_engineering','MEMBER')
@@ -68,6 +71,16 @@ CREATE TABLE hft_secret.invocation_key (
  CHECK(not_before<not_after)
 );
 ALTER TABLE hft_secret.invocation_key OWNER TO hft_r1_posting_owner;
+-- Separate governance signing material, under independent approved custody.
+-- This review candidate does NOT create/provision actual keys.
+CREATE TABLE hft_secret.governance_evidence_key (
+ purpose text NOT NULL CHECK(purpose IN ('RETURN_INSPECTION','EMPLOYEE_ACK','PARENT_HOLD_CLEARANCE')),
+ key_version integer NOT NULL CHECK(key_version>0),
+ key_bytes bytea NOT NULL CHECK(pg_catalog.octet_length(key_bytes)>=32),
+ not_before timestamptz NOT NULL,not_after timestamptz NOT NULL,
+ revoked_at timestamptz,PRIMARY KEY(purpose,key_version),CHECK(not_before<not_after)
+);
+ALTER TABLE hft_secret.governance_evidence_key OWNER TO hft_r1_posting_owner;
 REVOKE CREATE ON SCHEMA hft_secret FROM hft_engineering;
 REVOKE ALL ON hft_secret.invocation_key FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
 
@@ -78,6 +91,21 @@ CREATE TABLE hft.posting_session (
  UNIQUE(session_id,actor_subject),
  CHECK(length(session_id)>0 AND length(actor_subject)>0)
 );
+-- Signed immutable governance evidence; all 36 payload fields are fixed-order
+-- string fields, independently authenticated by the restricted issuer.
+CREATE TABLE hft.governance_evidence_manifest (
+ manifest_id uuid PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid(),
+ purpose text NOT NULL CHECK(purpose IN ('RETURN_INSPECTION','EMPLOYEE_ACK','PARENT_HOLD_CLEARANCE')),
+ key_version integer NOT NULL CHECK(key_version>0),
+ nonce text NOT NULL CHECK(nonce~'^[0-9a-f]{48}$'),
+ payload jsonb NOT NULL,mac_sha256 text NOT NULL CHECK(mac_sha256~'^[0-9a-f]{64}$'),
+ attested_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ UNIQUE(key_version,nonce),
+ CHECK(payload->>'purpose'=purpose AND payload->>'keyVersion'=key_version::text
+ AND payload->>'nonce'=nonce)
+);
+CREATE TRIGGER immutable_governance_evidence_manifest BEFORE UPDATE OR DELETE
+ ON hft.governance_evidence_manifest FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
 CREATE TABLE hft.posting_policy_epoch (
  legal_entity_id text NOT NULL,site_id text NOT NULL,warehouse_id text NOT NULL,
  generation bigint NOT NULL CHECK(generation>0),
@@ -181,7 +209,7 @@ CREATE TABLE hft.approval_human_login (
 );
 CREATE TABLE hft.approval_role_qualification (
  legal_entity_id text NOT NULL,person_id text NOT NULL,
- action_kind text NOT NULL CHECK(action_kind IN ('RECEIVE','ISSUE','RETURN')),
+ action_kind text NOT NULL CHECK(action_kind IN ('RECEIVE','ISSUE','RETURN','ACK_EXCEPTION','HOLD_CLEARANCE')),
  duty text NOT NULL CHECK(duty IN ('PREPARER','CHECKER','APPROVER','INSPECTOR')),
  qualified_from timestamptz NOT NULL,qualified_until timestamptz NOT NULL,
  evidence_sha256 text NOT NULL CHECK(evidence_sha256~'^[0-9a-f]{64}$'),
