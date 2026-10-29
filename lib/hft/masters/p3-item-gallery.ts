@@ -169,17 +169,64 @@ export function publicItemGallery(gallery:VerifiedItemGallery){
      width:p.width,height:p.height,source:p.source}))
   }))};
 }
-function assertImageMagic(bytes:Buffer,mimeType:VerifiedGalleryPhoto['mimeType']):void{
+/** Validate encoded format and *actual* dimensions, not only supplied
+ * MIME/filename/metadata. Malware and full decoder qualification are still
+ * separate acceptance gates; this rejects malformed or mislabeled headers.
+ */
+export function assertHftEncodedImage(bytes:Buffer,mimeType:VerifiedGalleryPhoto['mimeType'],
+ width:number,height:number):void{
+ let w=0,h=0;
  if(mimeType==='image/png'){
-  if(bytes.length<24||!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))
+  if(bytes.length<33||!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||
+   bytes.readUInt32BE(8)!==13||bytes.toString('ascii',12,16)!=='IHDR')
    throw new Error('P3_GALLERY_IMAGE_MAGIC_INVALID');
+  w=bytes.readUInt32BE(16);h=bytes.readUInt32BE(20);
  }else if(mimeType==='image/jpeg'){
-  if(bytes.length<4||bytes[0]!==255||bytes[1]!==216||bytes[bytes.length-2]!==255||
-    bytes[bytes.length-1]!==217||bytes.includes(Buffer.from('Exif\0\0')))
+  if(bytes.length<12||bytes[0]!==255||bytes[1]!==216||
+    bytes[bytes.length-2]!==255||bytes[bytes.length-1]!==217)
    throw new Error('P3_GALLERY_JPEG_NOT_SANITIZED');
- }else if(bytes.length<12||bytes.toString('ascii',0,4)!=='RIFF'||
-  bytes.toString('ascii',8,12)!=='WEBP')throw new Error('P3_GALLERY_WEBP_MAGIC_INVALID');
+  let pos=2;
+  const sof=new Set([192,193,194,195,197,198,199,201,202,203,205,206,207]);
+  while(pos<bytes.length-3){
+   if(bytes[pos]!==255)break;
+   while(bytes[pos]===255)pos++;
+   const marker=bytes[pos++];
+   if(marker===217||marker===218)break;
+   if(marker===216||marker===1||(marker>=208&&marker<=215))continue;
+   if(pos+2>bytes.length)break;
+   const len=bytes.readUInt16BE(pos);
+   if(len<2||pos+len>bytes.length)break;
+   if(marker===225&&bytes.subarray(pos+2,pos+8).equals(Buffer.from('Exif\0\0')))
+    throw new Error('P3_GALLERY_JPEG_NOT_SANITIZED');
+   if(sof.has(marker)){
+    if(len<8)break;
+    h=bytes.readUInt16BE(pos+3);w=bytes.readUInt16BE(pos+5);
+    break;
+   }
+   pos+=len;
+  }
+  if(!w||!h)throw new Error('P3_GALLERY_IMAGE_MAGIC_INVALID');
+ }else{
+  if(bytes.length<30||bytes.toString('ascii',0,4)!=='RIFF'||
+   bytes.toString('ascii',8,12)!=='WEBP')
+   throw new Error('P3_GALLERY_WEBP_MAGIC_INVALID');
+  const format=bytes.toString('ascii',12,16);
+  if(format==='VP8X'){
+   w=1+bytes.readUIntLE(24,3);h=1+bytes.readUIntLE(27,3);
+  }else if(format==='VP8L'){
+   if(bytes[20]!==47)throw new Error('P3_GALLERY_WEBP_MAGIC_INVALID');
+   w=1+bytes[21]+((bytes[22]&63)<<8);
+   h=1+(bytes[22]>>6)+(bytes[23]<<2)+((bytes[24]&15)<<10);
+  }else if(format==='VP8 '){
+   if(bytes[23]!==157||bytes[24]!==1||bytes[25]!==42)
+    throw new Error('P3_GALLERY_WEBP_MAGIC_INVALID');
+   w=bytes.readUInt16LE(26)&16383;h=bytes.readUInt16LE(28)&16383;
+  }else throw new Error('P3_GALLERY_WEBP_MAGIC_INVALID');
+ }
+ if(w!==width||h!==height||w<128||h<128||w>10000||h>10000)
+  throw new Error('P3_GALLERY_IMAGE_DIMENSIONS_MISMATCH');
 }
+
 /** HFT-owned local media adapter only, not an uploader.
  * Contents are rehashed before every delivery. Missing root or file denies.
  * Authoritative byte-ingest, malware/EXIF policy and backup need qualification.
@@ -213,7 +260,7 @@ export async function readApprovedHftPhoto(gallery:VerifiedItemGallery,
   if(bytes.length!==photo.byteSize||
    createHash('sha256').update(bytes).digest('hex')!==photo.sha256)
    throw new Error('P3_GALLERY_STORAGE_SHA256_MISMATCH');
-  assertImageMagic(bytes,photo.mimeType);
+  assertHftEncodedImage(bytes,photo.mimeType,photo.width,photo.height);
   return {bytes,mimeType:photo.mimeType,sha256:photo.sha256};
  }finally{await file.close();}
 }
