@@ -1,35 +1,42 @@
 # Hubblefly FacilityOS
 
-Hubblefly FacilityOS is a responsive, QR-first web application for inventory, shopfloor, container/location tracking, manufacturing genealogy, gate passes and delivery challans, with ERPNext as the stock and accounting backbone.
+FacilityOS is the HFT manufacturing operations platform for Stores, item and employee masters, physical stock, receiving, issue/return, quality, warehouse locations, manufacturing genealogy and dispatch.
 
-## Product roles
+## Controlling Phase 1 system-of-record boundary
 
-- Inventory: count, receive, move, issue, return, search, gate pass and delivery challan
-- Shopfloor: build SFG, install/remove/replace components, consume material, route card and genealogy
-- Admin: item master, location master, container master, SFG/BOM, users/roles, print templates, ERPNext sync and audit
+**HFT FacilityOS is the standalone operational inventory authority for Hubblefly Technologies Limited Phase 1.** ERPNext stock/accounting integration and financial reconciliation are deferred to Phase 2. DD operational systems and DD MRO are separate. No DD runtime connection or shared database is authorized.
 
-## Core architecture
+The current engineering branch is `engineering/hft-r1-stores-foundation` (existing Draft PR #11). This repository contains a combination of historical UI, independently reviewed source foundations and **review-only** database designs; source existence is not proof of production qualification.
 
-FacilityOS Web App -> FacilityOS API/business logic -> ERPNext
+## Minimum Stores production scope and owner release authorization
 
-ERPNext remains authoritative for Item, Warehouse, Serial No, Batch, Stock Ledger and ERP-linked stock transactions. FacilityOS adds QR scanning, rack/position/container tracking, operator workflows, genealogy and printable operational documents.
+The HFT owner issued production GO on 29 October 2026 for the **1 November 2026** minimum Stores release: every material IN/OUT recorded through FacilityOS and every counted item linked to its **actual warehouse, rack/area, level, position, stack slot, bin/container and product version/serial/batch**. This is not authorization to waive independent technical qualification. If mandatory tests or verified operator approvals are missing, production posting stays disabled and the blocker is escalated.
 
-## Physical location model
+Key invariants:
+- Stock available for issue requires valid invoice/GRN/QC and authorization.
+- Employee/work-order issue preserves exact source location, purpose and custody; receipt acknowledgement is independently evidenced.
+- Physical counts capture evidence, not automatic stock increases/decreases.
+- Opening stock, adjustments and between-bin transfers are separately authorized immutable movements; original facts are never overwritten.
+- Stored items must resolve to a valid active **leaf** location; hierarchy and QR identifiers are governed.
+- All item/manufacturing versions need verified primary photographs; version-photo completeness is tracked separately from master-record revision.
 
-`Warehouse -> Rack -> Level -> Position -> Stack Slot -> Container -> Item`
+## Physical hierarchy
 
-Example: `R05-L2-P03-S2`.
+`Legal Entity → Site → Warehouse → Rack/Area → Level/Shelf → Position → Stack Slot → Bin/Container → Item Version → Batch/Serial`
 
-- Position QR: `R05-L2-P03`
-- S1: bottom container
-- S2: top container
+Only genuinely inapplicable physical levels may use approved floor/storage-type exceptions. Do not fabricate IDs to satisfy a UI.
 
-## Release rule
+## Code quality and release
 
-No cost-generating or irreversible output is released from an assumption. Bulk labels, opening stock, serial creation and stock posting require preview/validation before production use.
+One maintained source tree; strict TypeScript and PostgreSQL contracts; legal-entity/site/warehouse RBAC, genuine human approval, default-deny database privileges, atomic posted entries, idempotent and reconciled COMMITs, immutable evidence and auditable recovery.
 
-## Project control
+No production release without actual qualified PostgreSQL tests, full dependency lock and clean build, role/security denials, real browser/QR workflow, backup/restore proof and independently reviewed owner-approved operational cutover. PR #11 remains draft until qualification.
 
-ClickUp folder: `FacilityOS — ERPNext & Store Operations`
+## Documentation
 
-Development lifecycle: Backlog -> Ready -> In Development -> Code Review -> Ready for UAT -> UAT -> Ready for Release -> Production -> Closed.
+Two distinct packages are mandatory:
+
+- **Restricted internal engineering:** source provenance, copied/adapted code history, rights, architecture, security and executed test evidence. Confidential dossiers do not belong in this public repository.
+- **Source-free handover:** accepted user/admin workflows, operating procedures, support and recovery. Handover drafts must not claim unqualified features as available.
+
+Historical architecture and donor code should not be treated as authority to bypass the controlling Phase 1 decisions.
