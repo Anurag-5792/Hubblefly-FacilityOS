@@ -654,6 +654,44 @@ CREATE TRIGGER p2_parent_hold_epoch AFTER INSERT ON hft.posting_parent_hold
 CREATE TRIGGER p2_parent_clearance_epoch AFTER INSERT ON hft.posting_parent_hold_clearance
  FOR EACH ROW EXECUTE FUNCTION hft.p2_bump_parent_epoch_v1();
 
+-- Human and duty revocation races use the same sorted scope gates as
+-- posting, followed by monotonic epoch change. Historical identity facts
+-- remain immutable. Caller must be independent governed issuer, NOT runtime.
+CREATE OR REPLACE FUNCTION hft.p2_lock_human_revoke_v1()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $lock_human$
+DECLARE w record;
+BEGIN
+ FOR w IN SELECT legal_entity_id,site_id,warehouse_id FROM hft.warehouse
+  WHERE legal_entity_id=NEW.legal_entity_id
+  ORDER BY legal_entity_id,site_id,warehouse_id LOOP
+   PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+     'HFT:GATE:'||w.legal_entity_id||':'||w.site_id||':'||w.warehouse_id,0));
+ END LOOP;
+ RETURN NEW;
+END $lock_human$;
+CREATE OR REPLACE FUNCTION hft.p2_epoch_human_revoke_v1()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $epoch_human$
+DECLARE w record;
+BEGIN
+ FOR w IN SELECT legal_entity_id,site_id,warehouse_id FROM hft.warehouse
+  WHERE legal_entity_id=NEW.legal_entity_id
+  ORDER BY legal_entity_id,site_id,warehouse_id LOOP
+   UPDATE hft.posting_policy_epoch SET generation=generation+1
+   WHERE legal_entity_id=w.legal_entity_id AND site_id=w.site_id
+     AND warehouse_id=w.warehouse_id;
+   IF NOT FOUND THEN RAISE EXCEPTION 'P2_HUMAN_REVOCATION_SCOPE_NOT_BOOTSTRAPPED'; END IF;
+ END LOOP;
+ RETURN NULL;
+END $epoch_human$;
+CREATE TRIGGER p2_person_revocation_gate BEFORE INSERT ON hft.approval_human_revocation
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_lock_human_revoke_v1();
+CREATE TRIGGER p2_role_revocation_gate BEFORE INSERT ON hft.approval_role_revocation
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_lock_human_revoke_v1();
+CREATE TRIGGER p2_person_revocation_epoch AFTER INSERT ON hft.approval_human_revocation
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_epoch_human_revoke_v1();
+CREATE TRIGGER p2_role_revocation_epoch AFTER INSERT ON hft.approval_role_revocation
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_epoch_human_revoke_v1();
+
 -- New action policies are append-only revisions. Any policy change bumps
 -- relevant scope generation and invalidates stale approvals.
 CREATE OR REPLACE FUNCTION hft.p2_lock_new_action_policy_v1()
