@@ -70,26 +70,20 @@ commit, source checksum and an explicit unverified/prospective status.
 Unit tests: `node --experimental-strip-types --test tests/unit/hft-hrms-employee-source.test.ts`.
 Record exact executed Node version, pass counts and environment separately.
 
-## Integration sequence (no duplicate HRMS)
+## Local source-copy sequence — DD and HFT completely separate
 
-**HRMS:** The existing HRMS remains the owner of its verified human-resources
-records and attendance. First establish an appropriately scoped, authenticated,
-versioned, minimal-field HR employee reference service with an independently
-approved legal-entity/employee ID mapping. Do not use the existing broad public
-employee listing or directly couple HFT to a foreign MongoDB credential.
+**HRMS:** Copy and adapt only selected existing DD HRMS code into the HFT product repository after source-rights and security review. HFT operates its **own** employee master, approvals, authentication, HR-related records and database. **No HRMS integration, remote API, foreign MongoDB credential, cross-company employee import or runtime data sync** is authorized. The previously committed pure HRMS reference normalizer remains an isolated source/test candidate only; it is not an active connector.
 
 **FacilityOS:** P3 remains the owner of local manufacturing eligibility,
 Employee Master approval and activation; P2 remains the **sole** operational
 stock/custody writer. Source imports produce pending approval requests and are
 subject to genuine human approval, scope and immutable audit.
 
-**Stores UX:** Reuse valid warehouse/supplier/inventory interaction patterns
-from `apps/inventory` and `warehouse-management` while connecting only to
+**Stores UX:** Copy and adapt valid warehouse/supplier/inventory UI code
+from `apps/inventory` and `warehouse-management` as HFT-owned code, connecting only to
 FacilityOS protected commands. Do not implement or activate a second ledger.
 
-**Attendance:** Where required for HFT's own employees, integrate the existing
-HRMS attendance authority through an approved read-only, scoped interface;
-never infer possession, stock authorization or human approval from attendance.
+**Attendance:** Where the HFT business requires attendance, copy and adapt selected safe DD attendance code into an independent HFT module. HFT must own its own employee attendance records and authority; no live DD attendance connection, shared database or implicit stock/approval authority.
 
 **MIS:** Reuse chart and filtering patterns; metrics must come from qualified
 FacilityOS data, never static previews or legacy cross-entity aggregation.
@@ -99,7 +93,7 @@ FacilityOS data, never static previews or legacy cross-entity aggregation.
 - Source ownership/licensing and human-resources data sharing approved across
   companies and repositories; identify the actual canonical HRMS service.
 - Independent security review and correction of legacy employee APIs.
-- A trusted source-to-HFT identity mapping and authenticated export mechanism.
+- Independent HFT employee enrollment and HFT data authority. No DD-to-HFT data export or live connection is authorized.
 - Existing P3 independently approved master APPLY, P2 protected stock writer,
   database-scoped reads, safe runtime key custody and actual PostgreSQL tests.
 - Real reproducible build, driver/lockfile installation approval, browser E2E,
@@ -108,3 +102,16 @@ FacilityOS data, never static previews or legacy cross-entity aggregation.
 **Do not confuse this source-only reuse connector with live HRMS integration,
 working Employee Master, or production FacilityOS.** The agreed 26 October
 live-use milestone remains missed; no replacement date has been authorized.
+
+## Item Master photograph versioning
+
+Binding P0 requirement: each HFT Item Code needs **all** product versions, each
+with independently verified primary and optional secondary photographs. Version
+keys are not the Item Master optimistic revision. Exact association is
+`(legal_entity_id,item_code,version_code,media_id)`; historical versions
+remain visible and false associations fail closed.
+
+See `HFT-R1-P3-ITEM-VERSION-PHOTOS-001.md` and `lib/hft/domain/item-version-photo.ts`.
+Existing DD warehouse photos are *reference files*, not HFT inventory records.
+A verified rights/identity/byte-digest process is required before separately
+copying selected photos into HFT-owned storage. No remote connection.

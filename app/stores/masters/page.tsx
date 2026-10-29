@@ -114,6 +114,14 @@ export default function MastersPage(){
     </label>
     <label className="masters-field">Search IDs<input value={search} onChange={e=>setSearch(e.target.value)}
       placeholder="Optional record ID filter" maxLength={80}/></label>
+    {kind==='ITEM'?<section className="masters-help" aria-label="Item version photo requirements">
+      <strong>Mandatory photographs for every product version</strong>
+      <p>Each Item Code needs a separate version list (including retired versions), with one verified
+      PRIMARY photograph and optional additional views per version. Product version is different
+      from the Item Master record revision. Missing historical photos remain visibly incomplete.</p>
+      <p>Version gallery, media upload and approvals: NOT YET QUALIFIED. This form does not
+      upload a photo, import DD media, or claim that a version has approved photographs.</p>
+    </section>:null}
     <div className="masters-actions">
      <button type="button" disabled={busy} onClick={()=>void load('LIST')}>Load masters</button>
      <button type="button" disabled={busy} onClick={()=>void load('REQUESTS')}>Pending / denied requests</button>
