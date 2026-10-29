@@ -967,6 +967,70 @@ CREATE TRIGGER p2_verify_governance_manifest BEFORE INSERT
  ON hft.governance_evidence_manifest FOR EACH ROW
  EXECUTE FUNCTION hft.p2_verify_governance_manifest_v1();
 
+-- RETURN inspection evidence is unique to a protected approval fragment.
+-- Exact source revision, payload, identity, time and file digest are signed.
+CREATE OR REPLACE FUNCTION hft.p2_assert_return_manifest_v1()
+RETURNS trigger LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $return_manifest$
+DECLARE
+ m hft.governance_evidence_manifest%ROWTYPE;
+ a hft.protected_stock_approval%ROWTYPE;
+ d hft.protected_approval_decision%ROWTYPE;
+ inspector_person text;
+BEGIN
+ SELECT * INTO m FROM hft.governance_evidence_manifest
+ WHERE manifest_id=NEW.manifest_id FOR SHARE;
+ SELECT * INTO a FROM hft.protected_stock_approval
+ WHERE legal_entity_id=NEW.legal_entity_id AND approval_id=NEW.approval_id
+ AND approval_revision=NEW.approval_revision FOR SHARE;
+ SELECT * INTO d FROM hft.protected_approval_decision
+ WHERE legal_entity_id=NEW.legal_entity_id AND approval_id=NEW.approval_id
+ AND approval_revision=NEW.approval_revision FOR SHARE;
+ IF m.manifest_id IS NULL OR a.approval_id IS NULL OR d.approval_id IS NULL
+ OR m.purpose<>'RETURN_INSPECTION' OR a.kind<>'RETURN'
+ OR a.document_id<>NEW.return_document_id OR a.inspection_evidence_id<>NEW.evidence_id
+ OR d.inspector_subject IS DISTINCT FROM NEW.inspector_subject
+ OR d.inspector_session_id IS DISTINCT FROM NEW.inspector_session_id
+ OR d.inspection_evidence_id<>NEW.evidence_id OR NEW.inspected_at>d.recorded_at
+ OR m.payload->>'legalEntityId'<>a.legal_entity_id
+ OR m.payload->>'siteId'<>a.site_id
+ OR m.payload->>'warehouseId'<>a.warehouse_id
+ OR m.payload->>'sourceDocumentId'<>a.document_id
+ OR m.payload->>'sourceActionKey'<>a.source_action_key
+ OR m.payload->>'sourceRevision'<>a.document_revision::text
+ OR m.payload->>'approvalId'<>a.approval_id
+ OR m.payload->>'approvalRevision'<>a.approval_revision::text
+ OR m.payload->>'payloadSha256'<>a.payload_sha256
+ OR m.payload->>'itemCode'<>a.item_code
+ OR m.payload->>'locationId'<>a.location_id
+ OR m.payload->>'batchNo'<>a.batch_no
+ OR m.payload->>'serialNo'<>a.serial_no
+ OR m.payload->>'condition'<>a.condition
+ OR m.payload->>'quantityMicro'<>a.quantity_micro::text
+ OR m.payload->>'evidenceId'<>NEW.evidence_id
+ OR m.payload->>'evidenceSha256'<>NEW.evidence_sha256
+ OR m.payload->>'decisionSha256'<>d.decision_evidence_sha256
+ OR m.payload->>'actorSubject'<>NEW.inspector_subject
+ OR m.payload->>'sessionId'<>NEW.inspector_session_id
+ OR m.payload->>'occurredAt'<>pg_catalog.floor(
+    pg_catalog.extract(epoch FROM NEW.inspected_at))::bigint::text
+ OR (m.payload->>'expiresAt')::bigint<=pg_catalog.floor(
+    pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp()))::bigint
+ OR EXISTS(SELECT 1 FROM hft_secret.governance_evidence_key AS key
+   WHERE key.purpose='RETURN_INSPECTION' AND key.key_version=m.key_version
+   AND key.revoked_at IS NOT NULL)
+ THEN RAISE EXCEPTION 'P2_RETURN_SIGNED_EVIDENCE_SOURCE_MISMATCH'; END IF;
+ inspector_person:=hft.p2_qualified_human_v1(NEW.legal_entity_id,
+  NEW.inspector_subject,NEW.inspector_session_id,'RETURN','INSPECTOR',NEW.inspected_at);
+ IF m.payload->>'personId'<>inspector_person
+ THEN RAISE EXCEPTION 'P2_RETURN_SIGNED_INSPECTOR_IDENTITY_MISMATCH'; END IF;
+ RETURN NULL;
+END $return_manifest$;
+CREATE CONSTRAINT TRIGGER p2_require_signed_return_manifest
+ AFTER INSERT ON hft.return_inspection_attestation
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+ EXECUTE FUNCTION hft.p2_assert_return_manifest_v1();
+
 CREATE OR REPLACE FUNCTION hft.p2_payload_digest_v1(p jsonb) RETURNS text
 LANGUAGE sql STABLE SET search_path=pg_catalog,pg_temp AS $$
  SELECT pg_catalog.encode(hft_crypto.digest(hft.p2_length_prefixed_v1(hft.p2_payload_fields_v1(p)),'sha256'),'hex')
@@ -1679,6 +1743,8 @@ ALTER FUNCTION hft.reconcile_protected_stock_command_v1(jsonb,jsonb)
  OWNER TO hft_r1_posting_owner;
 ALTER FUNCTION hft.p2_verify_governance_manifest_v1()
  OWNER TO hft_r1_posting_owner;
+ALTER FUNCTION hft.p2_assert_return_manifest_v1()
+ OWNER TO hft_r1_posting_owner;
 REVOKE CREATE ON SCHEMA hft FROM hft_r1_posting_owner;
 DO $verify_owner_acl$ BEGIN
  IF (SELECT p.proowner<>r.oid FROM pg_catalog.pg_proc AS p
@@ -1705,6 +1771,7 @@ GRANT EXECUTE ON FUNCTION hft.reconcile_protected_stock_command_v1(jsonb,jsonb)
 -- Issuer can submit signed evidence, never mint a PostgreSQL ledger posting.
 GRANT INSERT ON hft.governance_evidence_manifest TO hft_r1_governance_issuer;
 GRANT SELECT(manifest_id) ON hft.governance_evidence_manifest TO hft_r1_governance_issuer;
+GRANT INSERT ON hft.return_inspection_attestation TO hft_r1_governance_issuer;
 GRANT SELECT ON hft.stock_command,hft.stock_entry,hft.stock_account,
  hft.audit_outbox,hft.audit_delivery,hft.stock_command_outcome,hft.stock_command_seal,
  hft.stock_account_reconstruction_v2,hft.stock_command_seal_reconstruction_v1,
