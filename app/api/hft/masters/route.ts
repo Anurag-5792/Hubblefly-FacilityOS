@@ -48,8 +48,9 @@ export async function POST(request:Request):Promise<Response>{
    return reply(401,'P3_SIGNED_SESSION_REQUIRED');
   if(code.includes('DENIED')||code.includes('SIGNED_SCOPE'))
    return reply(403,'P3_ACCESS_DENIED');
-  if(code.includes('COMMIT_OUTCOME_UNCERTAIN'))
-   return reply(409,'P3_COMMIT_UNCERTAIN_READ_ONLY_RECONCILIATION_REQUIRED');
+  if(code.includes('COMMIT_OUTCOME_UNCERTAIN')||
+    code==='P3_COMMITTED_REQUEST_RECONCILIATION_REQUIRED_NO_RETRY')
+   return reply(409,'P3_COMMIT_OR_READBACK_UNCERTAIN_NO_RETRY');
   if(code.startsWith('P3_')&&
    !code.includes('DATABASE_IDENTITY')&&!code.includes('ROLLBACK_UNVERIFIED')&&
    !code.includes('SUBMISSION_DURABLE'))
