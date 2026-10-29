@@ -1585,7 +1585,7 @@ GRANT SELECT ON hft.stock_command,hft.stock_entry,hft.stock_account,
  hft.stock_account_reconstruction_v2,hft.stock_command_seal_reconstruction_v1,
  hft.invoice_line_receipt_reconstruction_v2,
  hft.custody_ack_status_v1,hft.posting_nonce_audit_v1,
- hft.posting_fragment
+ hft.posting_fragment,hft.employee_custody
  TO hft_r1_audit_verify;
 REVOKE ALL ON SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
 REVOKE ALL ON ALL TABLES IN SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
