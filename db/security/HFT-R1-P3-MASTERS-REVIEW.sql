@@ -90,6 +90,7 @@ CREATE TABLE hft.p3_master_action_policy(
  operation text NOT NULL CHECK(operation IN ('CREATE','EDIT','ACTIVATE','DEACTIVATE')),
  policy_revision bigint NOT NULL CHECK(policy_revision>0),
  allow_action boolean NOT NULL,require_independent_person boolean NOT NULL,
+ require_checker boolean NOT NULL,
  evidence_sha256 text NOT NULL CHECK(evidence_sha256~'^[0-9a-f]{64}$'),
  valid_from timestamptz NOT NULL,valid_until timestamptz NOT NULL,
  PRIMARY KEY(legal_entity_id,site_id,warehouse_id,kind,operation,policy_revision),
@@ -459,6 +460,7 @@ BEGIN
   WHERE r.legal_entity_id=e AND r.site_id=s AND r.warehouse_id=w
    AND r.kind='EMPLOYEE' AND maker.person_id<>decision_person
    AND pol.allow_action AND pol.require_independent_person
+   AND NOT pol.require_checker
    AND pol.valid_from<=pg_catalog.clock_timestamp()
    AND pol.valid_until>pg_catalog.clock_timestamp()
    AND qual.valid_from<=pg_catalog.clock_timestamp()
@@ -717,6 +719,12 @@ BEGIN
  OR pg_catalog.clock_timestamp()<policy.valid_from
  OR pg_catalog.clock_timestamp()>=policy.valid_until
  THEN RAISE EXCEPTION 'P3_INDEPENDENT_EMPLOYEE_POLICY_REQUIRED'; END IF;
+ -- Approved action-specific policy may require a separate CHECKER. No
+ -- unverified checker identity or fabricated second human is accepted.
+ -- Until a trusted signed checker issuance contract is qualified, DENY.
+ IF policy.require_checker THEN
+  RAISE EXCEPTION 'P3_MANDATORY_INDEPENDENT_CHECKER_NOT_QUALIFIED';
+ END IF;
  IF pg_catalog.jsonb_typeof(proof)<>'object'
  OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(proof))<>9
  OR proof->>'proofVersion'<>'HFT-R1-P3-EMPLOYEE-DECISION-HMAC-V1'
