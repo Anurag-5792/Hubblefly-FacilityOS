@@ -20,27 +20,30 @@ This is not a claim of independently qualifying or executing 39 applications.
 | `Drone-Destination-Limited/Stock-Inventory-Management-System--NextJS-FullStack` (`a23910e653c6337808020011dc78d88c35214476`) | Inventory UX/reference; MongoDB/Prisma-style application per repository description | Reference only; no stock authority or unqualified runtime code reuse. |
 | `Anurag-5792/Hubblefly-FacilityOS` (existing branch `engineering/hft-r1-stores-foundation`) | P1 immutable ledger, P2 protected-writer candidate, P3 employee/store master UI and pending-request API | **Only production implementation repository.** Do not fork, copy unsafe authorization shortcuts or change approved P1 migrations. |
 
-## Material issues discovered in legacy sources
+## Legacy integration security boundary
 
-1. In the SBAI employee API, a `referer=all` GET branch appears before the
-   normal Clerk user check and projects sensitive personnel fields. This is an
-   independently identified **source-level access-control concern**. The old
-   endpoint is **not** approved as a FacilityOS HRMS connector; its responsible
-   team should remediate and test it before any external consumption.
-2. The monorepo inventory employee API reads employee and field-personnel
-   collections across two MongoDB databases without a demonstrated HFT
-   legal-entity authorization check. It also projects sensitive identifiers.
-   Do not copy or expose this endpoint in HFT.
-3. The monorepo inventory `updateProductStock()` updates product quantities
-   and then writes inventory transactions separately. Its semantics and
-   qualification differ from FacilityOS P1/P2 immutable balanced commands.
-   Reuse UX patterns only, not the posting routine.
-4. The AIMIS attendance API accepts a client-provided time value. This is not
-   by itself an approved workforce-attendance proof or posting identity.
+The source repositories contain interfaces and data models that cannot be
+promoted directly into HFT without their owners' explicit source review.
+Authentication, employer/tenant scope, data minimization, audit provenance
+and transactional semantics must be independently qualified before reuse.
 
-All findings are based on **repository source inspection**, not runtime
-penetration tests, production data access or a claim that any named system is
-currently deployed and functioning. No live employee records were read.
+**Confidential security findings about private repositories belong in
+restricted owner-controlled reviews, not a public HFT repository.** This
+public reuse register intentionally excludes any private endpoint weakness,
+personal fields, exploitable route conditions, sample personnel records
+or credentials. No legacy runtime endpoint or production HR record was used.
+
+## Additional high-value assets located
+
+| Existing source (main revision) | Reusable surface | HFT disposition |
+|---|---|---|
+| `Drone-Destination-Limited/warehouse-management` (`1587d69180d088d1307b5b08483400097045ae37`) | Product/serial screens, QR labels and a `public/products/` photo collection | Evaluate image rights, SKU/version match and media provenance before any HFT photo import; never invent a photo-to-item match. |
+| `Drone-Destination-Limited/qr-label-system` (`91ede6b853c69f23b2069c31357dd506b98907a7`) | Product instances, labels, serial identifiers | Reuse label/serial UX concepts only; require canonical HFT asset identity. |
+| `Drone-Destination-Limited/Scan-QR-to-PDF` (`5746f562cc978f61af7b361f95075389537a1cfb`) | QR-scanner UI, PDF/label presentation | Assess portable client components without copying unsupported scanning authority. |
+| `Drone-Destination-Limited/QR-To-Excel` (`b5e47047b7af2df1c59abb96e189e639eb06e548`) | QR-based data capture/export | Reference workflow only; HFT exports require scoped permissions and audit. |
+| `Drone-Destination-Limited/Tool-Certificate-to-Excel` (`72e63efc0a633014c94df8529a0f454cf4d90205`) | Certificate-to-record extraction script | Possible separately validated document-ingestion utility; never authorize a master edit from unverified extraction. |
+| `Drone-Destination-Limited/MIS-Agentic-AI` (`f0f167d7fd06fe3919df3a26f83276ad592b6cd1`) | Management reporting interaction | UI/research reference; HFT metrics must come from qualified HFT accounts and approved evidence. |
+
 
 ## Reuse contract implemented in this revision
 
