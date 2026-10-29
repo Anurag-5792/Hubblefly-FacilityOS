@@ -52,3 +52,19 @@ Engineering must maintain a restricted internal source/reuse dossier for each co
 **Owner production authorization already issued:** 29 October 2026 for the exact 1 November P0 Stores scope, subject to international production-quality and safety acceptance. All technical/environment/SoD acceptance gates remain independently evidenced; no unqualified deployment is authorized by a date alone.
 
 **Source engineering progress:** `lib/hft/domain/physical-location-count.ts` and `tests/unit/hft-nov1-physical-location-count.test.ts` establish exact physical leaf-path validation, count evidence per item/version/bin and nonposting transfer plans; **19/19 isolated Node 22.16.0 tests PASS**. This is not database-backed In/Out/Count operation. Retain source-only classification until real qualified persistence, API, transaction, browser and restore execution.
+
+
+## P3 Item-gallery source milestone
+
+The P3 signed Item master-read contract, HFT gallery page, dedicated media
+endpoint, byte digest/dimension checks and negative-test sources were added.
+Real photo upload, approval and controlled replacement are NOT implemented.
+The authoritative history census, HFT-owned store, actual PostgreSQL migration,
+full application build and browser end-to-end checks remain unqualified.
+
+DD donor code was reviewed only; none copied. Restricted internal dossiers
+are required only when lawful future reuse is approved. Recipient handover
+drafts remain source-free and NOT operationally qualified.
+
+The original 26 October 2026 miss is retained. The later separate owner P0
+target recorded above does not waive the technical NO-GO gates.

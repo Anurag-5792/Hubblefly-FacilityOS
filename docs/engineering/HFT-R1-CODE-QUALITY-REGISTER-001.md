@@ -240,3 +240,14 @@ No PostgreSQL migration 0007, real PostgreSQL test, extension/credential/role op
 - **Required policy:** `docs/engineering/HFT-R1-DOCUMENTATION-SEGREGATION-001.md`; internal template `docs/engineering/templates/HFT-R1-REUSE-DOSSIER-TEMPLATE.md` (blank only); handover index and Item Version/Photo draft instructions.
 - **Automated guard:** `tools/hft_check_handover_docs.py` added to `npm run verify` through `verify:handover`. Source-only focused test: 7/7 Python unit tests PASS and current 2 recipient-facing Markdown files pass the source-reference scan. These checks are NOT a substitute for human disclosure or production QA.
 - **Status:** Restrict populated source dossiers before storing confidential content; user handover docs remain DRAFT, no release handover or production authorization. Original 26 October go-live missed and unchanged.
+
+
+## HFT-R1-P3-STORES-CONTINUE-003 — bounded Item gallery delivery (2026-10-29)
+
+- CQ-P3-ITEM-01 / REUSE: The existing HFT product-version/photo validator and P3 signed read identity remain canonical. No duplicate login or stock ledger.
+- CQ-P3-ITEM-02 / ADD: Protected P3 ITEM_GALLERY request, mandatory complete version census (including retired); generic Masters API rejects storage-bearing gallery intent, dedicated Item endpoint redacts internal keys.
+- CQ-P3-ITEM-03 / ADD: HFT-only local byte reader checks root confinement, approved exact association, SHA-256, MIME magic and actual encoded dimensions. No DD hotlinks or unapproved images.
+- CQ-P3-ITEM-04 / ADD: Responsive Item gallery with approval state and missing versus pending primary; unit and actual-login SQL test sources authored, not PostgreSQL qualified or browser tested.
+- CQ-P3-ITEM-05 / HIGH BLOCK: HFT-owned media upload, trustworthy intake, malware/EXIF sanitation, rights custody, version-census backfill, independent review and governed replacement are not implemented. Existing active-primary unique index deliberately prevents replacement even after revocation; needs separate safe revised source and authorization, not hidden mutable history.
+- CQ-P3-ITEM-06 / RIGHTS: Existing DD source patterns were inspected, but no code or records copied because transfer rights and private source dossier custody are unverified. Public repository is NOT confidential storage. Any later approved copy needs restricted evidence.
+- KEEP: P1 facts, P2 protected writer, P3 Employee, canonical migrations 0001–0006 and approved production-deny. Date-driven technical gates remain NO-GO.

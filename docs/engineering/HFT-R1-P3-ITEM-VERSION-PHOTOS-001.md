@@ -135,3 +135,26 @@ nonapproved/rights-pending DD-copy metadata, unsafe media metadata, exact byte
 SHA-256 and changed-byte rejection. The test uses synthetic in-memory media,
 not actual HFT photographs or persistent data. It is **not** a clean full
 FacilityOS checkout test, PostgreSQL execution, media upload, or browser E2E.
+
+
+## P3-STORES-CONTINUE-003 — actual gallery UI and signed read source
+
+The existing Item version/photo validator is now used by a source-level
+responsive Item gallery and protected P3 signed read. The Item Master links to
+all authoritative product versions, including RETIRED; the gallery distinguishes
+MISSING_PRIMARY from PENDING_VERIFICATION. Only independently approved exact
+version-matched HFT-owned photo metadata and SHA-256 verified bytes can be
+returned. Internal storage keys are withheld from the browser.
+
+**NOT OPERATIONAL:** The HFT image upload/verification/replacement writer, rights
+custody, actual secure media root, complete historical version census and
+authorized PostgreSQL migration do not yet exist. The unique active PRIMARY
+constraint prevents a second primary after immutable revocation; replacement
+requires a reviewed forward-only correction, not deleting old facts. No image
+should be treated as available merely because metadata says COMPLETE.
+
+Inspected DD warehouse, inventory and QR patterns for reuse-first. **No DD
+source files or records copied** because independent licensing/transfer rights
+and authorized restricted internal dossier storage are not verified. Existing
+HFT domain source reused. Real DB, full Node, browser, backup and image-store
+verification remain NOT RUN. No production claim.
