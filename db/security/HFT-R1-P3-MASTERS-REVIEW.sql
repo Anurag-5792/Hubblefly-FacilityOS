@@ -364,7 +364,7 @@ BEGIN
  IF issued>now_epoch+30 OR expires<=now_epoch OR expires<=issued OR expires-issued>60
  THEN RAISE EXCEPTION 'P3_READ_PROOF_EXPIRED'; END IF;
  SELECT * INTO secret FROM hft_secret.p3_master_invocation_key key
- WHERE key.key_version=ver FOR SHARE;
+ WHERE key.key_version=ver;
  IF secret.key_version IS NULL OR secret.revoked_at IS NOT NULL
  OR pg_catalog.clock_timestamp()<secret.not_before OR
  pg_catalog.clock_timestamp()>=secret.not_after
@@ -577,6 +577,331 @@ BEGIN
  VALUES((p->>'requestId')::uuid,'REQUESTED',digest,actor);
  RETURN (p->>'requestId')::uuid;
 END $p3submit$;
+
+-- Exact signed decision fields; no JSONB text-render hash or loose actor IDs.
+CREATE FUNCTION hft.p3_employee_decision_fields_v1(d jsonb) RETURNS text[]
+ LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog,pg_temp AS $decision_fields$
+DECLARE
+ names text[]:=ARRAY['decisionVersion','requestId','requestPayloadSha256',
+ 'recordId','expectedVersion','policyRevision','decision','evidenceSha256',
+ 'reason','legalEntityId','siteId','warehouseId'];name text;v text;
+BEGIN
+ IF pg_catalog.jsonb_typeof(d)<>'object'
+ OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(d))<>12
+ THEN RAISE EXCEPTION 'P3_DECISION_SHAPE_INVALID'; END IF;
+ FOREACH name IN ARRAY names LOOP
+  IF NOT (d?name) OR pg_catalog.jsonb_typeof(d->name)<>'string'
+  THEN RAISE EXCEPTION 'P3_DECISION_FIELD_MISSING:%',name; END IF;
+ END LOOP;
+ IF d->>'decisionVersion'<>'HFT-R1-P3-EMPLOYEE-DECISION-V1'
+ OR d->>'decision' NOT IN ('APPROVED','DENIED')
+ OR (d->>'requestId') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+ OR (d->>'requestPayloadSha256') !~ '^[0-9a-f]{64}$'
+ OR (d->>'evidenceSha256') !~ '^[0-9a-f]{64}$'
+ THEN RAISE EXCEPTION 'P3_DECISION_IDENTITY_INVALID'; END IF;
+ FOREACH name IN ARRAY ARRAY['recordId','legalEntityId','siteId','warehouseId'] LOOP
+  IF (d->>name) !~ '^[A-Z0-9][A-Z0-9._-]{1,63}$'
+  THEN RAISE EXCEPTION 'P3_DECISION_SCOPE_INVALID:%',name; END IF;
+ END LOOP;
+ IF (d->>'expectedVersion') !~ '^(0|[1-9][0-9]{0,17})$'
+ OR (d->>'policyRevision') !~ '^[1-9][0-9]{0,17}$'
+ OR pg_catalog.length(d->>'reason') NOT BETWEEN 8 AND 300
+ OR pg_catalog.btrim(d->>'reason')<>d->>'reason'
+ THEN RAISE EXCEPTION 'P3_DECISION_REVISION_OR_REASON_INVALID'; END IF;
+ RETURN ARRAY(SELECT d->>x.name
+ FROM pg_catalog.unnest(names) WITH ORDINALITY AS x(name,ordinality)
+ ORDER BY x.ordinality);
+END $decision_fields$;
+CREATE FUNCTION hft.p3_employee_decision_digest_v1(d jsonb) RETURNS text
+ LANGUAGE sql STABLE SET search_path=pg_catalog,pg_temp AS $decision_sha$
+ SELECT pg_catalog.encode(hft_crypto.digest(hft.p2_length_prefixed_v1(
+ hft.p3_employee_decision_fields_v1(d)),'sha256'),'hex')
+$decision_sha$;
+
+-- Governance enrollment/revocation uses the same warehouse gate as decisions,
+-- otherwise a decision could pass against an already committed revocation.
+CREATE FUNCTION hft.p3_lock_policy_authority_gate_v1()
+ RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $policy_gate$
+BEGIN
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+ 'HFT:GATE:'||NEW.legal_entity_id||':'||NEW.site_id||':'||NEW.warehouse_id,0));
+ IF TG_TABLE_NAME='p3_master_action_policy' AND EXISTS(
+  SELECT 1 FROM hft.p3_master_action_policy p
+  WHERE p.legal_entity_id=NEW.legal_entity_id
+   AND p.site_id=NEW.site_id AND p.warehouse_id=NEW.warehouse_id
+   AND p.kind=NEW.kind AND p.operation=NEW.operation
+   AND p.policy_revision>=NEW.policy_revision)
+ THEN RAISE EXCEPTION 'P3_POLICY_REVISION_NOT_MONOTONIC'; END IF;
+ RETURN NEW;
+END $policy_gate$;
+CREATE TRIGGER p3_policy_gate BEFORE INSERT ON hft.p3_master_action_policy
+ FOR EACH ROW EXECUTE FUNCTION hft.p3_lock_policy_authority_gate_v1();
+CREATE TRIGGER p3_qualify_gate BEFORE INSERT ON hft.p3_master_approver_qualification
+ FOR EACH ROW EXECUTE FUNCTION hft.p3_lock_policy_authority_gate_v1();
+CREATE TRIGGER p3_qualification_revoke_gate BEFORE INSERT ON hft.p3_master_qualification_revocation
+ FOR EACH ROW EXECUTE FUNCTION hft.p3_lock_policy_authority_gate_v1();
+
+-- This is the ONLY P3 Employee decision + apply entrypoint.
+-- It neither updates P2 stock ledgers nor rewrites historical custody.
+-- A denied decision is an immutable fact, never an Employee mutation.
+CREATE FUNCTION hft.p3_decide_apply_employee_v1(d jsonb,proof jsonb)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+ SET search_path=pg_catalog,pg_temp AS $employee_apply$
+DECLARE
+ entity_id text:=d->>'legalEntityId';site_id_input text:=d->>'siteId';
+ warehouse_id_input text:=d->>'warehouseId';actor text;
+ proof_digest text;mac_expected bytea;mac_given bytea;difference integer:=0;
+ mac_index integer;issued bigint;expires bigint;ver integer;now_epoch bigint;
+ decision_key hft_secret.p3_master_decision_key%ROWTYPE;
+ req hft.p3_master_change_request%ROWTYPE;
+ policy hft.p3_master_action_policy%ROWTYPE;
+ previous_employee hft.employee%ROWTYPE;applied_employee hft.employee%ROWTYPE;
+ requester_person text;approver_person text;
+ before_fact jsonb;after_fact jsonb;after_sha text;v_version bigint;
+ count_revision integer;count_audit integer;
+BEGIN
+ IF pg_catalog.current_setting('transaction_isolation')<>'serializable'
+ OR NOT pg_catalog.pg_has_role(session_user,'hft_r1_p3_master_runtime','MEMBER')
+ OR pg_catalog.pg_has_role(session_user,'hft_r1_p3_master_owner','MEMBER')
+ OR pg_catalog.pg_has_role(session_user,'hft_engineering','MEMBER')
+ OR pg_catalog.pg_has_role(session_user,'hft_r1_governance_issuer','MEMBER')
+ THEN RAISE EXCEPTION 'P3_EMPLOYEE_RESTRICTED_RUNTIME_REQUIRED'; END IF;
+ PERFORM hft.p3_employee_decision_fields_v1(d);
+ proof_digest:=hft.p3_employee_decision_digest_v1(d);
+ -- Gate -> exact employee master identity -> pending source/policy/human ->
+ -- employee row and immutable decision, revision and audit in one COMMIT.
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+ 'HFT:GATE:'||entity_id||':'||site_id_input||':'||warehouse_id_input,0));
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+ 'HFT:P3:MASTER:'||entity_id||':EMPLOYEE:'||d->>'recordId',0));
+ PERFORM 1 FROM hft.warehouse w JOIN hft.site s
+   ON s.legal_entity_id=w.legal_entity_id AND s.id=w.site_id
+ JOIN hft.legal_entity le ON le.id=w.legal_entity_id
+ WHERE w.legal_entity_id=entity_id AND w.site_id=site_id_input
+ AND w.warehouse_id=warehouse_id_input AND w.active AND s.active AND le.active
+ FOR SHARE OF w,s,le;
+ IF NOT FOUND THEN RAISE EXCEPTION 'P3_DECISION_WAREHOUSE_SCOPE_INACTIVE'; END IF;
+ SELECT * INTO req FROM hft.p3_master_change_request r
+ WHERE r.request_id=(d->>'requestId')::uuid
+ AND r.legal_entity_id=entity_id AND r.site_id=site_id_input
+ AND r.warehouse_id=warehouse_id_input AND r.record_id=d->>'recordId'
+ AND r.kind='EMPLOYEE' FOR UPDATE;
+ IF req.request_id IS NULL
+ OR req.payload_sha256<>d->>'requestPayloadSha256'
+ OR req.expected_version::text<>d->>'expectedVersion'
+ OR EXISTS(SELECT 1 FROM hft.p3_master_decision dec WHERE dec.request_id=req.request_id)
+ THEN RAISE EXCEPTION 'P3_DECISION_SOURCE_OR_REVISION_CONFLICT'; END IF;
+ SELECT * INTO policy FROM hft.p3_master_action_policy pol
+ WHERE pol.legal_entity_id=entity_id AND pol.site_id=site_id_input
+ AND pol.warehouse_id=warehouse_id_input AND pol.kind='EMPLOYEE'
+ AND pol.operation=req.operation ORDER BY pol.policy_revision DESC LIMIT 1 FOR SHARE;
+ IF policy.policy_revision IS NULL OR NOT policy.allow_action
+ OR NOT policy.require_independent_person
+ OR policy.policy_revision::text<>d->>'policyRevision'
+ OR pg_catalog.clock_timestamp()<policy.valid_from
+ OR pg_catalog.clock_timestamp()>=policy.valid_until
+ THEN RAISE EXCEPTION 'P3_INDEPENDENT_EMPLOYEE_POLICY_REQUIRED'; END IF;
+ IF pg_catalog.jsonb_typeof(proof)<>'object'
+ OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(proof))<>9
+ OR proof->>'proofVersion'<>'HFT-R1-P3-EMPLOYEE-DECISION-HMAC-V1'
+ OR proof->>'payloadSha256' IS DISTINCT FROM proof_digest
+ OR (proof->>'actorSubject') !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$'
+ OR (proof->>'sessionId') !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$'
+ OR (proof->>'nonce') !~ '^[0-9a-f]{48}$'
+ OR (proof->>'macSha256') !~ '^[0-9a-f]{64}$'
+ OR (proof->>'issuedAt') !~ '^[1-9][0-9]{0,18}$'
+ OR (proof->>'expiresAt') !~ '^[1-9][0-9]{0,18}$'
+ OR (proof->>'keyVersion') !~ '^[1-9][0-9]{0,9}$'
+ THEN RAISE EXCEPTION 'P3_DECISION_PROOF_FORMAT_INVALID'; END IF;
+ IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_each(proof) kv
+  WHERE pg_catalog.jsonb_typeof(kv.value)<>'string')<>0
+ THEN RAISE EXCEPTION 'P3_DECISION_PROOF_NONSTRING'; END IF;
+ IF (proof->>'issuedAt')::numeric>9223372036854775807
+ OR (proof->>'expiresAt')::numeric>9223372036854775807
+ OR (proof->>'keyVersion')::numeric>2147483647
+ THEN RAISE EXCEPTION 'P3_DECISION_PROOF_NUMBER_RANGE'; END IF;
+ issued:=(proof->>'issuedAt')::bigint;expires:=(proof->>'expiresAt')::bigint;
+ ver:=(proof->>'keyVersion')::integer;actor:=proof->>'actorSubject';
+ now_epoch:=pg_catalog.floor(pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp()))::bigint;
+ IF issued>now_epoch+30 OR expires<=now_epoch OR expires<=issued OR expires-issued>60
+ THEN RAISE EXCEPTION 'P3_DECISION_PROOF_EXPIRED'; END IF;
+ SELECT * INTO decision_key FROM hft_secret.p3_master_decision_key k
+ WHERE k.key_version=ver FOR SHARE;
+ IF decision_key.key_version IS NULL OR decision_key.revoked_at IS NOT NULL
+ OR pg_catalog.clock_timestamp()<decision_key.not_before
+ OR pg_catalog.clock_timestamp()>=decision_key.not_after
+ THEN RAISE EXCEPTION 'P3_DECISION_SIGNING_KEY_REVOKED_OR_ABSENT'; END IF;
+ mac_expected:=hft_crypto.hmac(hft.p2_length_prefixed_v1(ARRAY[
+ 'HFT-R1-P3-EMPLOYEE-DECISION-HMAC-V1',actor,proof->>'sessionId',proof_digest,
+ proof->>'issuedAt',proof->>'expiresAt',proof->>'nonce',proof->>'keyVersion']),
+ decision_key.key_bytes,'sha256');
+ mac_given:=pg_catalog.decode(proof->>'macSha256','hex');
+ IF pg_catalog.octet_length(mac_expected)<>32 OR pg_catalog.octet_length(mac_given)<>32
+ THEN RAISE EXCEPTION 'P3_DECISION_MAC_LENGTH_INVALID'; END IF;
+ FOR mac_index IN 0..31 LOOP difference:=difference |
+  (pg_catalog.get_byte(mac_expected,mac_index) #
+   pg_catalog.get_byte(mac_given,mac_index)); END LOOP;
+ IF difference<>0 THEN RAISE EXCEPTION 'P3_DECISION_MAC_INVALID'; END IF;
+ PERFORM 1 FROM hft.posting_session sess
+ WHERE sess.session_id=proof->>'sessionId'
+ AND sess.actor_subject=actor AND sess.revoked_at IS NULL
+ AND sess.expires_at>pg_catalog.clock_timestamp() FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'P3_DECISION_SESSION_NOT_VERIFIED'; END IF;
+ -- Authenticated humans, not usernames, establish maker/approver difference.
+ SELECT maker.person_id INTO requester_person FROM hft.approval_human_login maker
+ JOIN hft.approval_human hm ON hm.legal_entity_id=maker.legal_entity_id
+ AND hm.person_id=maker.person_id
+ WHERE maker.legal_entity_id=entity_id AND maker.actor_subject=req.requester_subject
+ AND hm.revoked_at IS NULL AND hm.valid_from<=pg_catalog.clock_timestamp()
+ AND hm.valid_until>pg_catalog.clock_timestamp()
+ AND NOT EXISTS(SELECT 1 FROM hft.approval_human_revocation rev
+  WHERE rev.legal_entity_id=entity_id AND rev.person_id=hm.person_id)
+ FOR SHARE OF maker,hm;
+ SELECT reviewer.person_id INTO approver_person FROM hft.approval_human_login reviewer
+ JOIN hft.approval_human ha ON ha.legal_entity_id=reviewer.legal_entity_id
+ AND ha.person_id=reviewer.person_id
+ JOIN hft.p3_master_approver_qualification qual
+ ON qual.legal_entity_id=reviewer.legal_entity_id AND qual.person_id=reviewer.person_id
+ AND qual.site_id=site_id_input AND qual.warehouse_id=warehouse_id_input
+ AND qual.kind='EMPLOYEE' AND qual.operation=req.operation
+ WHERE reviewer.legal_entity_id=entity_id AND reviewer.actor_subject=actor
+ AND ha.revoked_at IS NULL AND ha.valid_from<=pg_catalog.clock_timestamp()
+ AND ha.valid_until>pg_catalog.clock_timestamp()
+ AND qual.valid_from<=pg_catalog.clock_timestamp()
+ AND qual.valid_until>pg_catalog.clock_timestamp()
+ AND NOT EXISTS(SELECT 1 FROM hft.approval_human_revocation rev
+  WHERE rev.legal_entity_id=entity_id AND rev.person_id=ha.person_id)
+ AND NOT EXISTS(SELECT 1 FROM hft.p3_master_qualification_revocation revoked
+  WHERE revoked.legal_entity_id=entity_id
+  AND revoked.site_id=site_id_input AND revoked.warehouse_id=warehouse_id_input
+  AND revoked.kind='EMPLOYEE' AND revoked.operation=req.operation
+  AND revoked.person_id=reviewer.person_id)
+ FOR SHARE OF reviewer,ha,qual;
+ IF requester_person IS NULL OR approver_person IS NULL
+ OR requester_person=approver_person
+ THEN RAISE EXCEPTION 'P3_ELIGIBLE_INDEPENDENT_PERSON_REQUIRED'; END IF;
+ -- Role grants are separate from human qualification. The signer does not
+ -- grant the approver access to other companies, sites or warehouses.
+ PERFORM 1 FROM hft.p3_master_actor_grant g
+ WHERE g.legal_entity_id=entity_id AND g.site_id=site_id_input
+ AND g.warehouse_id=warehouse_id_input AND g.actor_subject=actor
+ AND g.active AND g.may_read FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'P3_APPROVER_SCOPE_GRANT_MISSING'; END IF;
+ -- If approved, lock authoritative employee and require exact expected revision.
+ IF d->>'decision'='APPROVED' THEN
+  SELECT * INTO previous_employee FROM hft.employee employee_row
+  WHERE employee_row.legal_entity_id=entity_id
+  AND employee_row.employee_id=req.record_id FOR UPDATE;
+  IF req.operation='CREATE' THEN
+   IF previous_employee.employee_id IS NOT NULL OR req.expected_version<>0
+   THEN RAISE EXCEPTION 'P3_EMPLOYEE_CREATE_ALREADY_EXISTS'; END IF;
+   IF req.proposed_values->>'siteId'<>site_id_input
+   OR pg_catalog.length(pg_catalog.btrim(req.proposed_values->>'fullName'))=0
+   OR pg_catalog.length(pg_catalog.btrim(req.proposed_values->>'department'))=0
+   OR pg_catalog.length(pg_catalog.btrim(req.proposed_values->>'designation'))=0
+   THEN RAISE EXCEPTION 'P3_EMPLOYEE_REGISTRATION_INVALID'; END IF;
+   INSERT INTO hft.employee(legal_entity_id,employee_id,site_id,
+   full_name,department,designation,active,version)
+   VALUES(entity_id,req.record_id,site_id_input,
+   req.proposed_values->>'fullName',req.proposed_values->>'department',
+   req.proposed_values->>'designation',false,1)
+   RETURNING * INTO applied_employee;
+   before_fact:=NULL;
+  ELSE
+   IF previous_employee.employee_id IS NULL
+    OR previous_employee.site_id<>site_id_input
+    OR previous_employee.version<>req.expected_version
+   THEN RAISE EXCEPTION 'P3_EMPLOYEE_STALE_OR_CROSS_SITE_REVISION'; END IF;
+   before_fact:=pg_catalog.to_jsonb(previous_employee);
+   IF req.operation='EDIT' THEN
+    IF req.proposed_values->>'siteId'<>site_id_input
+    THEN RAISE EXCEPTION 'P3_EMPLOYEE_SITE_REHOME_DENIED'; END IF;
+    UPDATE hft.employee SET
+     full_name=req.proposed_values->>'fullName',
+     department=req.proposed_values->>'department',
+     designation=req.proposed_values->>'designation',
+     version=version+1,updated_at=pg_catalog.clock_timestamp()
+    WHERE legal_entity_id=entity_id AND employee_id=req.record_id
+     AND version=req.expected_version
+    RETURNING * INTO applied_employee;
+   ELSIF req.operation='ACTIVATE' THEN
+    IF previous_employee.active THEN RAISE EXCEPTION 'P3_EMPLOYEE_ALREADY_ACTIVE'; END IF;
+    UPDATE hft.employee SET active=true,version=version+1,
+      updated_at=pg_catalog.clock_timestamp()
+    WHERE legal_entity_id=entity_id AND employee_id=req.record_id
+    AND version=req.expected_version AND active=false
+    RETURNING * INTO applied_employee;
+   ELSIF req.operation='DEACTIVATE' THEN
+    IF NOT previous_employee.active THEN RAISE EXCEPTION 'P3_EMPLOYEE_ALREADY_INACTIVE'; END IF;
+    IF EXISTS(SELECT 1 FROM hft.employee_custody custody
+      WHERE custody.legal_entity_id=entity_id AND custody.employee_id=req.record_id
+      AND custody.issued_micro>custody.returned_micro)
+    THEN RAISE EXCEPTION 'P3_OPEN_CUSTODY_DEACTIVATION_BLOCKED'; END IF;
+    UPDATE hft.employee SET active=false,version=version+1,
+      updated_at=pg_catalog.clock_timestamp()
+    WHERE legal_entity_id=entity_id AND employee_id=req.record_id
+    AND version=req.expected_version AND active=true
+    RETURNING * INTO applied_employee;
+   ELSE RAISE EXCEPTION 'P3_EMPLOYEE_UNSUPPORTED_OPERATION'; END IF;
+  END IF;
+  IF applied_employee.employee_id IS NULL
+  THEN RAISE EXCEPTION 'P3_EMPLOYEE_ATOMIC_APPLY_FAILED'; END IF;
+ END IF;
+ -- The signed decision and proof nonce are append-only and irrevocable.
+ INSERT INTO hft.p3_master_decision_nonce(key_version,nonce,request_id,
+  payload_sha256,actor_subject,session_id,proof_mac_sha256)
+ VALUES(ver,proof->>'nonce',req.request_id,proof_digest,actor,
+  proof->>'sessionId',pg_catalog.encode(hft_crypto.digest(mac_given,'sha256'),'hex'));
+ INSERT INTO hft.p3_master_decision(request_id,decision,approver_subject,
+  approver_session_id,approver_person_id,policy_revision,
+  request_payload_sha256,signed_decision_sha256,signed_proof_mac_sha256,
+  evidence_sha256,reason)
+ VALUES(req.request_id,d->>'decision',actor,proof->>'sessionId',
+ approver_person,policy.policy_revision,req.payload_sha256,proof_digest,
+ pg_catalog.encode(hft_crypto.digest(mac_given,'sha256'),'hex'),
+ d->>'evidenceSha256',d->>'reason');
+ INSERT INTO hft.p3_master_audit(request_id,event_type,evidence_sha256,actor_subject)
+ VALUES(req.request_id,CASE WHEN d->>'decision'='APPROVED' THEN 'APPROVED' ELSE 'DENIED' END,
+  proof_digest,actor);
+ IF d->>'decision'='DENIED' THEN
+  RETURN pg_catalog.jsonb_build_object('state','DENIED','requestId',req.request_id::text,
+   'recordId',req.record_id,'version',NULL,'active',NULL);
+ END IF;
+ after_fact:=pg_catalog.jsonb_build_object(
+  'legalEntityId',applied_employee.legal_entity_id,
+  'employeeId',applied_employee.employee_id,'siteId',applied_employee.site_id,
+  'fullName',applied_employee.full_name,'department',applied_employee.department,
+  'designation',applied_employee.designation,'active',applied_employee.active,
+  'version',applied_employee.version::text);
+ after_sha:=pg_catalog.encode(hft_crypto.digest(
+  pg_catalog.convert_to(after_fact::text,'UTF8'),'sha256'),'hex');
+ INSERT INTO hft.employee_revision(legal_entity_id,employee_id,version,snapshot,actor_subject)
+ VALUES(entity_id,req.record_id,applied_employee.version,after_fact,actor);
+ INSERT INTO hft.p3_master_revision(legal_entity_id,kind,record_id,version,
+  request_id,before_snapshot,after_snapshot,actor_subject)
+ VALUES(entity_id,'EMPLOYEE',req.record_id,applied_employee.version,
+  req.request_id,before_fact,after_fact,actor);
+ INSERT INTO hft.p3_master_audit(request_id,event_type,evidence_sha256,actor_subject)
+ VALUES(req.request_id,'APPLIED',after_sha,actor);
+ SELECT pg_catalog.count(*) INTO count_revision FROM hft.p3_master_revision mr
+ WHERE mr.request_id=req.request_id AND mr.version=applied_employee.version;
+ SELECT pg_catalog.count(*) INTO count_audit FROM hft.p3_master_audit ma
+ WHERE ma.request_id=req.request_id AND ma.event_type='APPLIED'
+ AND ma.evidence_sha256=after_sha;
+ IF count_revision<>1 OR count_audit<>1
+ OR NOT EXISTS(SELECT 1 FROM hft.employee_revision er
+ WHERE er.legal_entity_id=entity_id AND er.employee_id=req.record_id
+ AND er.version=applied_employee.version AND er.snapshot=after_fact)
+ THEN RAISE EXCEPTION 'P3_EMPLOYEE_REVISION_OR_AUDIT_INCOMPLETE'; END IF;
+ RETURN pg_catalog.jsonb_build_object('state','APPLIED',
+  'requestId',req.request_id::text,'recordId',req.record_id,
+  'version',applied_employee.version::text,'active',applied_employee.active);
+END $employee_apply$;
+
+-- Do not allow historic Employee revision facts to be rewritten.
+CREATE TRIGGER p3_employee_revision_immutable BEFORE UPDATE OR DELETE
+ ON hft.employee_revision FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+
 -- Explicit ownership + least privilege. Runtime cannot bypass approval by
 -- directly editing masters, decisions, audit, nonce, revisions or role grants.
 GRANT USAGE ON SCHEMA hft TO hft_r1_p3_master_runtime,hft_r1_p3_master_owner;
