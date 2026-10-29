@@ -181,3 +181,17 @@ Old 0006 SHA-256 `f6b92c89468b59b596dad6fa27453f78ccfeb3a2c578ed6d125cde54bbf5f3
 | CLEANUP / REUSE | KEEP + DEFER DOCUMENTED | 0001–0006 and rejected/superseded provenance untouched; old `db/security/HFT-R1-P2-FUNCTION-ACCESS-NONEXECUTABLE.sql` historical input superseded by new review candidate, not executed; legacy per-table posting remains nonproduction isolated/test-only and NOT runtime-route accessible | After protected writer acceptance, remove or strictly isolate obsolete path and update affected tests; no unreviewed mass deletion |
 
 **Canonical migration checksum remains 0006** `664c7fcb57bbc699cc8cd727046e8a1048ecb89792d27abe1dd3aef024754044`; 0007 is NOT allocated/executable. No KES/workstation, database, extension, credential, CI, deployment or real stock action was executed. Independent Chat 10/17/11 review NOT YET RETURNED. Production NO-GO.
+
+## HFT-R1-P2-QA-CORRECT-004 — source-only recovery / role-proof hardening (2026-10-29)
+
+**Reconciled starting GitHub HEAD:** `6be0ae35454bcc7be117345ce12e4904e5572893`, 24 commits ahead of the earlier MASTER-verified `02d5a71475157a0cf2a123dba5c62fcc6052598d`. Prior source corrections from those commits were retained, not repeated.
+
+| Quality ID | Disposition | Affected files / remaining qualification |
+| --- | --- | --- |
+| CQ-P2-RECOVERY-01 | REFACTOR (source-only) | `db/security/HFT-R1-P2-ONE-WRITER-REVIEW.sql`: add SHA-256 of already verified MAC and issuance epoch to immutable nonce history; read-only reconciliation must match the original proof MAC, actor, session, payload, nonce, issue/expiry epochs. Same HMAC-SHA-256 V1 wire contract; no new writer, no real key material. |
+| CQ-P2-ACL-02 | REFACTOR (test-only) | `tests/pg/hft_p2_sec_t02_denied_sql.sql`: replace in-function SET ROLE simulation with actual SQL-level restricted-login attempts, savepoint rollback and exact denial SQLSTATE assertion. |
+| CQ-P2-T07-03 | NEW / AUTHOR ONLY | `tests/pg/hft_p2_sec_t07_recovery_proof_binding.sql`: committed original proof positive, seven forged-proof negatives. Requires real disposable PG and authorized synthetic fixtures; PostgreSQL **NOT RUN**. |
+| CQ-P2-P1-04 | KEEP / NO REPLACEMENT | Preserve 0001–0006, manifest, P1 immutable stock facts/seal and canonical existing migrations. Legacy direct-table adapter retained for isolated synthetic development; **not** an authoritative runtime route. |
+| CQ-P2-GOV-05 | DEFER / BLOCK | Trusted human/session/approval/inspection issuance and key custody remain dependent on actual independently approved service, privileges, immutable signing evidence and PostgreSQL qualification. Independent Chat 10/17/11 exact-revision reviews, audit retention/recovery and production authorization remain unfulfilled. |
+
+No PostgreSQL migration 0007, real PostgreSQL test, extension/credential/role operation, CI, deployment or PR merge. Local Windows/KES/unpushed state cannot be inspected from this isolated runtime; source updates use an expected-HEAD fast-forward lease. The final exact revision is the GitHub commit ID associated with this register update.

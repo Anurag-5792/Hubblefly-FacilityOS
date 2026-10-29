@@ -31,7 +31,11 @@ It checks expiry, active key version, revoked key status and `posting_session`
 row, then inserts a unique `(key_version, nonce)` fact. Reused proof/nonce is rejected.
 A fresh, separately authenticated proof may return an exact idempotent persisted
 result without posting a second movement; uncertain COMMIT uses a new-connection
-readback, **never** an automatic posting retry.
+readback, **never** an automatic posting retry. The immutable nonce fact now
+holds the digest of the originally validated HMAC and its issued/expiry
+timestamps; recovery requires an exact match, without consuming a new nonce
+or reactivating an expired/revoked signing key. HMAC-SHA-256 V1 wire format
+remains unchanged.
 
 The included synthetic public fixture `tests/fixtures/hft-p2-invocation-v1.synthetic.json`
 contains deliberately unusable TEST-ONLY key text. Independent Python and Node

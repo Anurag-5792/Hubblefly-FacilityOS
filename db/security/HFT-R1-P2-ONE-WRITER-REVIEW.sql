@@ -470,6 +470,10 @@ CREATE TABLE hft.posting_invocation_nonce (
  key_version integer NOT NULL,nonce text NOT NULL,
  actor_subject text NOT NULL,session_id text NOT NULL,
  command_id text NOT NULL,payload_sha256 text NOT NULL,
+ -- Preserve a fingerprint of the already-verified HMAC for exact readback.
+ -- No raw MAC, key or external HMAC-SHA-256 V1 protocol change is introduced.
+ proof_mac_sha256 text NOT NULL CHECK(proof_mac_sha256~'^[0-9a-f]{64}$'),
+ proof_issued_at_epoch bigint NOT NULL CHECK(proof_issued_at_epoch>0),
  expires_at timestamptz NOT NULL,used_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  PRIMARY KEY(key_version,nonce),
  CHECK(nonce ~ '^[0-9a-f]{48}$')
@@ -908,9 +912,11 @@ BEGIN
  AND s.revoked_at IS NULL AND s.expires_at>pg_catalog.clock_timestamp() FOR SHARE;
  IF NOT FOUND THEN RAISE EXCEPTION 'P2_SESSION_REVOKED_OR_UNKNOWN'; END IF;
  INSERT INTO hft.posting_invocation_nonce(key_version,nonce,actor_subject,session_id,
-  command_id,payload_sha256,expires_at)
+  command_id,payload_sha256,proof_mac_sha256,proof_issued_at_epoch,expires_at)
  VALUES(ver,proof->>'nonce',proof->>'actorSubject',proof->>'sessionId',
-  p->>'commandId',payload_sha,pg_catalog.to_timestamp(expires));
+  p->>'commandId',payload_sha,
+  pg_catalog.encode(hft_crypto.digest(mac_claimed,'sha256'),'hex'),
+  issued,pg_catalog.to_timestamp(expires));
  -- Unique (version,nonce) forbids signed request replay regardless of idempotency.
  RETURN proof->>'actorSubject';
 END $$;
@@ -1373,15 +1379,32 @@ DECLARE
  outbox hft.audit_outbox%ROWTYPE;
  outcome hft.stock_command_outcome%ROWTYPE;
  seal hft.stock_command_seal%ROWTYPE;
- payload_digest text; cnt bigint;
+ payload_digest text; cnt bigint; proof_field text;
 BEGIN
  PERFORM hft.p2_payload_fields_v1(p);
  IF pg_catalog.jsonb_typeof(proof)<>'object'
+   OR (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(proof))<>9
+ THEN RAISE EXCEPTION 'P2_RECOVERY_PROOF_ENCODING_INVALID'; END IF;
+ FOREACH proof_field IN ARRAY ARRAY['proofVersion','actorSubject','sessionId',
+   'payloadSha256','issuedAt','expiresAt','nonce','keyVersion','macSha256']
+ LOOP
+   IF NOT (proof ? proof_field)
+     OR pg_catalog.jsonb_typeof(proof->proof_field)<>'string'
+   THEN RAISE EXCEPTION 'P2_RECOVERY_PROOF_ENCODING_INVALID'; END IF;
+ END LOOP;
+ IF proof->>'proofVersion'<>'HFT-R1-P2-HMAC-SHA256-V1'
    OR (proof->>'actorSubject') !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
    OR (proof->>'sessionId') !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
    OR (proof->>'nonce') !~ '^[0-9a-f]{48}$'
+   OR (proof->>'macSha256') !~ '^[0-9a-f]{64}$'
+   OR (proof->>'issuedAt') !~ '^[1-9][0-9]{0,18}$'
+   OR (proof->>'expiresAt') !~ '^[1-9][0-9]{0,18}$'
    OR (proof->>'keyVersion') !~ '^[1-9][0-9]{0,9}$'
  THEN RAISE EXCEPTION 'P2_RECOVERY_PROOF_ENCODING_INVALID'; END IF;
+ IF (proof->>'keyVersion')::numeric>2147483647
+   OR (proof->>'issuedAt')::numeric>9223372036854775807
+   OR (proof->>'expiresAt')::numeric>9223372036854775807
+ THEN RAISE EXCEPTION 'P2_RECOVERY_PROOF_TIME_OR_KEY_RANGE_INVALID'; END IF;
  payload_digest:=hft.p2_payload_digest_v1(p);
  IF payload_digest IS DISTINCT FROM proof->>'payloadSha256' THEN
    RAISE EXCEPTION 'P2_RECOVERY_PAYLOAD_DIGEST_MISMATCH'; END IF;
@@ -1418,7 +1441,12 @@ BEGIN
    AND used.actor_subject=proof->>'actorSubject'
    AND used.session_id=proof->>'sessionId'
    AND used.command_id=cmd.command_id
-   AND used.payload_sha256=payload_digest;
+   AND used.payload_sha256=payload_digest
+   AND used.proof_issued_at_epoch=(proof->>'issuedAt')::bigint
+   AND used.expires_at=pg_catalog.to_timestamp((proof->>'expiresAt')::bigint)
+   -- Original MAC evidence remains checkable after normal key retirement.
+   AND used.proof_mac_sha256=pg_catalog.encode(
+    hft_crypto.digest(pg_catalog.decode(proof->>'macSha256','hex'),'sha256'),'hex');
  IF nonce_row.nonce IS NULL THEN
    RAISE EXCEPTION 'P2_RECOVERY_ORIGINAL_SIGNED_NONCE_NOT_COMMITTED'; END IF;
  -- Current human session must still be active; recovered data stays scoped.
