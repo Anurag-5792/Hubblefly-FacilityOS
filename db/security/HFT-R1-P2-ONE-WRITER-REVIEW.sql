@@ -282,6 +282,24 @@ BEGIN
  END LOOP;
 END $immutable_governance$;
 
+
+-- Parent Hold lifecycle is append-only. Cancellation/clearance is a separate
+-- governed fact, never a silent UPDATE of the original block.
+CREATE TABLE hft.posting_parent_hold_clearance (
+ legal_entity_id text NOT NULL,hold_id text NOT NULL,
+ cleared_by text NOT NULL,clearance_evidence_sha256 text NOT NULL
+ CHECK(clearance_evidence_sha256~'^[0-9a-f]{64}$'),
+ cleared_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ PRIMARY KEY(legal_entity_id,hold_id),
+ FOREIGN KEY(legal_entity_id,hold_id)
+ REFERENCES hft.posting_parent_hold(legal_entity_id,hold_id)
+);
+CREATE TRIGGER p2_parent_hold_immutable BEFORE UPDATE OR DELETE
+ ON hft.posting_parent_hold FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+CREATE TRIGGER p2_parent_hold_clearance_immutable BEFORE UPDATE OR DELETE
+ ON hft.posting_parent_hold_clearance FOR EACH ROW
+ EXECUTE FUNCTION hft.deny_fact_mutation();
+
 CREATE TABLE hft.protected_approval_revocation (
  legal_entity_id text NOT NULL,approval_id text NOT NULL,approval_revision bigint NOT NULL,
  revoked_by text NOT NULL,reason text NOT NULL,revoked_at timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -545,6 +563,89 @@ CREATE TRIGGER p2_hold_epoch AFTER INSERT OR UPDATE OR DELETE ON hft.stock_hold
  FOR EACH ROW EXECUTE FUNCTION hft.p2_bump_scope_epoch_v1();
 CREATE TRIGGER p2_actor_epoch AFTER INSERT OR UPDATE OR DELETE ON hft.actor_warehouse_grant
  FOR EACH ROW EXECUTE FUNCTION hft.p2_bump_scope_epoch_v1();
+
+-- HFT:GATE is the same key acquired by posting. Parent Hold placement and
+-- clearance lock ALL affected descendants in canonical sorted order before
+-- publication. A Hold-first transaction blocks the next posting; posting-first
+-- is ordered and auditable. Real two-session schedules remain NOT RUN.
+CREATE OR REPLACE FUNCTION hft.p2_lock_parent_governance_v1()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $parent_gate$
+DECLARE rec record;w record;
+BEGIN
+ IF TG_TABLE_NAME='posting_parent_hold_clearance' THEN
+   SELECT legal_entity_id,scope_kind,site_id INTO rec
+   FROM hft.posting_parent_hold
+   WHERE legal_entity_id=NEW.legal_entity_id AND hold_id=NEW.hold_id;
+ ELSE rec:=NEW; END IF;
+ IF rec.legal_entity_id IS NULL THEN
+   RAISE EXCEPTION 'P2_PARENT_HOLD_SCOPE_MISSING'; END IF;
+ FOR w IN SELECT legal_entity_id,site_id,warehouse_id FROM hft.warehouse
+   WHERE legal_entity_id=rec.legal_entity_id
+   AND (rec.scope_kind='ENTITY' OR site_id=rec.site_id)
+   ORDER BY legal_entity_id,site_id,warehouse_id
+ LOOP
+   PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('HFT:GATE:'||w.legal_entity_id||':'||
+       w.site_id||':'||w.warehouse_id,0));
+ END LOOP;
+ RETURN NEW;
+END $parent_gate$;
+CREATE OR REPLACE FUNCTION hft.p2_bump_parent_epoch_v1()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $parent_epoch$
+DECLARE rec record;w record;
+BEGIN
+ IF TG_TABLE_NAME='posting_parent_hold_clearance' THEN
+  SELECT legal_entity_id,scope_kind,site_id INTO rec FROM hft.posting_parent_hold
+  WHERE legal_entity_id=NEW.legal_entity_id AND hold_id=NEW.hold_id;
+ ELSE rec:=NEW; END IF;
+ FOR w IN SELECT legal_entity_id,site_id,warehouse_id FROM hft.warehouse
+   WHERE legal_entity_id=rec.legal_entity_id
+   AND (rec.scope_kind='ENTITY' OR site_id=rec.site_id)
+   ORDER BY legal_entity_id,site_id,warehouse_id
+ LOOP
+  UPDATE hft.posting_policy_epoch SET generation=generation+1
+  WHERE legal_entity_id=w.legal_entity_id AND site_id=w.site_id
+  AND warehouse_id=w.warehouse_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'P2_PARENT_HOLD_POLICY_EPOCH_MISSING'; END IF;
+ END LOOP;
+ RETURN NULL;
+END $parent_epoch$;
+CREATE TRIGGER p2_parent_hold_gate BEFORE INSERT ON hft.posting_parent_hold
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_lock_parent_governance_v1();
+CREATE TRIGGER p2_parent_clearance_gate BEFORE INSERT ON hft.posting_parent_hold_clearance
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_lock_parent_governance_v1();
+CREATE TRIGGER p2_parent_hold_epoch AFTER INSERT ON hft.posting_parent_hold
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_bump_parent_epoch_v1();
+CREATE TRIGGER p2_parent_clearance_epoch AFTER INSERT ON hft.posting_parent_hold_clearance
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_bump_parent_epoch_v1();
+
+-- New action policies are append-only revisions. Any policy change bumps
+-- relevant scope generation and invalidates stale approvals.
+CREATE OR REPLACE FUNCTION hft.p2_lock_new_action_policy_v1()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $policy_gate$
+BEGIN
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+ 'HFT:GATE:'||NEW.legal_entity_id||':'||NEW.site_id||':'||NEW.warehouse_id,0));
+ PERFORM 1 FROM hft.posting_action_policy WHERE legal_entity_id=NEW.legal_entity_id
+ AND site_id=NEW.site_id AND warehouse_id=NEW.warehouse_id
+ AND action_kind=NEW.action_kind AND policy_revision>=NEW.policy_revision;
+ IF FOUND THEN RAISE EXCEPTION 'P2_POLICY_REVISION_NOT_MONOTONIC'; END IF;
+ RETURN NEW;
+END $policy_gate$;
+CREATE OR REPLACE FUNCTION hft.p2_bump_action_policy_epoch_v1()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $policy_epoch$
+BEGIN
+ UPDATE hft.posting_policy_epoch SET generation=generation+1
+ WHERE legal_entity_id=NEW.legal_entity_id AND site_id=NEW.site_id
+ AND warehouse_id=NEW.warehouse_id;
+ IF NOT FOUND THEN RAISE EXCEPTION 'P2_ACTION_POLICY_EPOCH_MISSING'; END IF;
+ RETURN NULL;
+END $policy_epoch$;
+CREATE TRIGGER p2_policy_lock BEFORE INSERT ON hft.posting_action_policy
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_lock_new_action_policy_v1();
+CREATE TRIGGER p2_policy_epoch AFTER INSERT ON hft.posting_action_policy
+ FOR EACH ROW EXECUTE FUNCTION hft.p2_bump_action_policy_epoch_v1();
+
 CREATE OR REPLACE FUNCTION hft.p2_revoke_scope_lock_v1() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
 DECLARE a hft.protected_stock_approval%ROWTYPE;
