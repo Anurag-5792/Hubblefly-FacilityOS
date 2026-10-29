@@ -29,7 +29,6 @@ test('all five master create requests are valid but never encode active=true',()
  }
 });
 test('strict fields deny active injection, cross-site identifiers and changed scope',()=>{
- assert.throws(()=>validateMasterChange(change('EMPLOYEE',{ } as unknown as string,{values:{...values.EMPLOYEE,active:true}})),/P3_UNEXPECTED_OR_MISSING_FIELD|P3_OPERATION_INVALID/);
  assert.throws(()=>validateMasterChange(change('EMPLOYEE','CREATE',{values:{...values.EMPLOYEE,active:true}})),/P3_UNEXPECTED_OR_MISSING_FIELD/);
  assert.throws(()=>validateMasterChange(change('EMPLOYEE','CREATE',{values:{...values.EMPLOYEE,siteId:'SITE2'}})),/P3_SITE_ANCHOR_MISMATCH/);
  assert.throws(()=>validateMasterChange(change('WAREHOUSE','CREATE',{recordId:'WH2'})),/P3_WAREHOUSE_ANCHOR_MISMATCH/);

@@ -195,3 +195,14 @@ Old 0006 SHA-256 `f6b92c89468b59b596dad6fa27453f78ccfeb3a2c578ed6d125cde54bbf5f3
 | CQ-P2-GOV-05 | DEFER / BLOCK | Trusted human/session/approval/inspection issuance and key custody remain dependent on actual independently approved service, privileges, immutable signing evidence and PostgreSQL qualification. Independent Chat 10/17/11 exact-revision reviews, audit retention/recovery and production authorization remain unfulfilled. |
 
 No PostgreSQL migration 0007, real PostgreSQL test, extension/credential/role operation, CI, deployment or PR merge. Local Windows/KES/unpushed state cannot be inspected from this isolated runtime; source updates use an expected-HEAD fast-forward lease. The final exact revision is the GitHub commit ID associated with this register update.
+
+
+## HFT-R1-P3-STORES-DELIVERY-001 — application source quality (2026-10-29)
+
+- CQ-P3-01 ADD: real source for five master forms, scope-controlled signed API, persisted pending-request contract; qualified DB/issuer NOT RUN.
+- CQ-P3-02 ADD: guarded isolated PostgreSQL, irreversible COMMIT uncertainty and immutable request/audit candidate; no live posting.
+- CQ-P3-03 HIGH OPEN: P3 runtime SELECT on master/grant views is not independently DB scope-bound against stolen runtime credentials. Do not execute/promote candidate until fixed/reviewed.
+- CQ-P3-04 HIGH OPEN: approved independent master decision/apply writer with verified human policy and immutable master revision is absent. No master active-state application qualified.
+- CQ-P3-05 REPLACE: fake dashboard/MIS operational numbers removed and not replaced by synthetic metrics.
+- CQ-P3-06 TESTS AUTHORED: 2 Node suites + 2 PostgreSQL fixtures; runtime tests NOT RUN. P4 offline package-lock-only attempt ENOTCACHED exit 1; psql absent exit 127.
+- CQ-P3-07 KEEP: P1/P2 code and canonical migrations 0001–0006; no new migration, key provisioning, database operation, service installation, PR merge or deployment.
