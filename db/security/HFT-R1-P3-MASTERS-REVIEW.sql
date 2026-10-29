@@ -306,12 +306,14 @@ DECLARE field text;expected text[]:=ARRAY['intent','kind','legalEntityId',
 BEGIN
  IF pg_catalog.jsonb_typeof(q)<>'object' THEN
   RAISE EXCEPTION 'P3_READ_SHAPE_INVALID'; END IF;
- IF q->>'intent' NOT IN ('LIST','GET','REQUESTS','REVIEW_QUEUE')
+ IF q->>'intent' NOT IN ('LIST','GET','REQUESTS','REVIEW_QUEUE','ITEM_GALLERY')
   OR q->>'kind' NOT IN ('EMPLOYEE','ITEM','SUPPLIER','WAREHOUSE','LOCATION')
  THEN RAISE EXCEPTION 'P3_READ_KIND_INVALID'; END IF;
  IF q->>'intent'='REVIEW_QUEUE' AND q->>'kind'<>'EMPLOYEE'
  THEN RAISE EXCEPTION 'P3_EMPLOYEE_ONLY_REVIEW_QUEUE'; END IF;
- IF q->>'intent'='GET' THEN expected:=expected||ARRAY['recordId']; END IF;
+ IF q->>'intent'='ITEM_GALLERY' AND q->>'kind'<>'ITEM'
+ THEN RAISE EXCEPTION 'P3_ITEM_GALLERY_KIND_REQUIRED'; END IF;
+ IF q->>'intent' IN ('GET','ITEM_GALLERY') THEN expected:=expected||ARRAY['recordId']; END IF;
  IF (SELECT count(*) FROM pg_catalog.jsonb_object_keys(q))<>pg_catalog.cardinality(expected)
  THEN RAISE EXCEPTION 'P3_READ_FIELD_COUNT_INVALID'; END IF;
  FOREACH field IN ARRAY expected LOOP
@@ -325,7 +327,7 @@ BEGIN
  v:=q->>'search';
  IF pg_catalog.length(v)>80 OR v !~ '^[A-Za-z0-9 ._-]*$'
  THEN RAISE EXCEPTION 'P3_READ_SEARCH_INVALID'; END IF;
- IF q->>'intent'='GET' AND (q->>'recordId') !~ '^[A-Z0-9][A-Z0-9._-]{1,63}$'
+ IF q->>'intent' IN ('GET','ITEM_GALLERY') AND (q->>'recordId') !~ '^[A-Z0-9][A-Z0-9._-]{1,63}$'
  THEN RAISE EXCEPTION 'P3_READ_RECORD_INVALID'; END IF;
  IF q->>'intent'='GET' AND q->>'kind'='WAREHOUSE' AND
  q->>'recordId'<>q->>'warehouseId'
@@ -348,6 +350,7 @@ DECLARE
  issued bigint;expires bigint;ver integer;now_epoch bigint;
  secret hft_secret.p3_master_invocation_key%ROWTYPE;
  rows_json jsonb:='[]'::jsonb; who text; decision_person text;
+ version_count bigint; version_rows jsonb;
 BEGIN
  IF pg_catalog.current_setting('transaction_read_only')<>'on'
  OR NOT pg_catalog.pg_has_role(session_user,'hft_r1_p3_master_runtime','MEMBER')
@@ -429,6 +432,57 @@ BEGIN
    AND (q->>'intent'<>'LIST' OR
      pg_catalog.strpos(pg_catalog.lower(record_id),pg_catalog.lower(q->>'search'))>0)
    ORDER BY record_id LIMIT 50) t;
+ ELSIF q->>'intent'='ITEM_GALLERY' THEN
+  -- This separate HFT media schema is governed and deliberately optional
+  -- during Employee P3 qualification. It must exist before Item gallery use.
+  IF pg_catalog.to_regclass('hft.item_version_photo_coverage_v1') IS NULL
+  OR pg_catalog.to_regclass('hft.item_photo_asset') IS NULL
+  OR pg_catalog.to_regclass('hft.item_version_photo_link_revocation') IS NULL
+  THEN RAISE EXCEPTION 'P3_ITEM_GALLERY_CATALOG_NOT_QUALIFIED'; END IF;
+  PERFORM 1 FROM hft.item AS i
+  WHERE i.legal_entity_id=e AND i.item_code=q->>'recordId';
+  IF NOT FOUND THEN RAISE EXCEPTION 'P3_ITEM_GALLERY_ITEM_NOT_FOUND'; END IF;
+  SELECT pg_catalog.count(*) INTO version_count
+  FROM hft.item_version_photo_coverage_v1 AS v
+  WHERE v.legal_entity_id=e AND v.item_code=q->>'recordId';
+  IF version_count=0 THEN RAISE EXCEPTION 'P3_ITEM_VERSION_CENSUS_NOT_VERIFIED'; END IF;
+  IF version_count>500 THEN RAISE EXCEPTION 'P3_ITEM_VERSION_CENSUS_TOO_LARGE'; END IF;
+  -- Exactly one response record, with ALL product versions (including retired).
+  -- Do not truncate a version list and call partial coverage complete.
+  SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(
+    pg_catalog.jsonb_build_object(
+     'versionCode',v.version_code,'state',v.state,
+     'linkedCount',v.linked_count,'approvedCount',v.approved_count,
+     'approvedPrimaryCount',v.approved_primary_count,
+     'photos',pg_catalog.coalesce((
+       SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+        'mediaId',p.media_id::text,'versionCode',l.version_code,
+        'role',l.photo_role,'sha256',p.sha256,'mimeType',p.mime_type,
+        'byteSize',p.byte_size,'width',p.width,'height',p.height,
+        'storageKey',p.storage_key,'source',p.source,
+        'rightsEvidenceSha256',p.rights_evidence_sha256,
+        'verification',p.review_state)
+        ORDER BY l.photo_role,p.media_id)
+       FROM hft.item_version_photo_link AS l
+       JOIN hft.item_photo_asset AS p
+        ON p.legal_entity_id=l.legal_entity_id AND p.item_code=l.item_code
+        AND p.captured_version_code=l.version_code AND p.media_id=l.media_id
+       WHERE l.legal_entity_id=v.legal_entity_id AND l.item_code=v.item_code
+        AND l.version_code=v.version_code AND l.active
+        AND p.review_state='APPROVED'
+        AND p.rights_evidence_sha256 IS NOT NULL
+        AND p.verified_by IS NOT NULL AND p.verified_at IS NOT NULL
+        AND NOT EXISTS(SELECT 1 FROM hft.item_version_photo_link_revocation AS rev
+         WHERE rev.legal_entity_id=l.legal_entity_id AND rev.item_code=l.item_code
+           AND rev.version_code=l.version_code AND rev.media_id=l.media_id)
+      ),'[]'::jsonb))
+    ORDER BY v.version_code),'[]'::jsonb)
+    INTO version_rows
+  FROM hft.item_version_photo_coverage_v1 AS v
+  WHERE v.legal_entity_id=e AND v.item_code=q->>'recordId';
+  rows_json:=pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+   'legal_entity_id',e,'site_id','','warehouse_id','',
+   'kind','ITEM','record_id',q->>'recordId','versions',version_rows));
  ELSIF q->>'intent'='REQUESTS' THEN
   SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t)
    ORDER BY t.requested_at DESC,t.request_id DESC),'[]'::jsonb) INTO rows_json
