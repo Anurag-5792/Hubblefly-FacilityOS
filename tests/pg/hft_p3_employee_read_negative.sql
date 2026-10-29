@@ -54,8 +54,8 @@ BEGIN
  -- Original query with a mutated authenticated person/session/MAC must fail.
  FOR variant IN SELECT x.value FROM pg_catalog.jsonb_array_elements(
   pg_catalog.jsonb_build_array(
-    proof||pg_catalog.jsonb_build_object('actorSubject','FORGED_ACTOR'),
-    proof||pg_catalog.jsonb_build_object('sessionId','FORGED_SESSION'),
+    proof||pg_catalog.jsonb_build_object('actorSubject','FORGED.ACTOR'),
+    proof||pg_catalog.jsonb_build_object('sessionId','FORGED.SESSION'),
     proof||pg_catalog.jsonb_build_object('macSha256',pg_catalog.repeat('0',64))
   )) AS x(value)
  LOOP
@@ -64,8 +64,7 @@ BEGIN
    RAISE EXCEPTION 'P3_FORGED_SIGNED_READ_ACCEPTED';
   EXCEPTION WHEN OTHERS THEN
    GET STACKED DIAGNOSTICS state=RETURNED_SQLSTATE,message=MESSAGE_TEXT;
-   IF state<>'P0001' OR message NOT IN
-    ('P3_READ_MAC_INVALID','P3_READ_SIGNING_KEY_INACTIVE')
+   IF state<>'P0001' OR message<>'P3_READ_MAC_INVALID'
    THEN RAISE EXCEPTION 'P3_SIGNED_READ_WRONG_REJECTION:%:%',state,message; END IF;
   END;
  END LOOP;
