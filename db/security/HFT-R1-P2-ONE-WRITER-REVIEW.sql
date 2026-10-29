@@ -1270,6 +1270,110 @@ CREATE TRIGGER p2_require_signed_employee_ack BEFORE INSERT
  ON hft.custody_employee_ack_event FOR EACH ROW
  EXECUTE FUNCTION hft.p2_assert_employee_ack_v1();
 
+-- P2-G11-04: verify exact parent Hold, purpose, generation vector,
+-- signed clearance evidence, current action-specific policy and human SoD.
+-- The existing p2_parent_clearance_gate runs FIRST (alphabetically), locking
+-- every descendant scope before this trigger reads generation or policy.
+CREATE OR REPLACE FUNCTION hft.p2_assert_parent_clearance_v1()
+RETURNS trigger LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $clearance$
+DECLARE
+ h hft.posting_parent_hold%ROWTYPE;
+ pol hft.parent_hold_clearance_policy%ROWTYPE;
+ m hft.governance_evidence_manifest%ROWTYPE;
+ v_scopes bigint;v_generation_sha text;
+ placer_person text;clearer_person text;approver_person text;
+BEGIN
+ SELECT * INTO h FROM hft.posting_parent_hold
+ WHERE legal_entity_id=NEW.legal_entity_id AND hold_id=NEW.hold_id FOR SHARE;
+ IF h.hold_id IS NULL OR NOT h.active
+ OR (h.expires_at IS NOT NULL AND h.expires_at<=pg_catalog.clock_timestamp())
+ OR NEW.hold_purpose<>h.hold_purpose OR NEW.hold_generation<>h.hold_generation
+ THEN RAISE EXCEPTION 'P2_PARENT_CLEARANCE_EXACT_ACTIVE_HOLD_REQUIRED'; END IF;
+ SELECT * INTO pol FROM hft.parent_hold_clearance_policy AS x
+ WHERE x.legal_entity_id=h.legal_entity_id AND x.scope_kind=h.scope_kind
+  AND x.site_id=pg_catalog.coalesce(h.site_id,'')
+  AND x.hold_purpose=h.hold_purpose
+ ORDER BY x.policy_revision DESC LIMIT 1 FOR SHARE;
+ IF pol.policy_revision IS NULL OR NOT pol.allow_clearance
+ OR pol.policy_revision<>NEW.policy_revision
+ OR pg_catalog.clock_timestamp()<pol.valid_from
+ OR pg_catalog.clock_timestamp()>=pol.valid_until
+ THEN RAISE EXCEPTION 'P2_PARENT_CLEARANCE_APPROVED_POLICY_REQUIRED'; END IF;
+ SELECT pg_catalog.count(*) INTO v_scopes FROM hft.warehouse AS w
+ WHERE w.legal_entity_id=h.legal_entity_id
+ AND (h.scope_kind='ENTITY' OR w.site_id=h.site_id);
+ IF v_scopes=0 THEN RAISE EXCEPTION 'P2_PARENT_CLEARANCE_SCOPE_EMPTY'; END IF;
+ -- All scope gates are already locked by the existing BEFORE trigger. Hex
+ -- encoding makes field separators unambiguous even for unusual site codes.
+ SELECT pg_catalog.encode(hft_crypto.digest(hft.p2_length_prefixed_v1(
+  ARRAY(SELECT
+   pg_catalog.encode(pg_catalog.convert_to(w.legal_entity_id,'UTF8'),'hex')||':'||
+   pg_catalog.encode(pg_catalog.convert_to(w.site_id,'UTF8'),'hex')||':'||
+   pg_catalog.encode(pg_catalog.convert_to(w.warehouse_id,'UTF8'),'hex')||':'||
+   epoch.generation::text
+   FROM hft.warehouse AS w JOIN hft.posting_policy_epoch AS epoch
+   ON epoch.legal_entity_id=w.legal_entity_id AND epoch.site_id=w.site_id
+    AND epoch.warehouse_id=w.warehouse_id
+   WHERE w.legal_entity_id=h.legal_entity_id
+    AND (h.scope_kind='ENTITY' OR w.site_id=h.site_id)
+   ORDER BY w.legal_entity_id,w.site_id,w.warehouse_id
+  )),'sha256'),'hex') INTO v_generation_sha;
+ IF v_generation_sha IS NULL OR v_generation_sha<>NEW.scope_generation_sha256
+ THEN RAISE EXCEPTION 'P2_PARENT_CLEARANCE_SCOPE_GENERATION_STALE'; END IF;
+ SELECT * INTO m FROM hft.governance_evidence_manifest
+ WHERE manifest_id=NEW.manifest_id FOR SHARE;
+ IF m.manifest_id IS NULL OR m.purpose<>'PARENT_HOLD_CLEARANCE'
+ OR m.payload->>'legalEntityId'<>h.legal_entity_id
+ OR m.payload->>'siteId'<>pg_catalog.coalesce(h.site_id,'')
+ OR m.payload->>'warehouseId'<>''
+ OR m.payload->>'sourceDocumentId'<>h.hold_id
+ OR m.payload->>'sourceActionKey'<>h.reason
+ OR m.payload->>'sourceRevision'<>h.hold_generation::text
+ OR m.payload->>'holdId'<>h.hold_id
+ OR m.payload->>'holdPurpose'<>h.hold_purpose
+ OR m.payload->>'holdGeneration'<>h.hold_generation::text
+ OR m.payload->>'scopeGenerationSha256'<>NEW.scope_generation_sha256
+ OR m.payload->>'policyRevision'<>NEW.policy_revision::text
+ OR m.payload->>'decisionSha256'<>pol.decision_evidence_sha256
+ OR m.payload->>'evidenceId'<>NEW.hold_id
+ OR m.payload->>'evidenceSha256'<>NEW.clearance_evidence_sha256
+ OR m.payload->>'actorSubject'<>NEW.cleared_by
+ OR m.payload->>'sessionId'<>NEW.cleared_by_session_id
+ OR m.payload->>'counterpartySubject'<>NEW.approver_subject
+ OR m.payload->>'counterpartySessionId'<>NEW.approver_session_id
+ OR m.payload->>'condition'<>'CLEARED'
+ OR m.payload->>'recipientKind'<>''
+ OR m.payload->>'occurredAt'<>pg_catalog.floor(
+   pg_catalog.extract(epoch FROM NEW.cleared_at))::bigint::text
+ OR (m.payload->>'expiresAt')::bigint<=pg_catalog.floor(
+   pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp()))::bigint
+ OR EXISTS(SELECT 1 FROM hft_secret.governance_evidence_key AS key
+   WHERE key.purpose='PARENT_HOLD_CLEARANCE' AND key.key_version=m.key_version
+     AND key.revoked_at IS NOT NULL)
+ THEN RAISE EXCEPTION 'P2_PARENT_CLEARANCE_SIGNED_MANIFEST_MISMATCH'; END IF;
+ clearer_person:=hft.p2_qualified_human_v1(h.legal_entity_id,
+   NEW.cleared_by,NEW.cleared_by_session_id,
+   'HOLD_CLEARANCE','PREPARER',pg_catalog.clock_timestamp());
+ approver_person:=hft.p2_qualified_human_v1(h.legal_entity_id,
+   NEW.approver_subject,NEW.approver_session_id,
+   'HOLD_CLEARANCE','APPROVER',pg_catalog.clock_timestamp());
+ SELECT login.person_id INTO placer_person FROM hft.approval_human_login AS login
+ WHERE login.legal_entity_id=h.legal_entity_id AND login.actor_subject=h.placed_by FOR SHARE;
+ IF clearer_person IS NULL OR approver_person IS NULL OR placer_person IS NULL
+ OR m.payload->>'personId'<>clearer_person
+ THEN RAISE EXCEPTION 'P2_PARENT_CLEARANCE_AUTHENTICATED_HUMANS_REQUIRED'; END IF;
+ IF pol.require_independent_approver AND
+   (approver_person=clearer_person OR approver_person=placer_person
+    OR clearer_person=placer_person)
+ THEN RAISE EXCEPTION 'P2_PARENT_CLEARANCE_INDEPENDENCE_VIOLATED'; END IF;
+ RETURN NEW;
+END $clearance$;
+-- Name sorts AFTER p2_parent_clearance_gate; BEFORE AFTER-EPOCH update.
+CREATE TRIGGER p2_z_parent_clearance_verify BEFORE INSERT
+ ON hft.posting_parent_hold_clearance FOR EACH ROW
+ EXECUTE FUNCTION hft.p2_assert_parent_clearance_v1();
+
 CREATE OR REPLACE FUNCTION hft.p2_payload_digest_v1(p jsonb) RETURNS text
 LANGUAGE sql STABLE SET search_path=pg_catalog,pg_temp AS $$
  SELECT pg_catalog.encode(hft_crypto.digest(hft.p2_length_prefixed_v1(hft.p2_payload_fields_v1(p)),'sha256'),'hex')
@@ -1988,6 +2092,8 @@ ALTER FUNCTION hft.p2_verify_governance_manifest_v1()
 ALTER FUNCTION hft.p2_assert_return_manifest_v1()
  OWNER TO hft_r1_posting_owner;
 ALTER FUNCTION hft.p2_assert_employee_ack_v1()
+ OWNER TO hft_r1_posting_owner;
+ALTER FUNCTION hft.p2_assert_parent_clearance_v1()
  OWNER TO hft_r1_posting_owner;
 REVOKE CREATE ON SCHEMA hft FROM hft_r1_posting_owner;
 DO $verify_owner_acl$ BEGIN
