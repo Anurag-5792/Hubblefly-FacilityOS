@@ -22,7 +22,9 @@ BEGIN
   'INSERT INTO hft.custody_ack_pending DEFAULT VALUES',
   'UPDATE hft.stock_account SET qty_micro=qty_micro',
   'DELETE FROM hft.audit_outbox',
-  'ALTER TABLE hft.stock_entry DISABLE TRIGGER ALL'
+  'ALTER TABLE hft.stock_entry DISABLE TRIGGER ALL',
+  'INSERT INTO hft_secret.invocation_key DEFAULT VALUES',
+  'SELECT key_bytes FROM hft_secret.invocation_key'
  ] LOOP
   blocked:=false;
   BEGIN EXECUTE sql;
