@@ -354,6 +354,8 @@ CREATE TABLE hft.posting_parent_hold (
  legal_entity_id text NOT NULL REFERENCES hft.legal_entity(id),
  hold_id text NOT NULL,scope_kind text NOT NULL CHECK(scope_kind IN ('ENTITY','SITE')),
  site_id text,active boolean NOT NULL DEFAULT true,
+ hold_purpose text NOT NULL CHECK(hold_purpose IN ('SAFETY','QUALITY','INVENTORY','LEGAL','OTHER')),
+ hold_generation bigint NOT NULL DEFAULT 1 CHECK(hold_generation>0),
  reason text NOT NULL CHECK(length(pg_catalog.btrim(reason))>0),
  placed_by text NOT NULL,placed_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
  expires_at timestamptz,
@@ -370,7 +372,8 @@ BEGIN
   'approval_role_qualification','posting_action_policy',
   'protected_approval_decision','protected_approval_supersession',
   'return_inspection_attestation','custody_ack_pending','custody_employee_ack_event',
-  'employee_person_link','employee_person_link_revocation','custody_ack_exception_policy']
+  'employee_person_link','employee_person_link_revocation','custody_ack_exception_policy',
+  'parent_hold_clearance_policy']
  LOOP
   EXECUTE pg_catalog.format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON hft.%I FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation()',
     'immutable_'||tab||'_v1',tab);
@@ -380,11 +383,29 @@ END $immutable_governance$;
 
 -- Parent Hold lifecycle is append-only. Cancellation/clearance is a separate
 -- governed fact, never a silent UPDATE of the original block.
+-- One append-only, independently approved exact clearance per Hold.
+CREATE TABLE hft.parent_hold_clearance_policy (
+ legal_entity_id text NOT NULL,scope_kind text NOT NULL CHECK(scope_kind IN ('ENTITY','SITE')),
+ site_id text NOT NULL DEFAULT '',hold_purpose text NOT NULL
+ CHECK(hold_purpose IN ('SAFETY','QUALITY','INVENTORY','LEGAL','OTHER')),
+ policy_revision bigint NOT NULL CHECK(policy_revision>0),
+ allow_clearance boolean NOT NULL,require_independent_approver boolean NOT NULL,
+ valid_from timestamptz NOT NULL,valid_until timestamptz NOT NULL,
+ decision_evidence_sha256 text NOT NULL CHECK(decision_evidence_sha256~'^[0-9a-f]{64}$'),
+ PRIMARY KEY(legal_entity_id,scope_kind,site_id,hold_purpose,policy_revision),
+ CHECK((scope_kind='ENTITY' AND site_id='') OR (scope_kind='SITE' AND site_id<>'')),
+ CHECK(valid_from<valid_until)
+);
 CREATE TABLE hft.posting_parent_hold_clearance (
  legal_entity_id text NOT NULL,hold_id text NOT NULL,
- cleared_by text NOT NULL,clearance_evidence_sha256 text NOT NULL
- CHECK(clearance_evidence_sha256~'^[0-9a-f]{64}$'),
- cleared_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ hold_purpose text NOT NULL,hold_generation bigint NOT NULL CHECK(hold_generation>0),
+ scope_generation_sha256 text NOT NULL CHECK(scope_generation_sha256~'^[0-9a-f]{64}$'),
+ cleared_by text NOT NULL,cleared_by_session_id text NOT NULL,
+ approver_subject text NOT NULL,approver_session_id text NOT NULL,
+ policy_revision bigint NOT NULL CHECK(policy_revision>0),
+ clearance_evidence_sha256 text NOT NULL CHECK(clearance_evidence_sha256~'^[0-9a-f]{64}$'),
+ manifest_id uuid NOT NULL UNIQUE REFERENCES hft.governance_evidence_manifest(manifest_id),
+ cleared_at timestamptz NOT NULL,
  PRIMARY KEY(legal_entity_id,hold_id),
  FOREIGN KEY(legal_entity_id,hold_id)
  REFERENCES hft.posting_parent_hold(legal_entity_id,hold_id)
@@ -1913,7 +1934,7 @@ GRANT SELECT ON hft.legal_entity,hft.site,hft.item,hft.supplier,hft.warehouse,
  hft.posting_policy_bootstrap,hft.governance_evidence_manifest,
  hft.employee_person_link,hft.employee_person_link_revocation,
  hft.custody_ack_exception_policy,hft.custody_ack_pending,
- hft.custody_employee_ack_event TO hft_r1_posting_owner;
+ hft.custody_employee_ack_event,hft.parent_hold_clearance_policy TO hft_r1_posting_owner;
 GRANT INSERT ON hft.posting_invocation_nonce,hft.posting_fragment,
  hft.custody_ack_pending TO hft_r1_posting_owner;
 GRANT SELECT ON hft.posting_invocation_nonce TO hft_r1_posting_owner;
@@ -1975,7 +1996,9 @@ GRANT INSERT ON hft.governance_evidence_manifest TO hft_r1_governance_issuer;
 GRANT SELECT(manifest_id) ON hft.governance_evidence_manifest TO hft_r1_governance_issuer;
 GRANT INSERT ON hft.return_inspection_attestation TO hft_r1_governance_issuer;
 GRANT INSERT ON hft.employee_person_link,hft.employee_person_link_revocation,
- hft.custody_ack_exception_policy,hft.custody_employee_ack_event TO hft_r1_governance_issuer;
+ hft.custody_ack_exception_policy,hft.custody_employee_ack_event,
+ hft.parent_hold_clearance_policy,hft.posting_parent_hold,
+ hft.posting_parent_hold_clearance TO hft_r1_governance_issuer;
 GRANT SELECT ON hft.stock_command,hft.stock_entry,hft.stock_account,
  hft.audit_outbox,hft.audit_delivery,hft.stock_command_outcome,hft.stock_command_seal,
  hft.stock_account_reconstruction_v2,hft.stock_command_seal_reconstruction_v1,
