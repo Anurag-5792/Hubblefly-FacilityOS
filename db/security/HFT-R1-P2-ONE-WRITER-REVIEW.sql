@@ -146,6 +146,8 @@ CREATE TABLE hft.protected_stock_approval (
  inspection_evidence_id text NOT NULL DEFAULT '',
  payload_sha256 text NOT NULL CHECK(payload_sha256 ~ '^[0-9a-f]{64}$'),
  approved_scope_sha256 text NOT NULL CHECK(approved_scope_sha256 ~ '^[0-9a-f]{64}$'),
+ valid_from timestamptz NOT NULL,valid_until timestamptz NOT NULL,
+ policy_revision bigint NOT NULL CHECK(policy_revision>0),
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  PRIMARY KEY(legal_entity_id,approval_id,approval_revision),
  UNIQUE(legal_entity_id,document_id,source_action_key,fragment_id,approval_revision),
@@ -154,12 +156,131 @@ CREATE TABLE hft.protected_stock_approval (
  FOREIGN KEY(legal_entity_id,warehouse_id,location_id)
  REFERENCES hft.location(legal_entity_id,warehouse_id,location_id),
  FOREIGN KEY(legal_entity_id,item_code) REFERENCES hft.item(legal_entity_id,item_code),
- CHECK(actor_subject<>approver_subject AND prepared_by<>checked_by
-   AND prepared_by<>approver_subject AND checked_by<>approver_subject)
+ CHECK(actor_subject<>approver_subject AND valid_from<valid_until)
 );
 CREATE TRIGGER immutable_protected_stock_approval BEFORE UPDATE OR DELETE
  ON hft.protected_stock_approval FOR EACH ROW
  EXECUTE FUNCTION hft.deny_fact_mutation();
+
+-- P2-G11: provenance requires stable PERSON identity, not distinct usernames.
+-- All enrollment and policy rows are independently governed. No records
+-- or real people are provisioned by this source migration.
+CREATE TABLE hft.approval_human (
+ legal_entity_id text NOT NULL REFERENCES hft.legal_entity(id),
+ person_id text NOT NULL,identity_evidence_sha256 text NOT NULL
+   CHECK(identity_evidence_sha256 ~ '^[0-9a-f]{64}$'),
+ verified_by text NOT NULL,valid_from timestamptz NOT NULL,
+ valid_until timestamptz NOT NULL,revoked_at timestamptz,
+ PRIMARY KEY(legal_entity_id,person_id),
+ CHECK(valid_from<valid_until)
+);
+CREATE TABLE hft.approval_human_login (
+ legal_entity_id text NOT NULL,actor_subject text NOT NULL,person_id text NOT NULL,
+ PRIMARY KEY(legal_entity_id,actor_subject),
+ FOREIGN KEY(legal_entity_id,person_id) REFERENCES hft.approval_human(legal_entity_id,person_id)
+);
+CREATE TABLE hft.approval_role_qualification (
+ legal_entity_id text NOT NULL,person_id text NOT NULL,
+ action_kind text NOT NULL CHECK(action_kind IN ('RECEIVE','ISSUE','RETURN')),
+ duty text NOT NULL CHECK(duty IN ('PREPARER','CHECKER','APPROVER','INSPECTOR')),
+ qualified_from timestamptz NOT NULL,qualified_until timestamptz NOT NULL,
+ evidence_sha256 text NOT NULL CHECK(evidence_sha256~'^[0-9a-f]{64}$'),
+ PRIMARY KEY(legal_entity_id,person_id,action_kind,duty),
+ FOREIGN KEY(legal_entity_id,person_id) REFERENCES hft.approval_human(legal_entity_id,person_id),
+ CHECK(qualified_from<qualified_until)
+);
+CREATE TABLE hft.posting_action_policy (
+ legal_entity_id text NOT NULL,site_id text NOT NULL,warehouse_id text NOT NULL,
+ action_kind text NOT NULL CHECK(action_kind IN ('RECEIVE','ISSUE','RETURN')),
+ policy_revision bigint NOT NULL CHECK(policy_revision>0),
+ require_checker boolean NOT NULL,require_independent_approver boolean NOT NULL,
+ require_inspector boolean NOT NULL,require_preparer boolean NOT NULL,
+ valid_from timestamptz NOT NULL,valid_until timestamptz NOT NULL,
+ decision_evidence_sha256 text NOT NULL CHECK(decision_evidence_sha256~'^[0-9a-f]{64}$'),
+ PRIMARY KEY(legal_entity_id,site_id,warehouse_id,action_kind,policy_revision),
+ FOREIGN KEY(legal_entity_id,warehouse_id,site_id)
+ REFERENCES hft.warehouse(legal_entity_id,warehouse_id,site_id),
+ CHECK(valid_from<valid_until)
+);
+-- Entirely append-only: prospective new revisions supersede previous rules.
+CREATE TABLE hft.protected_approval_decision (
+ legal_entity_id text NOT NULL,approval_id text NOT NULL,approval_revision bigint NOT NULL,
+ policy_revision bigint NOT NULL,source_revision bigint NOT NULL,
+ prepared_subject text,prepared_session_id text,
+ checked_subject text,checked_session_id text,
+ approver_subject text NOT NULL,approver_session_id text NOT NULL,
+ inspector_subject text,inspector_session_id text,
+ inspection_evidence_id text NOT NULL DEFAULT '',
+ decision_evidence_sha256 text NOT NULL CHECK(decision_evidence_sha256~'^[0-9a-f]{64}$'),
+ recorded_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ PRIMARY KEY(legal_entity_id,approval_id,approval_revision),
+ FOREIGN KEY(legal_entity_id,approval_id,approval_revision)
+ REFERENCES hft.protected_stock_approval(legal_entity_id,approval_id,approval_revision)
+ DEFERRABLE INITIALLY DEFERRED
+);
+CREATE TABLE hft.protected_approval_supersession (
+ legal_entity_id text NOT NULL,approval_id text NOT NULL,approval_revision bigint NOT NULL,
+ superseded_by text NOT NULL,reason text NOT NULL,
+ recorded_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ PRIMARY KEY(legal_entity_id,approval_id,approval_revision),
+ FOREIGN KEY(legal_entity_id,approval_id,approval_revision)
+ REFERENCES hft.protected_stock_approval(legal_entity_id,approval_id,approval_revision)
+);
+CREATE TABLE hft.return_inspection_attestation (
+ legal_entity_id text NOT NULL,return_document_id text NOT NULL,evidence_id text NOT NULL,
+ inspector_subject text NOT NULL,inspector_session_id text NOT NULL,
+ evidence_sha256 text NOT NULL CHECK(evidence_sha256~'^[0-9a-f]{64}$'),
+ inspected_at timestamptz NOT NULL,
+ PRIMARY KEY(legal_entity_id,return_document_id,evidence_id)
+);
+-- Physical Stores release creates ACK_PENDING, never an invented employee ACK.
+CREATE TABLE hft.custody_ack_pending (
+ issue_command_uuid uuid PRIMARY KEY REFERENCES hft.stock_command(id),
+ legal_entity_id text NOT NULL,employee_id text NOT NULL,
+ posted_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ FOREIGN KEY(legal_entity_id,employee_id) REFERENCES hft.employee(legal_entity_id,employee_id)
+);
+CREATE TABLE hft.custody_employee_ack_event (
+ issue_command_uuid uuid PRIMARY KEY REFERENCES hft.custody_ack_pending(issue_command_uuid),
+ actor_subject text NOT NULL,session_id text NOT NULL,
+ acknowledgement text NOT NULL CHECK(acknowledgement IN ('ACKNOWLEDGED','DISPUTED')),
+ signed_evidence_sha256 text NOT NULL CHECK(signed_evidence_sha256~'^[0-9a-f]{64}$'),
+ acknowledged_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()
+);
+CREATE VIEW hft.custody_ack_status_v1 AS
+ SELECT p.issue_command_uuid,p.legal_entity_id,p.employee_id,
+ COALESCE(a.acknowledgement,'ACK_PENDING') AS state,
+ a.signed_evidence_sha256,a.acknowledged_at
+ FROM hft.custody_ack_pending AS p LEFT JOIN hft.custody_employee_ack_event AS a
+ ON a.issue_command_uuid=p.issue_command_uuid;
+-- An independently governed parent Hold may block every warehouse in an
+-- entity or site; no null/empty warehouse workaround in legacy stock_hold.
+CREATE TABLE hft.posting_parent_hold (
+ legal_entity_id text NOT NULL REFERENCES hft.legal_entity(id),
+ hold_id text NOT NULL,scope_kind text NOT NULL CHECK(scope_kind IN ('ENTITY','SITE')),
+ site_id text,active boolean NOT NULL DEFAULT true,
+ reason text NOT NULL CHECK(length(pg_catalog.btrim(reason))>0),
+ placed_by text NOT NULL,placed_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ expires_at timestamptz,
+ PRIMARY KEY(legal_entity_id,hold_id),
+ FOREIGN KEY(legal_entity_id,site_id) REFERENCES hft.site(legal_entity_id,id),
+ CHECK((scope_kind='ENTITY' AND site_id IS NULL) OR
+       (scope_kind='SITE' AND site_id IS NOT NULL))
+);
+-- Provenance is immutable; revocation/supersession are append-only decisions.
+DO $immutable_governance$
+DECLARE tab text;
+BEGIN
+ FOREACH tab IN ARRAY ARRAY['approval_human','approval_human_login',
+  'approval_role_qualification','posting_action_policy',
+  'protected_approval_decision','protected_approval_supersession',
+  'return_inspection_attestation','custody_ack_pending','custody_employee_ack_event']
+ LOOP
+  EXECUTE pg_catalog.format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON hft.%I FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation()',
+    'immutable_'||tab||'_v1',tab);
+ END LOOP;
+END $immutable_governance$;
+
 CREATE TABLE hft.protected_approval_revocation (
  legal_entity_id text NOT NULL,approval_id text NOT NULL,approval_revision bigint NOT NULL,
  revoked_by text NOT NULL,reason text NOT NULL,revoked_at timestamptz NOT NULL DEFAULT clock_timestamp(),
