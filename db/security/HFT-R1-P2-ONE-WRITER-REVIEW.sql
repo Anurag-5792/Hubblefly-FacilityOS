@@ -854,6 +854,8 @@ DECLARE
  qty bigint; expected_version bigint; doc_revision bigint; generation bigint;
  grant_row hft.actor_warehouse_grant%ROWTYPE;
  approval hft.protected_stock_approval%ROWTYPE;
+ approval_decision hft.protected_approval_decision%ROWTYPE;
+ action_policy hft.posting_action_policy%ROWTYPE;
  policy hft.posting_policy_epoch%ROWTYPE;
  available hft.stock_account%ROWTYPE; target hft.stock_account%ROWTYPE;
  source_revision bigint; source_approver text; ceiling bigint; cumulative bigint;
@@ -907,6 +909,12 @@ BEGIN
  WHERE legal_entity_id=e AND approval_id=p->>'approvalId'
  AND approval_revision=(p->>'approvalRevision')::bigint FOR SHARE;
  IF approval.approval_id IS NULL OR NOT approval.approved OR
+   pg_catalog.clock_timestamp()<approval.valid_from OR
+   pg_catalog.clock_timestamp()>=approval.valid_until OR
+   EXISTS(SELECT 1 FROM hft.protected_approval_supersession AS sx
+    WHERE sx.legal_entity_id=approval.legal_entity_id
+      AND sx.approval_id=approval.approval_id
+      AND sx.approval_revision=approval.approval_revision) OR
    EXISTS(SELECT 1 FROM hft.protected_approval_revocation rev
     WHERE rev.legal_entity_id=e AND rev.approval_id=approval.approval_id
        AND rev.approval_revision=approval.approval_revision)
@@ -922,6 +930,53 @@ BEGIN
      origin_issue,qty,actor,doc_revision,policy.generation,v_condition,p->>'inspectionEvidenceId')
  OR approval.approver_subject=actor
  THEN RAISE EXCEPTION 'P2_EXACT_PERSISTED_APPROVAL_REQUIRED'; END IF;
+
+ -- P2-G11-01/05: review current immutable decision and action-policy
+ -- generation at POSTING, not only when the approval was originally issued.
+ SELECT * INTO approval_decision FROM hft.protected_approval_decision AS d
+ WHERE d.legal_entity_id=e AND d.approval_id=approval.approval_id
+ AND d.approval_revision=approval.approval_revision FOR SHARE;
+ SELECT * INTO action_policy FROM hft.posting_action_policy AS pol
+ WHERE pol.legal_entity_id=e AND pol.site_id=site AND pol.warehouse_id=wh
+ AND pol.action_kind=action ORDER BY pol.policy_revision DESC LIMIT 1 FOR SHARE;
+ IF approval_decision.approval_id IS NULL
+ OR action_policy.policy_revision IS NULL
+ OR action_policy.policy_revision<>approval.policy_revision
+ OR approval_decision.policy_revision<>approval.policy_revision
+ OR approval_decision.payload_sha256<>payload_sha
+ OR approval_decision.source_revision<>approval.document_revision
+ OR approval_decision.approver_subject<>approval.approver_subject
+ OR pg_catalog.clock_timestamp()<action_policy.valid_from
+ OR pg_catalog.clock_timestamp()>=action_policy.valid_until
+ OR approval.valid_until>action_policy.valid_until
+ THEN RAISE EXCEPTION 'P2_ACTION_POLICY_OR_GOVERNANCE_DECISION_STALE'; END IF;
+ -- Human registry revocation/qualification is rechecked at action time.
+ PERFORM 1 FROM hft.approval_human_login AS l
+ JOIN hft.approval_human AS h ON h.person_id=l.person_id
+  AND h.legal_entity_id=l.legal_entity_id
+ JOIN hft.approval_role_qualification AS q ON q.person_id=h.person_id
+  AND q.legal_entity_id=h.legal_entity_id AND q.action_kind=action
+  AND q.duty='APPROVER'
+ WHERE l.legal_entity_id=e AND l.actor_subject=approval.approver_subject
+ AND h.revoked_at IS NULL AND h.valid_from<=pg_catalog.clock_timestamp()
+ AND h.valid_until>pg_catalog.clock_timestamp()
+ AND q.qualified_from<=pg_catalog.clock_timestamp()
+ AND q.qualified_until>pg_catalog.clock_timestamp() FOR SHARE OF l,h,q;
+ IF NOT FOUND THEN RAISE EXCEPTION 'P2_APPROVER_NO_LONGER_QUALIFIED'; END IF;
+ -- Parent ENTITY and SITE Holds must be projected and locked, even when
+ -- no exact warehouse-level Hold exists.
+ PERFORM 1 FROM hft.posting_parent_hold AS parent_hold
+ WHERE parent_hold.legal_entity_id=e AND parent_hold.active
+   AND (parent_hold.scope_kind='ENTITY'
+       OR parent_hold.scope_kind='SITE' AND parent_hold.site_id=site)
+   AND (parent_hold.expires_at IS NULL
+        OR parent_hold.expires_at>pg_catalog.clock_timestamp())
+   AND NOT EXISTS(SELECT 1 FROM hft.posting_parent_hold_clearance AS cleared
+     WHERE cleared.legal_entity_id=parent_hold.legal_entity_id
+     AND cleared.hold_id=parent_hold.hold_id)
+ FOR SHARE OF parent_hold;
+ IF FOUND THEN RAISE EXCEPTION 'P2_PARENT_SCOPE_HOLD_ACTIVE'; END IF;
+
  PERFORM 1 FROM hft.stock_hold h WHERE h.active AND h.legal_entity_id=e
  AND h.site_id=site AND h.warehouse_id=wh
  AND (h.item_code IS NULL OR h.item_code=item)
@@ -989,7 +1044,10 @@ BEGIN
    JOIN hft.material_return_line l ON l.return_id=mr.id
    WHERE mr.id::text=doc_id AND mr.legal_entity_id=e AND mr.warehouse_id=wh
       AND origin.employee_id=holder AND mr.status IN ('AUTHORIZED','RETURNED')
-      AND mr.condition=v_condition AND length(trim(mr.evidence_reference))>0
+      AND mr.condition=v_condition
+      AND mr.evidence_reference=p->>'inspectionEvidenceId'
+      AND mr.evidence_reference=approval.inspection_evidence_id
+      AND length(trim(mr.evidence_reference))>0
       AND l.source_action_key=line_id AND l.legal_entity_id=e AND l.warehouse_id=wh
       AND l.item_code=item AND l.location_id=location AND l.batch_no=lot
       AND l.serial_no=serial AND l.original_issue_command_id=origin_issue
@@ -1131,6 +1189,10 @@ BEGIN
     INSERT INTO hft.employee_custody(legal_entity_id,employee_id,issue_command_id,
      item_code,warehouse_id,issued_micro,serial_no,batch_no,location_id)
     VALUES(e,holder,command_uuid,item,wh,qty,serial,lot,location);
+    -- Physical posting is NOT receiving-employee acknowledgement. Pending
+    -- state remains until a separate authenticated, audited ACK event exists.
+    INSERT INTO hft.custody_ack_pending(issue_command_uuid,legal_entity_id,employee_id)
+    VALUES(command_uuid,e,holder);
     UPDATE hft.material_issue SET status=CASE WHEN EXISTS(SELECT 1 FROM hft.material_issue_line l
       WHERE l.issue_id=doc_id::uuid AND l.issued_micro<l.authorized_micro)
       THEN 'AUTHORIZED' ELSE 'ISSUED' END,version=version+1 WHERE id=doc_id::uuid;
@@ -1206,14 +1268,21 @@ GRANT SELECT ON hft.legal_entity,hft.site,hft.item,hft.supplier,hft.warehouse,
  hft.location,hft.employee,hft.actor_warehouse_grant,hft.stock_hold,
  hft.supplier_invoice,hft.grn_partial_receipt,hft.protected_stock_approval,
  hft.protected_approval_revocation,hft.posting_policy_epoch,hft.posting_session,
- hft.posting_fragment TO hft_r1_posting_owner;
-GRANT INSERT ON hft.posting_invocation_nonce,hft.posting_fragment TO hft_r1_posting_owner;
+ hft.posting_fragment,hft.posting_action_policy,hft.protected_approval_decision,
+ hft.protected_approval_supersession,hft.approval_human,hft.approval_human_login,
+ hft.approval_role_qualification,hft.return_inspection_attestation,
+ hft.posting_parent_hold,hft.posting_parent_hold_clearance,
+ hft.posting_policy_bootstrap TO hft_r1_posting_owner;
+GRANT INSERT ON hft.posting_invocation_nonce,hft.posting_fragment,
+ hft.custody_ack_pending TO hft_r1_posting_owner;
 GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA hft TO hft_r1_posting_owner;
 -- Private SECURITY INVOKER validators are callable ONLY by the vetted
 -- non-login function owner, never by the app runtime or PUBLIC.
 GRANT EXECUTE ON FUNCTION hft.p2_length_prefixed_v1(text[]),
  hft.p2_payload_fields_v1(jsonb),hft.p2_payload_digest_v1(jsonb),
- hft.p2_verify_invocation_v1(jsonb,jsonb) TO hft_r1_posting_owner;
+ hft.p2_verify_invocation_v1(jsonb,jsonb),
+ hft.p2_qualified_human_v1(text,text,text,text,text,timestamptz)
+ TO hft_r1_posting_owner;
 GRANT EXECUTE ON FUNCTION hft.seal_stock_command_v1(uuid) TO hft_r1_posting_owner;
 GRANT EXECUTE ON FUNCTION hft.lock_seal_posting_dependencies_v2(uuid) TO hft_r1_posting_owner;
 GRANT EXECUTE ON FUNCTION hft.assert_command_seal_v1(uuid) TO hft_r1_posting_owner;
@@ -1248,6 +1317,10 @@ GRANT SELECT ON hft.stock_command,hft.stock_entry,hft.stock_account,
  TO hft_r1_audit_verify;
 REVOKE ALL ON SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
 REVOKE ALL ON ALL TABLES IN SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runtime,hft_r1_audit_verify;
+-- New governance tables are private by default; reassert explicit current
+-- restrictions after all CREATE TABLE operations.
+REVOKE ALL ON ALL TABLES IN SCHEMA hft FROM PUBLIC,hft_r1_app_runtime;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA hft FROM PUBLIC,hft_r1_app_runtime;
 -- P2-SEC-003-02: inspect ACTUAL login membership and effective privileges,
 -- not only the NOLOGIN group itself. Conservatively deny any membership in
 -- administrative roles, even if role inheritance/SET options vary by PG15+.
