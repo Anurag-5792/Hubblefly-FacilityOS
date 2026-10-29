@@ -553,6 +553,18 @@ BEGIN
  WHERE g.legal_entity_id=e AND g.site_id=s AND g.warehouse_id=w
  AND g.actor_subject=actor AND g.active AND g.may_submit AND g.may_read FOR SHARE;
  IF NOT FOUND THEN RAISE EXCEPTION 'P3_MASTER_SUBMIT_NOT_AUTHORIZED'; END IF;
+ -- Independent approval cannot be issued for an unverifiable maker.
+ -- Reuse the P2 verified person/login registry, never a submitted human ID.
+ PERFORM 1 FROM hft.approval_human_login login
+ JOIN hft.approval_human human ON
+  human.legal_entity_id=login.legal_entity_id AND human.person_id=login.person_id
+ WHERE login.legal_entity_id=e AND login.actor_subject=actor
+ AND human.revoked_at IS NULL AND human.valid_from<=pg_catalog.clock_timestamp()
+ AND human.valid_until>pg_catalog.clock_timestamp()
+ AND NOT EXISTS(SELECT 1 FROM hft.approval_human_revocation rev
+  WHERE rev.legal_entity_id=e AND rev.person_id=human.person_id)
+ FOR SHARE OF login,human;
+ IF NOT FOUND THEN RAISE EXCEPTION 'P3_VERIFIED_REGISTERED_MAKER_REQUIRED'; END IF;
  SELECT * INTO existing FROM hft.p3_master_read_v1 rec WHERE
  rec.legal_entity_id=e AND rec.kind=p->>'kind' AND rec.record_id=p->>'recordId'
  AND (rec.site_id=s OR rec.site_id='')
@@ -983,6 +995,7 @@ BEGIN
    OR pg_catalog.pg_has_role(who.oid,'hft_r1_p3_master_owner'::pg_catalog.regrole,'MEMBER')
    OR pg_catalog.pg_has_role(who.oid,'hft_r1_governance_issuer'::pg_catalog.regrole,'MEMBER')
    OR pg_catalog.pg_has_role(who.oid,'hft_r1_posting_owner'::pg_catalog.regrole,'MEMBER')
+   OR pg_catalog.pg_has_role(who.oid,'hft_r1_app_runtime'::pg_catalog.regrole,'MEMBER')
    OR pg_catalog.has_schema_privilege(who.rolname,'hft','CREATE')
    OR pg_catalog.has_schema_privilege(who.rolname,'hft_secret','USAGE')
    OR pg_catalog.has_schema_privilege(who.rolname,'public','CREATE')
