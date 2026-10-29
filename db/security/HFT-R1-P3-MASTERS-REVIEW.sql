@@ -59,6 +59,17 @@ CREATE TABLE hft.p3_master_actor_grant(
  FOREIGN KEY(legal_entity_id,warehouse_id,site_id)
  REFERENCES hft.warehouse(legal_entity_id,warehouse_id,site_id)
 );
+-- Append-only grant revocations serialize using the warehouse scope gate.
+-- Grant rows themselves are immutable; no unaudited active-status rewrite.
+CREATE TABLE hft.p3_master_actor_grant_revocation(
+ legal_entity_id text NOT NULL,site_id text NOT NULL,warehouse_id text NOT NULL,
+ actor_subject text NOT NULL,revoked_by text NOT NULL,
+ evidence_sha256 text NOT NULL CHECK(evidence_sha256~'^[0-9a-f]{64}$'),
+ revoked_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ PRIMARY KEY(legal_entity_id,site_id,warehouse_id,actor_subject),
+ FOREIGN KEY(legal_entity_id,site_id,warehouse_id,actor_subject)
+ REFERENCES hft.p3_master_actor_grant(legal_entity_id,site_id,warehouse_id,actor_subject)
+);
 CREATE TABLE hft.p3_master_invocation_nonce(
  key_version integer NOT NULL,nonce text NOT NULL CHECK(nonce~'^[0-9a-f]{48}$'),
  request_id uuid NOT NULL UNIQUE,payload_sha256 text NOT NULL,
@@ -168,7 +179,8 @@ BEGIN
  FOREACH t IN ARRAY ARRAY['p3_master_invocation_nonce','p3_master_change_request',
  'p3_master_decision','p3_master_revision','p3_master_audit',
   'p3_master_decision_nonce','p3_master_action_policy',
-  'p3_master_approver_qualification','p3_master_qualification_revocation']
+  'p3_master_approver_qualification','p3_master_qualification_revocation',
+  'p3_master_actor_grant','p3_master_actor_grant_revocation']
  LOOP
  EXECUTE pg_catalog.format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON hft.%I '||
   'FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation()',
@@ -391,7 +403,10 @@ BEGIN
  PERFORM 1 FROM hft.p3_master_actor_grant grant_row
  WHERE grant_row.legal_entity_id=e AND grant_row.site_id=s
  AND grant_row.warehouse_id=w AND grant_row.actor_subject=actor
- AND grant_row.active AND grant_row.may_read;
+ AND grant_row.active AND grant_row.may_read
+ AND NOT EXISTS (SELECT 1 FROM hft.p3_master_actor_grant_revocation rev
+  WHERE rev.legal_entity_id=e AND rev.site_id=s AND rev.warehouse_id=w
+   AND rev.actor_subject=actor);
  IF NOT FOUND THEN RAISE EXCEPTION 'P3_READ_PERSISTED_SCOPE_DENIED'; END IF;
  PERFORM 1 FROM hft.warehouse wh JOIN hft.site site
   ON site.legal_entity_id=wh.legal_entity_id AND site.id=wh.site_id
@@ -504,7 +519,7 @@ BEGIN
   ON site.legal_entity_id=wh.legal_entity_id AND site.id=wh.site_id
  JOIN hft.legal_entity le ON le.id=wh.legal_entity_id
  WHERE wh.legal_entity_id=e AND wh.site_id=s AND wh.warehouse_id=w
- AND wh.active AND site.active AND le.active FOR SHARE OF wh,site,le;
+ AND wh.active AND site.active AND le.active;
  IF NOT FOUND THEN RAISE EXCEPTION 'P3_MASTER_SCOPE_INACTIVE'; END IF;
  IF pg_catalog.jsonb_typeof(proof)<>'object'
  OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(proof))<>9
@@ -535,7 +550,7 @@ BEGIN
  IF iat>now_epoch+30 OR exp<=now_epoch OR exp<=iat OR exp-iat>60
  THEN RAISE EXCEPTION 'P3_PROOF_EXPIRED_OR_FUTURE'; END IF;
  SELECT * INTO secret FROM hft_secret.p3_master_invocation_key sk
- WHERE sk.key_version=ver FOR SHARE;
+ WHERE sk.key_version=ver;
  IF secret.key_version IS NULL OR secret.revoked_at IS NOT NULL
  OR pg_catalog.clock_timestamp()<secret.not_before OR
  pg_catalog.clock_timestamp()>=secret.not_after
@@ -553,11 +568,14 @@ BEGIN
  IF diff<>0 THEN RAISE EXCEPTION 'P3_MAC_MISMATCH'; END IF;
  PERFORM 1 FROM hft.posting_session ps
  WHERE ps.session_id=proof->>'sessionId' AND ps.actor_subject=actor
- AND ps.revoked_at IS NULL AND ps.expires_at>pg_catalog.clock_timestamp() FOR SHARE;
+ AND ps.revoked_at IS NULL AND ps.expires_at>pg_catalog.clock_timestamp();
  IF NOT FOUND THEN RAISE EXCEPTION 'P3_SESSION_REVOKED_OR_UNKNOWN'; END IF;
  PERFORM 1 FROM hft.p3_master_actor_grant g
  WHERE g.legal_entity_id=e AND g.site_id=s AND g.warehouse_id=w
- AND g.actor_subject=actor AND g.active AND g.may_submit AND g.may_read FOR SHARE;
+ AND g.actor_subject=actor AND g.active AND g.may_submit AND g.may_read
+ AND NOT EXISTS(SELECT 1 FROM hft.p3_master_actor_grant_revocation rev
+ WHERE rev.legal_entity_id=e AND rev.site_id=s AND rev.warehouse_id=w
+ AND rev.actor_subject=actor);
  IF NOT FOUND THEN RAISE EXCEPTION 'P3_MASTER_SUBMIT_NOT_AUTHORIZED'; END IF;
  -- Independent approval cannot be issued for an unverifiable maker.
  -- Reuse the P2 verified person/login registry, never a submitted human ID.
@@ -568,8 +586,7 @@ BEGIN
  AND human.revoked_at IS NULL AND human.valid_from<=pg_catalog.clock_timestamp()
  AND human.valid_until>pg_catalog.clock_timestamp()
  AND NOT EXISTS(SELECT 1 FROM hft.approval_human_revocation rev
-  WHERE rev.legal_entity_id=e AND rev.person_id=human.person_id)
- FOR SHARE OF login,human;
+  WHERE rev.legal_entity_id=e AND rev.person_id=human.person_id);
  IF NOT FOUND THEN RAISE EXCEPTION 'P3_VERIFIED_REGISTERED_MAKER_REQUIRED'; END IF;
  SELECT * INTO existing FROM hft.p3_master_read_v1 rec WHERE
  rec.legal_entity_id=e AND rec.kind=p->>'kind' AND rec.record_id=p->>'recordId'
@@ -658,6 +675,9 @@ CREATE TRIGGER p3_qualify_gate BEFORE INSERT ON hft.p3_master_approver_qualifica
  FOR EACH ROW EXECUTE FUNCTION hft.p3_lock_policy_authority_gate_v1();
 CREATE TRIGGER p3_qualification_revoke_gate BEFORE INSERT ON hft.p3_master_qualification_revocation
  FOR EACH ROW EXECUTE FUNCTION hft.p3_lock_policy_authority_gate_v1();
+CREATE TRIGGER p3_master_actor_revoke_gate BEFORE INSERT
+ ON hft.p3_master_actor_grant_revocation FOR EACH ROW
+ EXECUTE FUNCTION hft.p3_lock_policy_authority_gate_v1();
 
 -- This is the ONLY P3 Employee decision + apply entrypoint.
 -- It neither updates P2 stock ledgers nor rewrites historical custody.
@@ -696,14 +716,13 @@ BEGIN
    ON s.legal_entity_id=w.legal_entity_id AND s.id=w.site_id
  JOIN hft.legal_entity le ON le.id=w.legal_entity_id
  WHERE w.legal_entity_id=entity_id AND w.site_id=site_id_input
- AND w.warehouse_id=warehouse_id_input AND w.active AND s.active AND le.active
- FOR SHARE OF w,s,le;
+ AND w.warehouse_id=warehouse_id_input AND w.active AND s.active AND le.active;
  IF NOT FOUND THEN RAISE EXCEPTION 'P3_DECISION_WAREHOUSE_SCOPE_INACTIVE'; END IF;
  SELECT * INTO req FROM hft.p3_master_change_request r
  WHERE r.request_id=(d->>'requestId')::uuid
  AND r.legal_entity_id=entity_id AND r.site_id=site_id_input
  AND r.warehouse_id=warehouse_id_input AND r.record_id=d->>'recordId'
- AND r.kind='EMPLOYEE' FOR UPDATE;
+ AND r.kind='EMPLOYEE';
  IF req.request_id IS NULL
  OR req.payload_sha256<>d->>'requestPayloadSha256'
  OR req.expected_version::text<>d->>'expectedVersion'
@@ -712,7 +731,7 @@ BEGIN
  SELECT * INTO policy FROM hft.p3_master_action_policy pol
  WHERE pol.legal_entity_id=entity_id AND pol.site_id=site_id_input
  AND pol.warehouse_id=warehouse_id_input AND pol.kind='EMPLOYEE'
- AND pol.operation=req.operation ORDER BY pol.policy_revision DESC LIMIT 1 FOR SHARE;
+ AND pol.operation=req.operation ORDER BY pol.policy_revision DESC LIMIT 1;
  IF policy.policy_revision IS NULL OR NOT policy.allow_action
  OR NOT policy.require_independent_person
  OR policy.policy_revision::text<>d->>'policyRevision'
@@ -750,7 +769,7 @@ BEGIN
  IF issued>now_epoch+30 OR expires<=now_epoch OR expires<=issued OR expires-issued>60
  THEN RAISE EXCEPTION 'P3_DECISION_PROOF_EXPIRED'; END IF;
  SELECT * INTO decision_key FROM hft_secret.p3_master_decision_key k
- WHERE k.key_version=ver FOR SHARE;
+ WHERE k.key_version=ver;
  IF decision_key.key_version IS NULL OR decision_key.revoked_at IS NOT NULL
  OR pg_catalog.clock_timestamp()<decision_key.not_before
  OR pg_catalog.clock_timestamp()>=decision_key.not_after
@@ -769,7 +788,7 @@ BEGIN
  PERFORM 1 FROM hft.posting_session sess
  WHERE sess.session_id=proof->>'sessionId'
  AND sess.actor_subject=actor AND sess.revoked_at IS NULL
- AND sess.expires_at>pg_catalog.clock_timestamp() FOR SHARE;
+ AND sess.expires_at>pg_catalog.clock_timestamp();
  IF NOT FOUND THEN RAISE EXCEPTION 'P3_DECISION_SESSION_NOT_VERIFIED'; END IF;
  -- Authenticated humans, not usernames, establish maker/approver difference.
  SELECT maker.person_id INTO requester_person FROM hft.approval_human_login maker
@@ -779,8 +798,7 @@ BEGIN
  AND hm.revoked_at IS NULL AND hm.valid_from<=pg_catalog.clock_timestamp()
  AND hm.valid_until>pg_catalog.clock_timestamp()
  AND NOT EXISTS(SELECT 1 FROM hft.approval_human_revocation rev
-  WHERE rev.legal_entity_id=entity_id AND rev.person_id=hm.person_id)
- FOR SHARE OF maker,hm;
+  WHERE rev.legal_entity_id=entity_id AND rev.person_id=hm.person_id);
  SELECT reviewer.person_id INTO approver_person FROM hft.approval_human_login reviewer
  JOIN hft.approval_human ha ON ha.legal_entity_id=reviewer.legal_entity_id
  AND ha.person_id=reviewer.person_id
@@ -799,8 +817,7 @@ BEGIN
   WHERE revoked.legal_entity_id=entity_id
   AND revoked.site_id=site_id_input AND revoked.warehouse_id=warehouse_id_input
   AND revoked.kind='EMPLOYEE' AND revoked.operation=req.operation
-  AND revoked.person_id=reviewer.person_id)
- FOR SHARE OF reviewer,ha,qual;
+  AND revoked.person_id=reviewer.person_id);
  IF requester_person IS NULL OR approver_person IS NULL
  OR requester_person=approver_person
  THEN RAISE EXCEPTION 'P3_ELIGIBLE_INDEPENDENT_PERSON_REQUIRED'; END IF;
@@ -809,7 +826,10 @@ BEGIN
  PERFORM 1 FROM hft.p3_master_actor_grant g
  WHERE g.legal_entity_id=entity_id AND g.site_id=site_id_input
  AND g.warehouse_id=warehouse_id_input AND g.actor_subject=actor
- AND g.active AND g.may_read FOR SHARE;
+ AND g.active AND g.may_read
+ AND NOT EXISTS(SELECT 1 FROM hft.p3_master_actor_grant_revocation rev
+  WHERE rev.legal_entity_id=entity_id AND rev.site_id=site_id_input
+  AND rev.warehouse_id=warehouse_id_input AND rev.actor_subject=actor);
  IF NOT FOUND THEN RAISE EXCEPTION 'P3_APPROVER_SCOPE_GRANT_MISSING'; END IF;
  -- If approved, lock authoritative employee and require exact expected revision.
  IF d->>'decision'='APPROVED' THEN
@@ -935,7 +955,8 @@ GRANT SELECT ON hft.posting_session,hft.p3_master_actor_grant,
  hft.p3_master_change_request,hft.p3_master_decision,hft.p3_master_revision,
  hft.p3_master_audit,hft.p3_master_decision_nonce,hft.p3_master_invocation_nonce,
  hft.p3_master_action_policy,hft.p3_master_approver_qualification,
- hft.p3_master_qualification_revocation,hft.approval_human,
+ hft.p3_master_qualification_revocation,hft.p3_master_actor_grant_revocation,
+ hft.approval_human,
  hft.approval_human_login,hft.approval_human_revocation,
  hft.employee_revision,hft.employee_custody,hft.legal_entity,hft.site,
  hft.warehouse TO hft_r1_p3_master_owner;
@@ -951,8 +972,9 @@ GRANT INSERT ON hft.p3_master_invocation_nonce,hft.p3_master_change_request,
 -- Separate audit retention and external integrity remain release gates.
 GRANT SELECT ON hft.p3_master_change_request,hft.p3_master_decision,
  hft.p3_master_revision,hft.p3_master_audit,hft.p3_master_decision_nonce,
- hft.employee_revision TO hft_r1_audit_verify;
-GRANT INSERT,SELECT ON hft.p3_master_actor_grant,hft.p3_master_action_policy,
+ hft.p3_master_actor_grant_revocation,hft.employee_revision TO hft_r1_audit_verify;
+GRANT INSERT,SELECT ON hft.p3_master_actor_grant,
+ hft.p3_master_actor_grant_revocation,hft.p3_master_action_policy,
  hft.p3_master_approver_qualification,hft.p3_master_qualification_revocation
  TO hft_r1_governance_issuer;
 GRANT EXECUTE ON FUNCTION hft.p3_master_fields_v1(jsonb),
