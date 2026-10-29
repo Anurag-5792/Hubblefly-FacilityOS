@@ -206,3 +206,21 @@ No PostgreSQL migration 0007, real PostgreSQL test, extension/credential/role op
 - CQ-P3-05 REPLACE: fake dashboard/MIS operational numbers removed and not replaced by synthetic metrics.
 - CQ-P3-06 TESTS AUTHORED: 2 Node suites + 2 PostgreSQL fixtures; runtime tests NOT RUN. P4 offline package-lock-only attempt ENOTCACHED exit 1; psql absent exit 127.
 - CQ-P3-07 KEEP: P1/P2 code and canonical migrations 0001–0006; no new migration, key provisioning, database operation, service installation, PR merge or deployment.
+
+
+## HFT-R1-P3-DELIVERY-002 — Employee end-to-end source correction (2026-10-29)
+
+**Controlling base:** \`7a4bc733853957a89cd84d2021a6275a2becabbb\`. **Directive:** HFT-R1-MASTER-P3-DELIVERY-002. **NO-GO**. PR #11 remains Draft.
+
+| ID | Disposition | Source and exact remaining qualification |
+| --- | --- | --- |
+| CQ-P3-READ-002 / HIGH | SOURCE IMPLEMENTED, DB NOT QUALIFIED | \`hft.p3_read_masters_v1\` definer verifies DB-issued HMAC read proof, active P2 session, warehouse grant, identity/scope and scope-filtered results. Runtime direct views/master/grants SELECT withdrawn; enforced zero table/view/sequence privileges and three exact function EXECUTEs. PostgreSQL real-login/role catalog and concurrency **NOT RUN**. |
+| CQ-P3-GOV-002 / HIGH | SOURCE IMPLEMENTED, AUTHORITY UNPROVISIONED | Existing P2 stable person IDs, human/session revocations and independent P3 Employee policy/qualification required. Action-specific checker requirement fails closed; signed checker issuer not implemented. Governance enrollment key custody and trusted decision evidence remain external gates. |
+| CQ-P3-APPLY-002 / HIGH | SOURCE IMPLEMENTED, DB NOT QUALIFIED | \`hft.p3_decide_apply_employee_v1\` is single protected Employee decision and atomic apply: approved CREATE inactive, approved EDIT, approved ACTIVATE, approved DEACTIVATE only if no outstanding custody, explicit DENIED without mutation, optimistic revision and current policy, immutable Employee/P3 revision and audit. No alternate stock writer. |
+| CQ-P3-REVOKE-002 | SOURCE IMPLEMENTED, DB NOT QUALIFIED | Immutable P3 grant plus append-only scope-gated revocation, separate human revocation and policy supersession. All source-only until catalog/trigger/lock tests. |
+| CQ-P3-UI-002 | SOURCE IMPLEMENTED, BROWSER NOT QUALIFIED | \`/stores/masters\` links \`/stores/masters/approvals\` for eligible reviewer queue. Signed existing JWT session with role checks in SQL; no fake user or automatic approval. Real browser and writes NOT RUN. |
+| CQ-P3-DEPS-002 / HIGH | PINNED ONLY, LOCK GATE OPEN | \`package.json\` now pins \`pg@8.23.1\` and \`@types/pg@8.23.1\`. Genuine \`package-lock.json\` missing; no install. Clean \`npm ci\`, full typecheck/build/lint remain NOT RUN. |
+| CQ-P3-QA-002 / HIGH | TEST SOURCE AUTHORED | Node synthetic test suites aligned to protected reads/decisions. SQL real-login catalog/negative, self-approval, CREATE/ACTIVATE and independent audit scripts authored. At commit before this register: **63/63 source assertions PASS**, but Node test suites, PostgreSQL parser, schema execution, atomic posting, real browser **NOT RUN**. |
+| CQ-P3-SCOPE-002 | KEEP / DEFER | Migrations 0001–0006, manifest, P1 immutable facts, P2 protected writer and production-deny source unchanged. Existing HRMS reuse work from concurrent commit preserved. Employee remains source-only, other four masters and GRN/QC/Issue/Return integration deferred. |
+
+**Business delivery register:** Original HFT live-use target **26 October 2026 — MISSED**. New live-use date **NOT AUTHORIZED**. P3 Employee source does not satisfy operational acceptance. **PRODUCTION NO-GO**.
