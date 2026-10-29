@@ -7,13 +7,13 @@ import {assertVerifiedRequestOperator} from '../security/verified-request.ts';
 export const MASTER_KINDS=['EMPLOYEE','ITEM','SUPPLIER','WAREHOUSE','LOCATION'] as const;
 export type MasterKind=typeof MASTER_KINDS[number];
 export type MasterAction='CREATE'|'EDIT'|'ACTIVATE'|'DEACTIVATE';
-export type MasterIntent='LIST'|'GET'|'REQUESTS'|'SUBMIT';
+export type MasterIntent='LIST'|'GET'|'REQUESTS'|'REVIEW_QUEUE'|'SUBMIT';
 export type MasterScope=Readonly<{legalEntityId:string;siteId:string;warehouseId:string}>;
 export type MasterChange=Readonly<MasterScope&{
  contractVersion:'HFT-R1-P3-MASTER-V1';requestId:string;kind:MasterKind;operation:MasterAction;
  recordId:string;expectedVersion:string;reason:string;values:Readonly<Record<string,string>>;
 }>;
-export type MasterQuery=Readonly<MasterScope&{intent:'LIST'|'GET'|'REQUESTS';kind:MasterKind;search:string;recordId?:string}>;
+export type MasterQuery=Readonly<MasterScope&{intent:'LIST'|'GET'|'REQUESTS'|'REVIEW_QUEUE';kind:MasterKind;search:string;recordId?:string}>;
 export type MasterRequest=Readonly<{intent:'SUBMIT';change:MasterChange}>|MasterQuery;
 export type MasterProof=Readonly<{
  proofVersion:'HFT-R1-P3-MASTER-HMAC-V1';actorSubject:string;sessionId:string;
@@ -101,7 +101,7 @@ export function validateMasterChange(input:unknown):MasterChange {
 export function validateMasterRequest(input:unknown):MasterRequest{
  const o=obj(input);
  if(o.intent==='SUBMIT'){exact(o,['intent','change']);return {intent:'SUBMIT',change:validateMasterChange(o.change)};}
- if(!['LIST','GET','REQUESTS'].includes(o.intent as string))throw new Error('P3_INTENT_INVALID');
+ if(!['LIST','GET','REQUESTS','REVIEW_QUEUE'].includes(o.intent as string))throw new Error('P3_INTENT_INVALID');
  const intent=o.intent as MasterQuery['intent'];
  const names=intent==='GET'?['intent','kind','legalEntityId','siteId','warehouseId','search','recordId']:
   ['intent','kind','legalEntityId','siteId','warehouseId','search'];
