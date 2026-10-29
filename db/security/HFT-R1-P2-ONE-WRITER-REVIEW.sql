@@ -1619,7 +1619,7 @@ CREATE VIEW hft.posting_nonce_audit_v1 AS
 -- Owner may access only the protected tables and internal helpers required to
 -- apply this single writer. Runtime has NO direct DML, no schema DDL and no
 -- individual seal/lock/assert helper EXECUTE.
-GRANT USAGE ON SCHEMA hft TO hft_r1_posting_owner,hft_r1_app_runtime,hft_r1_audit_verify;
+GRANT USAGE ON SCHEMA hft TO hft_r1_posting_owner,hft_r1_app_runtime,hft_r1_audit_verify,hft_r1_governance_issuer;
 GRANT USAGE ON SCHEMA hft_crypto TO hft_r1_posting_owner;
 GRANT SELECT,INSERT,UPDATE ON hft.stock_account,hft.employee_custody,
  hft.serial_registry TO hft_r1_posting_owner;
@@ -1638,7 +1638,7 @@ GRANT SELECT ON hft.legal_entity,hft.site,hft.item,hft.supplier,hft.warehouse,
  hft.approval_role_qualification,hft.approval_human_revocation,
  hft.approval_role_revocation,hft.return_inspection_attestation,
  hft.posting_parent_hold,hft.posting_parent_hold_clearance,
- hft.posting_policy_bootstrap TO hft_r1_posting_owner;
+ hft.posting_policy_bootstrap,hft.governance_evidence_manifest TO hft_r1_posting_owner;
 GRANT INSERT ON hft.posting_invocation_nonce,hft.posting_fragment,
  hft.custody_ack_pending TO hft_r1_posting_owner;
 GRANT SELECT ON hft.posting_invocation_nonce TO hft_r1_posting_owner;
@@ -1648,7 +1648,8 @@ GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA hft TO hft_r1_posting_owner;
 GRANT EXECUTE ON FUNCTION hft.p2_length_prefixed_v1(text[]),
  hft.p2_payload_fields_v1(jsonb),hft.p2_payload_digest_v1(jsonb),
  hft.p2_verify_invocation_v1(jsonb,jsonb),
- hft.p2_qualified_human_v1(text,text,text,text,text,timestamptz)
+ hft.p2_qualified_human_v1(text,text,text,text,text,timestamptz),
+ hft.p2_governance_manifest_fields_v1(jsonb)
  TO hft_r1_posting_owner;
 GRANT EXECUTE ON FUNCTION hft.seal_stock_command_v1(uuid) TO hft_r1_posting_owner;
 GRANT EXECUTE ON FUNCTION hft.lock_seal_posting_dependencies_v2(uuid) TO hft_r1_posting_owner;
@@ -1664,6 +1665,8 @@ GRANT CREATE ON SCHEMA hft TO hft_r1_posting_owner;
 ALTER FUNCTION hft.post_stock_command_protected_v1(jsonb,jsonb)
  OWNER TO hft_r1_posting_owner;
 ALTER FUNCTION hft.reconcile_protected_stock_command_v1(jsonb,jsonb)
+ OWNER TO hft_r1_posting_owner;
+ALTER FUNCTION hft.p2_verify_governance_manifest_v1()
  OWNER TO hft_r1_posting_owner;
 REVOKE CREATE ON SCHEMA hft FROM hft_r1_posting_owner;
 DO $verify_owner_acl$ BEGIN
@@ -1688,6 +1691,9 @@ GRANT EXECUTE ON FUNCTION hft.post_stock_command_protected_v1(jsonb,jsonb)
 -- updates ledger facts or consumes a new invocation nonce.
 GRANT EXECUTE ON FUNCTION hft.reconcile_protected_stock_command_v1(jsonb,jsonb)
  TO hft_r1_app_runtime;
+-- Issuer can submit signed evidence, never mint a PostgreSQL ledger posting.
+GRANT INSERT ON hft.governance_evidence_manifest TO hft_r1_governance_issuer;
+GRANT SELECT(manifest_id) ON hft.governance_evidence_manifest TO hft_r1_governance_issuer;
 GRANT SELECT ON hft.stock_command,hft.stock_entry,hft.stock_account,
  hft.audit_outbox,hft.audit_delivery,hft.stock_command_outcome,hft.stock_command_seal,
  hft.stock_account_reconstruction_v2,hft.stock_command_seal_reconstruction_v1,
@@ -1702,6 +1708,7 @@ REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA hft_secret FROM PUBLIC,hft_r1_app_runt
 -- New governance tables are private by default; reassert explicit current
 -- restrictions after all CREATE TABLE operations.
 REVOKE ALL ON ALL TABLES IN SCHEMA hft FROM PUBLIC,hft_r1_app_runtime;
+REVOKE ALL ON ALL TABLES IN SCHEMA hft_secret FROM hft_r1_governance_issuer;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA hft FROM PUBLIC,hft_r1_app_runtime;
 -- P2-SEC-003-02/006: exhaustive relation, sequence and function ACLs.
 -- Runtime allowlist is hft schema USAGE and exactly two protected function
@@ -1718,6 +1725,7 @@ BEGIN
   IF who.rolsuper OR who.rolcreatedb OR who.rolcreaterole
    OR pg_catalog.pg_has_role(who.oid,'hft_engineering'::pg_catalog.regrole,'MEMBER')
    OR pg_catalog.pg_has_role(who.oid,'hft_r1_posting_owner'::pg_catalog.regrole,'MEMBER')
+   OR pg_catalog.pg_has_role(who.oid,'hft_r1_governance_issuer'::pg_catalog.regrole,'MEMBER')
    OR pg_catalog.has_schema_privilege(who.rolname,'hft','CREATE')
    OR pg_catalog.has_schema_privilege(who.rolname,'hft_secret','USAGE')
    OR pg_catalog.has_schema_privilege(who.rolname,'hft_secret','CREATE')
