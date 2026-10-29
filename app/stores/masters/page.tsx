@@ -136,8 +136,11 @@ export default function MastersPage(){
       return <tr key={recordKey}><td>{recordKey}</td>
        <td><span className="status">{state.replaceAll('_',' ')}</span></td>
        <td>{String(record.version||record.expected_version||'—')}</td>
-       <td>{view==='LIST'?<button type="button" disabled={busy} onClick={()=>selectRow(record)}>Request edit</button>:
-        String(record.operation||'')}</td></tr>;
+       <td>{view==='LIST'?<div className="item-master-actions">
+        <button type="button" disabled={busy} onClick={()=>selectRow(record)}>Request edit</button>
+        {kind==='ITEM'?<a className="mis-link"
+         href={'/stores/items/'+encodeURIComponent(recordKey)}>View all product versions</a>:null}
+       </div>:String(record.operation||'')}</td></tr>;
      })}</tbody>
      </table>
      {records.length===0?<p className="masters-help">No verified records available for this selection.</p>:null}

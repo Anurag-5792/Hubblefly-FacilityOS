@@ -133,3 +133,23 @@ h2 { font-size: 22px; margin-bottom: 0; }
 .masters-result { background:#fff; border:1px solid var(--line); border-radius:14px; padding:15px; margin-top:16px; color:var(--text); font-weight:700; }
 @media(max-width:900px){.masters-columns{grid-template-columns:1fr}.masters-scope{grid-template-columns:1fr}}
 @media(max-width:650px){.masters-shell{padding:18px}.masters-head{display:block}.masters-back{display:block;margin:12px 0}}
+
+
+/* HFT-owned version-to-photo gallery. No stock/marketing placeholders. */
+.item-gallery-layout{display:grid;grid-template-columns:minmax(250px,.36fr) minmax(0,.64fr);gap:16px;margin-top:16px}
+.item-version-list{display:grid;gap:10px;max-height:640px;overflow-y:auto;margin-top:16px}
+.item-version{border:1px solid var(--line);background:var(--surface);color:var(--text);
+ border-radius:12px;padding:12px;display:grid;grid-template-columns:1fr auto;gap:7px;text-align:left}
+.item-version strong{font-size:16px}
+.item-version small{color:var(--muted);font-weight:650}
+.item-version span{grid-column:1/-1;color:var(--muted);font-size:12px}
+.item-version.active,.item-version[aria-pressed=true]{border-color:var(--brand);background:var(--brand-soft)}
+.item-photo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:20px}
+.item-photo-tile{border:1px solid var(--line);margin:0;border-radius:14px;overflow:hidden;background:var(--surface)}
+.item-photo-tile img{display:block;width:100%;aspect-ratio:4/3;object-fit:contain;background:var(--surface-soft)}
+.item-photo-tile figcaption{display:grid;gap:4px;padding:12px;font-size:12px;color:var(--muted)}
+.item-photo-tile figcaption strong{color:var(--text);font-size:14px}
+.item-photo-unavailable{min-height:160px;display:grid;place-items:center;text-align:center;background:var(--surface-soft);color:var(--muted);padding:16px;font-size:13px}
+.item-photo-empty{padding:20px;border:1px dashed var(--line);color:var(--muted);background:var(--surface-soft);border-radius:12px;line-height:1.6}
+.item-master-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+@media(max-width:860px){.item-gallery-layout{grid-template-columns:1fr}}
