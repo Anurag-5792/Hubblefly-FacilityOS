@@ -117,6 +117,8 @@ export default function MastersPage(){
     <div className="masters-actions">
      <button type="button" disabled={busy} onClick={()=>void load('LIST')}>Load masters</button>
      <button type="button" disabled={busy} onClick={()=>void load('REQUESTS')}>Pending / denied requests</button>
+      {kind==='EMPLOYEE'?<a className="mis-link" href="/stores/masters/approvals">
+        Independent Employee approvals</a>:null}
     </div>
     <div className="masters-table-wrap">
      <table className="data-table"><thead><tr><th>ID</th><th>State</th><th>Revision</th><th>Action</th></tr></thead>
