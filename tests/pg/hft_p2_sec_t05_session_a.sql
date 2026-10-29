@@ -1,20 +1,21 @@
--- P2-SEC-T05 A: deliberate gate hold; NOT RUN.
--- Requires authorized governance test login and preapproved synthetic scope.
+-- P2-SEC-T05 session A: deterministic human-operated gate barrier, NOT RUN.
+-- Start A first; launch B only after A_GATE_HELD is displayed. Do not use
+-- fixed pg_sleep to guess lock ownership. gate_key must be exact HFT:GATE:...
 \set ON_ERROR_STOP on
 \if :{?gate_key}
 \else
- \echo 'STOP P2_T05_NO_GATE_KEY'
+ \echo 'STOP T05_A_MISSING_EXACT_SCOPE_GATE'
  \quit
 \endif
 BEGIN;
-DO $pre$ BEGIN
- IF current_database() !~ '^hft_r1_disposable_[a-z0-9_]{6,40}$'
- THEN RAISE EXCEPTION 'P2_T05_DISPOSABLE_REQUIRED'; END IF;
+DO $pre$
+BEGIN
+ IF pg_catalog.current_database() !~ '^hft_r1_disposable_[a-z0-9_]{6,40}$'
+ THEN RAISE EXCEPTION 'P2_T05_DISPOSABLE_ONLY'; END IF;
 END $pre$;
 SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(:'gate_key',0));
-SELECT 'A_GATE_LOCK_HELD' AS barrier,pg_catalog.pg_backend_pid(),pg_catalog.clock_timestamp();
-SELECT pg_catalog.pg_sleep(6);
+SELECT 'A_GATE_HELD' AS barrier,pg_catalog.pg_backend_pid() AS backend;
+\prompt 'After B produces its timeout/serialization result type RELEASE: ' t05_release
+SELECT 1 / CASE WHEN :'t05_release'='RELEASE' THEN 1 ELSE 0 END AS barrier_acknowledged;
 COMMIT;
--- B must execute while A holds the precise same scope gate.
--- Opposing source-document edits require a SECOND independently approved
--- governed editor session; do not use an unauthenticated SQL variable.
+SELECT 'T05_A_GATE_RELEASED' AS barrier;
