@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import {useState,type FormEvent} from 'react';
 
 type Kind='EMPLOYEE'|'ITEM'|'SUPPLIER'|'WAREHOUSE'|'LOCATION';
@@ -83,13 +84,13 @@ export default function MastersPage(){
  }
  return <main className="masters-shell">
   <header className="masters-head">
-   <div><a href="/stores" className="mis-link">Stores / Master Data</a>
+   <div><Link href="/stores" className="mis-link">Stores / Master Data</Link>
     <p className="eyebrow">HFT FacilityOS · Nonproduction source candidate</p>
     <h1>Employee & Stores Masters</h1>
     <p>Every change is a request. No master is activated by submitting this form.
      Signed sessions, scoped permissions and a qualified database are required.</p>
    </div>
-   <a href="/" className="masters-back">Operations home</a>
+   <Link href="/" className="masters-back">Operations home</Link>
   </header>
   <section className="panel" aria-label="Authority scope">
    <div className="panel-heading"><div><p className="eyebrow">Authority</p><h2>Signed scope</h2></div>
@@ -125,8 +126,8 @@ export default function MastersPage(){
     <div className="masters-actions">
      <button type="button" disabled={busy} onClick={()=>void load('LIST')}>Load masters</button>
      <button type="button" disabled={busy} onClick={()=>void load('REQUESTS')}>Pending / denied requests</button>
-      {kind==='EMPLOYEE'?<a className="mis-link" href="/stores/masters/approvals">
-        Independent Employee approvals</a>:null}
+      {kind==='EMPLOYEE'?<Link className="mis-link" href="/stores/masters/approvals">
+        Independent Employee approvals</Link>:null}
     </div>
     <div className="masters-table-wrap">
      <table className="data-table"><thead><tr><th>ID</th><th>State</th><th>Revision</th><th>Action</th></tr></thead>
@@ -138,8 +139,8 @@ export default function MastersPage(){
        <td>{String(record.version||record.expected_version||'—')}</td>
        <td>{view==='LIST'?<div className="item-master-actions">
         <button type="button" disabled={busy} onClick={()=>selectRow(record)}>Request edit</button>
-        {kind==='ITEM'?<a className="mis-link"
-         href={'/stores/items/'+encodeURIComponent(recordKey)}>View all product versions</a>:null}
+        {kind==='ITEM'?<Link className="mis-link"
+         href={'/stores/items/'+encodeURIComponent(recordKey)}>View all product versions</Link>:null}
        </div>:String(record.operation||'')}</td></tr>;
      })}</tbody>
      </table>

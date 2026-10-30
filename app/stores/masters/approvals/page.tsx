@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import {useState,type FormEvent} from 'react';
 type Row=Readonly<Record<string,unknown>>;
 type ReadResponse=Readonly<{state?:string;code?:string;records?:readonly Row[]}>;
@@ -55,7 +56,7 @@ export default function EmployeeApprovals(){
  }
  return <main className="masters-shell">
   <header className="masters-head"><div>
-   <a className="mis-link" href="/stores/masters">Employee & Stores Masters</a>
+   <Link className="mis-link" href="/stores/masters">Employee & Stores Masters</Link>
    <p className="eyebrow">Source-only · Nonproduction · No live posting</p>
    <h1>Independent Employee Decisions</h1>
    <p>Only a currently qualified separate human can see and decide eligible Employee changes.

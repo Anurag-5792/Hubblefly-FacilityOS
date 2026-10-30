@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 /* eslint-disable @next/next/no-img-element -- Blob URLs are identity-scoped,
  * SHA-256 verified HFT-owned image bytes; Next optimizer cannot handle them. */
 import {useEffect,useMemo,useState} from 'react';
@@ -42,7 +43,7 @@ function PhotoTile({photo,scope,itemCode}:{photo:Photo;scope:{
    }
   })();
   return ()=>{abort.abort();if(url)URL.revokeObjectURL(url);};
- },[photo.mediaId,photo.versionCode,itemCode,scope.legalEntityId,scope.siteId,scope.warehouseId]);
+ },[photo.mediaId,photo.versionCode,itemCode,scope]);
  return <figure className="item-photo-tile">
   {src?<img src={src} alt={photo.role.toLowerCase()+' view of '+itemCode+
    ' product version '+photo.versionCode} loading="lazy" />:
@@ -87,13 +88,13 @@ export default function ItemVersionGallery(){
  }
  return <main className="masters-shell">
   <header className="masters-head">
-   <div><a className="mis-link" href="/stores/masters">Item Master</a>
+   <div><Link className="mis-link" href="/stores/masters">Item Master</Link>
     <p className="eyebrow">Hubblefly FacilityOS · Item version evidence</p>
     <h1>Product versions · {itemCode}</h1>
     <p>Version identity is separate from the Item Master editing revision.
      Historical and retired versions remain in the census. Only verified HFT-owned
      photographs can appear below.</p></div>
-   <a className="masters-back" href="/stores">Stores</a>
+   <Link className="masters-back" href="/stores">Stores</Link>
   </header>
   <section className="panel">
    <div className="panel-heading"><div><p className="eyebrow">Authorized scope</p>

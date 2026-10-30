@@ -1,3 +1,4 @@
+import Link from 'next/link';
 export default function StoresPage(){
  const workflows=[
   {title:'Stores IN / OUT / Count / Transfer',
@@ -21,11 +22,11 @@ export default function StoresPage(){
    <h1>Stores Operations</h1>
    <p>Production use requires an accepted database, genuine human approvals and tested stock transactions.
     No preview inventory counts are displayed. The source workbench validates requests only and does not save stock.</p></div>
-   <a href="/" className="masters-back">Operations home</a></header>
+   <Link href="/" className="masters-back">Operations home</Link></header>
   <div className="content-grid">{workflows.map(w=><article className="panel" key={w.title}>
    <div className="panel-heading"><h2>{w.title}</h2><span className="status">{w.state}</span></div>
    <p className="masters-help">{w.description}</p>
-   {'href' in w&&w.href?<a className="mis-link" href={w.href}>Open source workspace</a>:
+   {'href' in w&&w.href?<Link className="mis-link" href={w.href}>Open source workspace</Link>:
     <span className="masters-help">Actions disabled until operational source qualification.</span>}
   </article>)}</div>
  </main>;

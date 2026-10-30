@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import {useState,type FormEvent} from 'react';
 import styles from './operations.module.css';
 
@@ -97,11 +98,11 @@ export default function StoresOperationsPage(){
  };
  return <main className="masters-shell">
   <header className="masters-head"><div>
-   <a href="/stores" className="mis-link">Stores / Operations</a>
+   <Link href="/stores" className="mis-link">Stores / Operations</Link>
    <p className="eyebrow">Hubblefly FacilityOS · P0 source candidate</p>
    <h1>Stores receiving, issuing and counting</h1>
    <p>Actual warehouse, rack, level, position, stack slot and bin are verified only by the qualified location registry.</p>
-  </div><a className="masters-back" href="/stores/masters">Masters</a></header>
+  </div><Link className="masters-back" href="/stores/masters">Masters</Link></header>
   <section className={styles.warning} role="status">
    <strong>NOT OPERATIONAL — no stock or count data can be saved here.</strong>
    <p>This source workbench validates form structure using a signed HFT session, but it does not post stock, register a physical count, verify the displayed bin or issue an approval. Do not use it as a goods-receipt or issue record.</p>
