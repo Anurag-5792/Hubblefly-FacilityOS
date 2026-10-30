@@ -2,7 +2,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {CommitOutcomeUncertain,type PgPool,type PgQueryClient} from '../../lib/hft/persistence/isolated-pg-transaction.ts';
-import {withProtectedPostingTransaction,assertProtectedPostingEnvironment} from '../../lib/hft/persistence/protected-posting-transaction.ts';
+import {withProtectedPostingTransaction} from '../../lib/hft/persistence/protected-posting-transaction.ts';
 import {postProtectedStockCommand} from '../../lib/hft/persistence/protected-stock-posting.ts';
 import {verifiedFixtureOperator} from '../support/signed-session-fixture.ts';
 import type {StockCommand} from '../../lib/hft/domain/ledger.ts';
@@ -30,7 +30,7 @@ function fakePg(failure?:string){
       entityId:c.legalEntityId,warehouseId:c.warehouseId,itemCode:c.itemCode,
       locationId:c.locationId,operatorId:'STORE1',movements:[
         {bucket:'AVAILABLE',delta:'-2'},{bucket:'CUSTODY',delta:'2'}]}}}]:[];
-  return {rows:rows as Row[],rowCount:rows.length};},
+  return {rows:rows as unknown as Row[],rowCount:rows.length};},
   release(destroy?:boolean){released.push(destroy===true);}};
  const pool:PgPool={async connect(){return client;}};
  return {pool,calls,released};

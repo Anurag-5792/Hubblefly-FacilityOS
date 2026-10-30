@@ -36,10 +36,10 @@ function scripted(mode:'committed'|'missing'|'incomplete') {
     sqls.push(sql);
     if(sql.includes('SELECT current_database()'))return {rows:[{
      db_name:env.PGDATABASE,db_login:env.PGUSER,db_role:env.PGUSER,
-     server_address:'127.0.0.1',server_port:54329}] as Row[],rowCount:1};
+     server_address:'127.0.0.1',server_port:54329}] as unknown as Row[],rowCount:1};
     if(sql.includes('SELECT hft.post_stock_command_protected_v1(')){
      proofs.push(String(params[1]));
-     return {rows:[{result:outcome}] as Row[],rowCount:1};
+     return {rows:[{result:outcome}] as unknown as Row[],rowCount:1};
     }
     if(sql.includes('SELECT hft.reconcile_protected_stock_command_v1(')) {
      proofs.push(String(params[1]));
@@ -47,10 +47,10 @@ function scripted(mode:'committed'|'missing'|'incomplete') {
      const recovered=mode==='missing'
       ? {state:'INDETERMINATE_NOT_FOUND',automaticRetryAllowed:false}
       : {state:'COMMITTED_VERIFIED',result:outcome};
-     return {rows:[{recovery:recovered}] as Row[],rowCount:1};
+     return {rows:[{recovery:recovered}] as unknown as Row[],rowCount:1};
     }
     if(sql==='COMMIT' && session===1)throw new Error('LOST_COMMIT_RESPONSE');
-    return {rows:[] as Row[],rowCount:0};
+    return {rows:[] as unknown as Row[],rowCount:0};
    },release(destroy?:boolean){released.push(destroy===true);}
   };
   return client;

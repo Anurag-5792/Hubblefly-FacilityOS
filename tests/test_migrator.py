@@ -36,7 +36,7 @@ class CanonicalMigrationContract(unittest.TestCase):
             original["migrations"][-1]["sha256"] = "0" * 64
             f.write_text(json.dumps(original))
             with patch.object(m, "MANIFEST", f):
-                with self.assertRaisesRegex(RuntimeError, "CANONICAL_MIGRATION_SHA256_DRIFT:5"):
+                with self.assertRaisesRegex(RuntimeError, "CANONICAL_MIGRATION_SHA256_DRIFT:6"):
                     m.revisions()
 
     def test_extra_sql_and_duplicate_execution_are_blocked(self):

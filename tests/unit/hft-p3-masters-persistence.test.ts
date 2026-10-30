@@ -31,7 +31,7 @@ const review={decisionVersion:'HFT-R1-P3-EMPLOYEE-DECISION-V1',
  evidenceSha256:'b'.repeat(64),reason:'Approved with independent evidence',...scope};
 type Mode='standard'|'commitLost'|'noReadback'|'crossEntity'|'wrongDecision';
 function scripted(mode:Mode='standard'){
- const sqls:string[]=[],params:readonly unknown[][]=[],released:boolean[]=[];
+ const sqls:string[]=[],params:(readonly unknown[])[]=[],released:boolean[]=[];
  let connections=0;
  const pool:PgPool={async connect(){
   const session=++connections;
@@ -40,9 +40,9 @@ function scripted(mode:Mode='standard'){
     sqls.push(sql);params.push(args);
     if(sql.includes('SELECT current_database()'))return {rows:[{
      db_name:env.PGDATABASE,db_login:env.PGUSER,db_role:env.PGUSER,
-     server_address:'127.0.0.1',server_port:54329}] as Row[],rowCount:1};
+     server_address:'127.0.0.1',server_port:54329}] as unknown as Row[],rowCount:1};
     if(sql.includes('p3_submit_master_change_v1('))
-     return {rows:[{request_id:requestId}] as Row[],rowCount:1};
+     return {rows:[{request_id:requestId}] as unknown as Row[],rowCount:1};
     if(sql.includes('p3_read_masters_v1(')){
      const query=JSON.parse(String(args[0])) as {intent:string};
      const identity={legal_entity_id:mode==='crossEntity'?'DDL':'HFT',
@@ -52,7 +52,7 @@ function scripted(mode:Mode='standard'){
          kind:'EMPLOYEE',state:'PENDING_APPROVAL',record_id:'EMP1'}])
       :[{...identity,kind:'EMPLOYEE',record_id:'EMP1',version:1,active:false,
          values:{fullName:'Synthetic Operator'}}];
-     return {rows:[{response:{state:'AVAILABLE',records}}] as Row[],rowCount:1};
+     return {rows:[{response:{state:'AVAILABLE',records}}] as unknown as Row[],rowCount:1};
     }
     if(sql.includes('p3_decide_apply_employee_v1(')){
      const d=JSON.parse(String(args[0])) as {decision:string};
@@ -60,11 +60,11 @@ function scripted(mode:Mode='standard'){
         recordId:'EMP1',version:'1',active:false}
       :d.decision==='DENIED'?{state:'DENIED',requestId,recordId:'EMP1',version:null,active:null}
       :{state:'APPLIED',requestId,recordId:'EMP1',version:'1',active:false};
-     return {rows:[{response}] as Row[],rowCount:1};
+     return {rows:[{response}] as unknown as Row[],rowCount:1};
     }
     if(sql==='COMMIT'&&session===1&&mode==='commitLost')
      throw new Error('SYNTHETIC_COMMIT_RESPONSE_LOST');
-    return {rows:[] as Row[],rowCount:0};
+    return {rows:[] as unknown as Row[],rowCount:0};
    },
    release(destroy?:boolean){released.push(destroy===true);}
   };
