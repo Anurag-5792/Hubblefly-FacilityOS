@@ -67,8 +67,21 @@ if(process.argv[1]===fileURLToPath(import.meta.url)){
    const {Pool}=await import('pg');return new Pool(options);
   });
   process.stdout.write('HFT_NEON_STAGING_DISCOVERY='+JSON.stringify(r)+'\n');
- }catch{
-  process.stderr.write('HFT_NEON_STAGING_DISCOVERY=FAILED_CLOSED\n');
+ }catch(error){
+  // Never log raw database errors, host, URI, login or connection secrets.
+  const safe=new Set(['STAGING_CONFIG_UNQUALIFIED',
+   'STAGING_IDENTITY_NOT_ATTESTED','ROWSET_INVALID']);
+  const msg=error instanceof Error?error.message:'';
+  const code=safe.has(msg)?msg: error&&typeof error==='object'?(
+   error.code==='28P01'?'AUTHENTICATION_REJECTED':
+   error.code==='3D000'?'DATABASE_NOT_FOUND':
+   error.code==='42501'?'PRIVILEGE_DENIED':
+   error.code==='42601'?'SQL_SYNTAX_REJECTED':
+   error.code==='ENOTFOUND'?'DNS_UNAVAILABLE':
+   error.code==='ETIMEDOUT'?'NETWORK_TIMEOUT':
+   error.code==='ECONNREFUSED'?'NETWORK_REFUSED':
+   'CONNECT_OR_QUERY_FAILED'):'CONNECT_OR_QUERY_FAILED';
+  process.stderr.write('HFT_NEON_STAGING_DISCOVERY=FAILED_CLOSED:'+code+'\n');
   process.exitCode=1;
  }
 }
