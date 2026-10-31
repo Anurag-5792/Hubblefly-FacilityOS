@@ -17,8 +17,14 @@ The current tracked source was scanned for generated files, environment
 files, executable binaries, certificate/private-key files, high-confidence
 access keys and password-bearing Neon connection strings, without printing
 any matched contents. Result: no detected high-confidence secret matches in
-the current tracked tree. This scan does NOT cover Git history, external
-commits, runtime managed secrets or lower-confidence token formats.
+the current tracked tree. An additional read-only Git-history scan fetched complete available
+repository history (1,349 Git objects, 430 blobs) and found zero matches for
+the defined high-confidence private-key, GitHub token, AWS key and
+password-bearing Neon URL signatures, plus zero historical sensitive-filename
+matches. It did not print credential contents. These checks do not establish
+the absence of every possible secret, external fork exposure, unrelated
+connected-app secrets or lower-confidence token formats. Independent security
+review and provider-side secret-scanning alerts remain required.
 Independent security review and full Git history scanning remain necessary.
 
 The runtime was examined for direct stock-account, stock-command, stock-entry,
