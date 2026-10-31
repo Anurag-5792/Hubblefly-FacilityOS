@@ -1,0 +1,29 @@
+name: HFT FacilityOS Source Verification
+on:
+  push:
+    branches:
+      - engineering/hft-r1-stores-foundation
+permissions:
+  contents: read
+jobs:
+  source-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.4
+          cache: npm
+      - name: Install exact dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify source contracts and production build
+        run: npm run verify
+      - name: Production dependency audit (moderate or above)
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Full dependency tree advisory scan (high or above)
+        run: npm audit --audit-level=high

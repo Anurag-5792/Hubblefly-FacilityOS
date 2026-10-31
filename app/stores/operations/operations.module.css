@@ -1,0 +1,16 @@
+.warning{padding:16px 20px;border:1px solid #9c5100;border-left:5px solid #9c5100;background:#fff6e8;color:#542a00;border-radius:12px;margin:18px 0}
+.warning strong{display:block;margin-bottom:8px}
+.warning p{margin:0;line-height:1.55}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}
+.tabs button{border:1px solid var(--line,#dfe6ef);background:var(--surface,#fff);color:var(--text,#10213b);border-radius:10px;padding:12px 14px;min-height:44px}
+.tabs button:focus-visible,.form button:focus-visible{outline:3px solid #0057b8;outline-offset:2px}
+.tabs .selected{background:var(--nav,#0c2340);color:#fff;border-color:var(--nav,#0c2340)}
+.form{display:grid;gap:18px;max-width:1100px}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-top:16px}
+.fields label{display:grid;gap:6px;font-size:14px;font-weight:600}
+.fields input,.fields select{min-height:43px;padding:10px;border:1px solid #9aa9b9;border-radius:8px;width:100%;background:#fff;color:#10213b}
+.fields input:focus-visible,.fields select:focus-visible{outline:3px solid #0057b8;outline-offset:1px}
+.caption{color:#58687d;font-size:13px;margin:14px 0 0;line-height:1.5}
+.result{margin-top:20px;padding:20px;border:1px solid #b2bed0;border-radius:12px;background:white;max-width:1100px}
+.result p{margin-bottom:8px;overflow-wrap:anywhere}
+@media(max-width:520px){.tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}
