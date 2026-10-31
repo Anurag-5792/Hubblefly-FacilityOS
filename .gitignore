@@ -6,3 +6,21 @@ out
 .env.*.local
 *.log
 .DS_Store
+# Generated Next.js/TypeScript/Python and Vercel local state
+next-env.d.ts
+*.tsbuildinfo
+**/__pycache__/
+*.py[cod]
+.vercel/
+coverage/
+.cache/
+
+# Never track real credentials or private key material
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
