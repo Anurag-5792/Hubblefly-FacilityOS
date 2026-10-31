@@ -220,3 +220,12 @@ After Chat 10/11 re-review the exact committed package SHA, MASTER may separatel
 - evidence preservation and STOP.
 
 Explicitly exclude Neon `production`, `pgcrypto`, P2/P0 review SQL, posting keys, Vercel production secrets, real inventory and production posting. Independent restore execution remains a separately witnessed acceptance activity.
+
+---
+
+**31 October 2026 supersession:** The per-migration COMMIT model, static attestation-only
+control and original five-role plan in this historical CORRECT-020 record were
+superseded by HFT-R1-BOOTSTRAP-019-RUNNER-021-CORRECTION. The corrected runner
+uses live Neon API attestation, one atomic six-revision transaction, SHA-pinned
+separate role/ACL SQL sources and an explicit unresolved independent-review hold.
+This earlier document remains preserved as provenance, NOT execution authority.
