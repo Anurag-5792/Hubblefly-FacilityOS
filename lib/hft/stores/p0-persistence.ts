@@ -7,6 +7,7 @@
  */
 import {createHash,createHmac,randomBytes} from 'node:crypto';
 import {createRequire} from 'node:module';
+import {isOnlinePgTransport,openOnlinePgPool} from '../persistence/online-pg-transport.ts';
 import {parseQuantity,formatSignedQuantity} from '../domain/quantity.ts';
 import {lengthPrefixedUtf8} from '../security/posting-invocation-proof.ts';
 import {assertVerifiedRequestOperator,type VerifiedRequestOperator} from '../security/verified-request.ts';
@@ -90,6 +91,7 @@ export function assertP0PersistenceEnvironment(env:IsolatedPgEnvironment):void{
 /** Separate from P3 master login; runtime role has EXECUTE only on vetted functions. */
 export function openP0Pool(env:IsolatedPgEnvironment):PgPool&{end():Promise<void>}{
  assertP0PersistenceEnvironment(env);
+ if(isOnlinePgTransport(env))return openOnlinePgPool(env,'P2_STORES');
  if(!env.PGPASSWORD)throw new Error('P0_DATABASE_CREDENTIAL_NOT_CONFIGURED');
  const mod=createRequire(import.meta.url)('pg') as {Pool:new(o:Record<string,unknown>)=>PgPool&{end():Promise<void>}};
  return new mod.Pool({host:env.PGHOST,port:Number(env.PGPORT),

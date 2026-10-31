@@ -4,6 +4,9 @@
  * non-owner runtime role, DB-side actor proof validation and pgcrypto.
  */
 import {assertSecureStartup} from '../security/authorization.ts';
+import {assertOnlineRuntimeCatalog} from './online-db-qualification.ts';
+import {isOnlinePgTransport,assertOnlinePgTransport,assertOnlinePgBackendTls,
+ assertOnlineBackendIdentity} from './online-pg-transport.ts';
 import {CommitOutcomeUncertain,type PgPool,type PgQueryClient,
   type IsolatedPgEnvironment} from './isolated-pg-transaction.ts';
 
@@ -16,19 +19,31 @@ export function assertProtectedPostingEnvironment(env:IsolatedPgEnvironment):Rea
   database:string;port:string;login:string;
 }> {
   assertSecureStartup(env);
-  if(env.HFT_LIVE_POSTING_ENABLED!=='false'||env.HFT_POSTING_RUN_MODE!=='ISOLATED_DB_TEST')
-    throw new Error('PROTECTED_POSTING_NONPRODUCTION_ONLY');
+  if(env.HFT_LIVE_POSTING_ENABLED!=='false')
+   throw Error('PROTECTED_POSTING_NONPRODUCTION_ONLY');
+  const online=isOnlinePgTransport(env);
+  if(online){
+   if(env.HFT_POSTING_RUN_MODE!=='ISOLATED_ONLINE_DB_TEST')
+    throw Error('PROTECTED_ONLINE_TEST_MODE_REQUIRED');
+  }else if(env.HFT_DATABASE_TRANSPORT!==undefined||
+    env.HFT_POSTING_RUN_MODE!=='ISOLATED_DB_TEST')
+   throw Error('PROTECTED_LOCAL_TEST_MODE_REQUIRED');
   const database=env.HFT_TEST_PG_DATABASE;
-  if(!database||!/^hft_r1_disposable_[a-z0-9_]{6,40}$/.test(database)||env.PGDATABASE!==database)
-    throw new Error('PROTECTED_POSTGRES_DATABASE_INVALID');
-  if(env.PGHOST!=='127.0.0.1'||env.PGHOSTADDR||env.PGSERVICE||env.PGSERVICEFILE||
-     env.PGOPTIONS||env.PGTARGETSESSIONATTRS)throw new Error('PROTECTED_POSTGRES_ROUTING_DENIED');
+  if(!database||!/^hft_r1_disposable_[a-z0-9_]{6,40}$/.test(database)||
+    env.PGDATABASE!==database)throw Error('PROTECTED_POSTGRES_DATABASE_INVALID');
   const port=verifiedPort(env.PGPORT);
-  if(port!==env.HFT_APPROVED_PG_PORT)throw new Error('PROTECTED_POSTGRES_PORT_MISMATCH');
+  if(port!==env.HFT_APPROVED_PG_PORT)
+   throw Error('PROTECTED_POSTGRES_PORT_MISMATCH');
   const login=env.HFT_P2_RUNTIME_LOGIN;
   if(!login||!/^hft_r1_[a-z0-9_]{5,40}$/.test(login)||
-      login==='hft_r1_posting_owner'||login==='hft_r1_app_runtime'||login==='hft_engineering'||
-      env.PGUSER!==login)throw new Error('PROTECTED_RUNTIME_LOGIN_INVALID');
+    login==='hft_r1_posting_owner'||login==='hft_r1_app_runtime'||
+    login==='hft_engineering'||(!online&&env.PGUSER!==login))
+   throw Error('PROTECTED_RUNTIME_LOGIN_INVALID');
+  if(online)assertOnlinePgTransport(env,'P2_STORES');
+  else if(env.PGHOST!=='127.0.0.1'||env.PGHOSTADDR||
+    env.PGSERVICE||env.PGSERVICEFILE||env.PGOPTIONS||
+    env.PGTARGETSESSIONATTRS)
+   throw Error('PROTECTED_POSTGRES_ROUTING_DENIED');
   return {database,port,login};
 }
 
@@ -53,8 +68,14 @@ async function runProtectedTransaction<T>(pool:PgPool,env:IsolatedPgEnvironment,
     const id=check.rows[0];
     if(check.rows.length!==1||id.db_name!==expected.database||
       id.db_login!==expected.login||id.db_role!==expected.login||
-      id.server_address!=='127.0.0.1'||id.server_port!==Number(expected.port))
+      (!isOnlinePgTransport(env)&&id.server_port!==Number(expected.port)))
       throw new Error('PROTECTED_DATABASE_IDENTITY_ATTESTATION_FAILED');
+    if(isOnlinePgTransport(env)){
+      assertOnlineBackendIdentity(env,id,'P2_STORES');
+      await assertOnlinePgBackendTls(client);
+      await assertOnlineRuntimeCatalog(client,'P2_STORES');
+    }else if(id.server_address!=='127.0.0.1')
+      throw Error('PROTECTED_LOCAL_DATABASE_ADDRESS_MISMATCH');
     const result=await callback(client);
     commitStarted=true;
     await client.query('COMMIT');
