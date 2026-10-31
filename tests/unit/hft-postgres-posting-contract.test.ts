@@ -1,7 +1,7 @@
 /** Scripted protocol tests only; these DO NOT exercise a PostgreSQL server. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { postIsolatedStockCommand } from '../../lib/hft/persistence/post-stock-command.ts';
+import { postIsolatedStockCommand } from '../legacy/hft-p1-post-stock-command.ts';
 import { verifiedFixtureOperator } from '../support/signed-session-fixture.ts';
 import type { StockCommand } from '../../lib/hft/domain/ledger.ts';
 import type { PgPool, PgQueryClient } from '../../lib/hft/persistence/isolated-pg-transaction.ts';

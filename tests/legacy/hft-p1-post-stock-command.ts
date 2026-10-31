@@ -1,20 +1,20 @@
 /**
- * HFT R1 - NONPRODUCTION PostgreSQL posting adapter candidate.
+ * HFT R1 LEGACY TEST FIXTURE — NONPRODUCTION; NEVER IMPORT FROM APP OR LIB.
  * Not reachable from an HTTP route. Its caller MUST already have authenticated the
  * operator; this internal contract cannot establish the real session identity.
  * The public runtime has no production posting path or enabled posting gate.
  */
 import { createHash } from 'node:crypto';
 import { applyCommand, emptyEngineState, type StockCommand, type PostResult,
-  type TrustedApprovalGate, type TrustedMasterSnapshot } from '../domain/ledger.ts';
-import { parseQuantity } from '../domain/quantity.ts';
-import type { Item, Employee, Warehouse } from '../domain/masters.ts';
-import { authorize, type VerifiedPrincipal } from '../security/authorization.ts';
-import { assertVerifiedRequestOperator, type VerifiedRequestOperator } from '../security/verified-request.ts';
-import { stockRequestFingerprint } from './command-fingerprint.ts';
-import { postingLegs, accountIdentity, type AccountIdentity, type AccountKind } from './account-model.ts';
+  type TrustedApprovalGate, type TrustedMasterSnapshot } from '../../lib/hft/domain/ledger.ts';
+import { parseQuantity } from '../../lib/hft/domain/quantity.ts';
+import type { Item, Employee, Warehouse } from '../../lib/hft/domain/masters.ts';
+import { authorize, type VerifiedPrincipal } from '../../lib/hft/security/authorization.ts';
+import { assertVerifiedRequestOperator, type VerifiedRequestOperator } from '../../lib/hft/security/verified-request.ts';
+import { stockRequestFingerprint } from '../../lib/hft/persistence/command-fingerprint.ts';
+import { postingLegs, accountIdentity, type AccountIdentity, type AccountKind } from '../../lib/hft/persistence/account-model.ts';
 import { withIsolatedPgTransaction, type PgPool, type PgQueryClient,
-  type IsolatedPgEnvironment } from './isolated-pg-transaction.ts';
+  type IsolatedPgEnvironment } from '../../lib/hft/persistence/isolated-pg-transaction.ts';
 
 export type NonproductionOperator = VerifiedRequestOperator;
 type Row = Record<string, unknown>;

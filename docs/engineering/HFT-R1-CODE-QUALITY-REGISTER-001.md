@@ -251,3 +251,14 @@ No PostgreSQL migration 0007, real PostgreSQL test, extension/credential/role op
 - CQ-P3-ITEM-05 / HIGH BLOCK: HFT-owned media upload, trustworthy intake, malware/EXIF sanitation, rights custody, version-census backfill, independent review and governed replacement are not implemented. Existing active-primary unique index deliberately prevents replacement even after revocation; needs separate safe revised source and authorization, not hidden mutable history.
 - CQ-P3-ITEM-06 / RIGHTS: Existing DD source patterns were inspected, but no code or records copied because transfer rights and private source dossier custody are unverified. Public repository is NOT confidential storage. Any later approved copy needs restricted evidence.
 - KEEP: P1 facts, P2 protected writer, P3 Employee, canonical migrations 0001–0006 and approved production-deny. Date-driven technical gates remain NO-GO.
+
+
+### 31 October 2026 — Nonproduction legacy writer isolation (HFT-R1-MASTER-V3-CODEBASE-HYGIENE-017)
+
+The previous isolated table-DML adapter at `lib/hft/persistence/post-stock-command.ts`
+was **relocated, not discarded**, to `tests/legacy/hft-p1-post-stock-command.ts`.
+Earlier CQ-21/CQ-26/CQ-QA-01 references above preserve their exact historical source location.
+The legacy algorithm remains solely for its two existing scripted regression suites, is **not an
+operational application adapter**, and must never be imported by production `app/` or `lib/`.
+`lib/hft/persistence/protected-stock-posting.ts` remains the only production-candidate protected
+stock posting entry point, subject to all existing P2 and independent SQL qualification gates.
