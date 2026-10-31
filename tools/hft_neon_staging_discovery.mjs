@@ -36,11 +36,15 @@ export async function inspectReadOnly(pool,cfg){
    rows.push(result.rows[0]);
   }
   const [id,tls,role,schema]=rows;
-  if(id.db!==cfg.db||id.login!==cfg.login||id.readonly!=='on'||
-    !Number.isInteger(id.ver)||id.ver<150000||
-    tls.ssl!==true||!['TLSv1.2','TLSv1.3'].includes(tls.version)||
-    !tls.cipher||typeof role.rolsuper!=='boolean'||
-    typeof schema.revision!=='boolean')throw Error('STAGING_IDENTITY_NOT_ATTESTED');
+  // Report only fixed mismatch categories, never actual values.
+  if(id.db!==cfg.db)throw Error('DATABASE_NAME_NOT_MATCHED');
+  if(id.login!==cfg.login)throw Error('DATABASE_LOGIN_NOT_MATCHED');
+  if(id.readonly!=='on')throw Error('SQL_TRANSACTION_NOT_READ_ONLY');
+  if(!Number.isInteger(id.ver)||id.ver<150000)throw Error('POSTGRES_VERSION_UNQUALIFIED');
+  if(tls.ssl!==true||!['TLSv1.2','TLSv1.3'].includes(tls.version)||
+    !tls.cipher)throw Error('DATABASE_BACKEND_TLS_UNVERIFIED');
+  if(typeof role.rolsuper!=='boolean')throw Error('DATABASE_ROLE_CATALOG_INVALID');
+  if(typeof schema.revision!=='boolean')throw Error('DATABASE_SCHEMA_CATALOG_INVALID');
   await client.query(queries[5]);begun=false;
   return {connected:true,tlsVerified:true,readOnly:true,
    pgMajor:Math.floor(id.ver/10000),
@@ -70,7 +74,10 @@ if(process.argv[1]===fileURLToPath(import.meta.url)){
  }catch(error){
   // Never log raw database errors, host, URI, login or connection secrets.
   const safe=new Set(['STAGING_CONFIG_UNQUALIFIED',
-   'STAGING_IDENTITY_NOT_ATTESTED','ROWSET_INVALID']);
+   'DATABASE_NAME_NOT_MATCHED','DATABASE_LOGIN_NOT_MATCHED',
+   'SQL_TRANSACTION_NOT_READ_ONLY','POSTGRES_VERSION_UNQUALIFIED',
+   'DATABASE_BACKEND_TLS_UNVERIFIED','DATABASE_ROLE_CATALOG_INVALID',
+   'DATABASE_SCHEMA_CATALOG_INVALID','ROWSET_INVALID']);
   const msg=error instanceof Error?error.message:'';
   const code=safe.has(msg)?msg: error&&typeof error==='object'?(
    error.code==='28P01'?'AUTHENTICATION_REJECTED':
