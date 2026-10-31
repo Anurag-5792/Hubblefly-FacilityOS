@@ -66,9 +66,11 @@ inventory correctness, independent approvals, concurrency or backup/restore.
 Current P2 writer is RECEIVE/ISSUE/RETURN without version-coupled stock
 identities; TRANSFER is explicitly unavailable. P0 COUNT and read SQL are
 review-only candidates requiring protected migrations, true opening snapshot,
-reconciliation approval and actual PostgreSQL tests. No online endpoint or
-managed DB credentials were available in connected project metadata at the
-31 October 2026 check. No live online database, transaction or end-to-end
+reconciliation approval and actual PostgreSQL tests. Vercel's Drone Destination team now lists encrypted DATABASE_URL and
+DATABASE_URL_UNPOOLED variables for development and production. Their values
+were not retrieved; the target identity, TLS trust, effective DB roles,
+security ownership and schema state are unverified. These generic variables
+cannot replace separately qualified managed P2/P3 runtime credentials. No live online database, transaction or end-to-end
 browser/API/DB workflow was tested. Owner production GO is not technical GO.
 
 Chat 13 must provide independently approved online PostgreSQL region, endpoint,
@@ -76,3 +78,14 @@ network isolation, distinct role/password secrets, TLS CA/rotation, schema
 and least-privilege evidence, backup and ACTUAL restore. Chats 10, 11, 17 and
 04 must perform independent security, governance, integration and Stores
 business acceptance. MASTER authorizes final cutover only after evidence.
+
+## Exact revision build and advisory evidence
+
+On 31 October 2026, GitHub Actions verified source revision
+`d579958c54500182a6c8af7b9d8d10bd0fd0770c`: 234 Node unit tests,
+50 Python contract tests, TypeScript/ESLint and Next.js build PASS.
+Vercel preview build reached READY. This does not verify SQL migration,
+online server connectivity or actual Stores transactions.
+The dependency audit reported 14 MODERATE advisories in transitive
+development lint tooling (minimatch), and no HIGH advisory at its
+configured high-severity threshold. Remediation remains under source QA.

@@ -23,5 +23,7 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Verify source contracts and production build
         run: npm run verify
-      - name: Dependency advisory scan
+      - name: Production dependency audit (moderate or above)
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Full dependency tree advisory scan (high or above)
         run: npm audit --audit-level=high
