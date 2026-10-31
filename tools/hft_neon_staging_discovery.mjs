@@ -41,12 +41,21 @@ export async function inspectReadOnly(pool,cfg){
   if(id.login!==cfg.login)throw Error('DATABASE_LOGIN_NOT_MATCHED');
   if(id.readonly!=='on')throw Error('SQL_TRANSACTION_NOT_READ_ONLY');
   if(!Number.isInteger(id.ver)||id.ver<150000)throw Error('POSTGRES_VERSION_UNQUALIFIED');
-  if(tls.ssl!==true||!['TLSv1.2','TLSv1.3'].includes(tls.version)||
-    !tls.cipher)throw Error('DATABASE_BACKEND_TLS_UNVERIFIED');
+  // Neon may terminate client TLS at a pooler: pg_stat_ssl describes
+  // the pooler-to-backend leg, NOT necessarily the client-to-Neon leg.
+  // Verify the actual Node TLS socket and peer certificate instead.
+  const socket=client.connection?.stream;
+  if(socket?.encrypted!==true||socket.authorized!==true||
+    typeof socket.getPeerCertificate!=='function'||
+    !socket.getPeerCertificate()?.subject)
+    throw Error('CLIENT_TLS_SOCKET_NOT_VERIFIED');
+  if(typeof tls.ssl!=='boolean')
+    throw Error('BACKEND_TLS_CATALOG_INVALID');
   if(typeof role.rolsuper!=='boolean')throw Error('DATABASE_ROLE_CATALOG_INVALID');
   if(typeof schema.revision!=='boolean')throw Error('DATABASE_SCHEMA_CATALOG_INVALID');
   await client.query(queries[5]);begun=false;
-  return {connected:true,tlsVerified:true,readOnly:true,
+  return {connected:true,tlsVerified:true,
+   backendTlsVisible:tls.ssl===true,readOnly:true,
    pgMajor:Math.floor(id.ver/10000),
    ownerLike:Boolean(role.rolsuper||role.rolcreatedb||role.rolcreaterole||role.rolbypassrls),
    schemaPresent:schema.revision,ledgerPresent:schema.ledger,
@@ -76,7 +85,8 @@ if(process.argv[1]===fileURLToPath(import.meta.url)){
   const safe=new Set(['STAGING_CONFIG_UNQUALIFIED',
    'DATABASE_NAME_NOT_MATCHED','DATABASE_LOGIN_NOT_MATCHED',
    'SQL_TRANSACTION_NOT_READ_ONLY','POSTGRES_VERSION_UNQUALIFIED',
-   'DATABASE_BACKEND_TLS_UNVERIFIED','DATABASE_ROLE_CATALOG_INVALID',
+   'CLIENT_TLS_SOCKET_NOT_VERIFIED','BACKEND_TLS_CATALOG_INVALID',
+   'DATABASE_ROLE_CATALOG_INVALID',
    'DATABASE_SCHEMA_CATALOG_INVALID','ROWSET_INVALID']);
   const msg=error instanceof Error?error.message:'';
   const code=safe.has(msg)?msg: error&&typeof error==='object'?(

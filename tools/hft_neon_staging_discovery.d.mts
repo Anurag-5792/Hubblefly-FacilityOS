@@ -2,6 +2,8 @@
 export type PreviewConfig=Readonly<{host:string;db:string;login:string;password:string}>;
 export interface ReadonlyClient {
  query(sql:string):Promise<{rows:Record<string,unknown>[]}>
+ connection?:{stream?:{encrypted?:boolean;authorized?:boolean;
+ getPeerCertificate?():{subject?:Record<string,string>}}}
  release():void
 }
 export interface ReadonlyPool {

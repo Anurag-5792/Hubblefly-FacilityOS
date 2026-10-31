@@ -13,7 +13,10 @@ function fake(variant='OK'){
  const executed:string[]=[],released:boolean[]=[];
  let ended=false;
  const pool={async connect(){
-  return {async query(sql:string){
+  return {connection:{stream:{encrypted:variant!=='NO_TLS',
+    authorized:variant!=='NO_TLS',
+    getPeerCertificate:()=>({subject:{CN:'synthetic-neon.test'}})}},
+   async query(sql:string){
    executed.push(sql);
    if(sql==='BEGIN READ ONLY')return {rows:[]};
    if(sql==='ROLLBACK')return {rows:[]};
@@ -61,6 +64,12 @@ test('read-only discovery verifies TLS identity and returns redacted classificat
  assert.equal(v.ended(),true);assert.equal(v.released.length,1);
  assert.ok(v.executed.every(q=>/^(BEGIN READ ONLY|ROLLBACK|SELECT )/.test(q)));
  assert.ok(!JSON.stringify(out).includes(env.HFT_STAGING_PGPASSWORD));
+});
+test('a verified client socket permits pooler backend TLS to be unobservable',async()=>{
+ const v=fake('NO_BACKEND_TLS');
+ const out=await inspectReadOnly(v.pool,previewConfig(env)!);
+ assert.equal(out.tlsVerified,true);
+ assert.equal(out.backendTlsVisible,false);
 });
 test('TLS failure denies qualification and rolls back',async()=>{
  const v=fake('NO_TLS');
