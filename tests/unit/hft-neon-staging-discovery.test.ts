@@ -24,7 +24,7 @@ function fake(variant='OK'){
     db:variant==='WRONG_DB'?'other':'neondb',login:'neondb_owner',
     ver:170000,readonly:'on'}]};
    if(sql.includes('pg_stat_ssl'))return {rows:[{
-    ssl:variant!=='NO_TLS',version:'TLSv1.3',cipher:'TLS_AES'}]};
+    ssl:variant!=='NO_TLS'&&variant!=='NO_BACKEND_TLS',version:'TLSv1.3',cipher:'TLS_AES'}]};
    if(sql.includes('rolsuper'))return {rows:[{
     rolsuper:false,rolcreatedb:true,rolcreaterole:false,rolbypassrls:false}]};
    if(sql.includes('to_regclass'))return {rows:[{
