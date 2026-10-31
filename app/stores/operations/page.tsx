@@ -46,6 +46,12 @@ const names:Partial<Record<keyof FormData,string>>={
  lineId:'Count line ID',condition:'Observed condition',inventoryState:'Stock category',
  evidenceId:'Count evidence reference',sourceLeafId:'Source leaf bin',
  destinationLeafId:'Destination leaf bin',transferDocumentId:'Movement document',reason:'Movement reason'};
+type StockReadRow={legalEntityId:string;siteId:string;warehouseId:string;
+ itemCode:string;productVersion:string;leafLocationId:string;quantity:string;
+ stockState:string;employeeId:string;humanAcknowledgement:string;
+ movementId:string;serialNo:string;batchNo:string};
+type StockReadReply={state?:string;code?:string;intent?:string;rows?:StockReadRow[];
+ durable?:boolean;synthetic?:boolean;sourceEpoch?:string;nextCursor?:string};
 type Reply={state?:string;code?:string;requestId?:string;stockChanged?:boolean;durable?:boolean;
  locationVerified?:boolean;businessAuthorityVerified?:boolean;quantity?:string};
 export default function StoresOperationsPage(){
@@ -54,6 +60,10 @@ export default function StoresOperationsPage(){
  const [busy,setBusy]=useState(false);
  const [intent,setIntent]=useState<'PREPARE'|'POST'>('PREPARE');
  const [last,setLast]=useState<Reply|null>(null);
+ const [readIntent,setReadIntent]=useState<'BALANCES'|'MOVEMENTS'|'CUSTODY'>('BALANCES');
+ const [readBusy,setReadBusy]=useState(false);
+ const [readResult,setReadResult]=useState<StockReadReply|null>(null);
+ const [readError,setReadError]=useState('No authoritative database read performed.');
  const [feedback,setFeedback]=useState('No validated request. No stock or count data have been saved.');
  function update<K extends keyof FormData>(key:K,value:FormData[K]){
   setForm(current=>({...current,[key]:value}));setLast(null);
@@ -100,6 +110,29 @@ export default function StoresOperationsPage(){
    }
   }catch(err){setFeedback(err instanceof Error?err.message:'VALIDATION_UNAVAILABLE');}
   finally{setBusy(false);}
+ }
+ async function loadAuthoritativeRead(){
+  setReadBusy(true);setReadResult(null);setReadError('Requesting scoped PostgreSQL readback.');
+  try{
+   const request={contractVersion:'HFT-R1-P0-READ-V1',intent:readIntent,
+    legalEntityId:form.legalEntityId.trim(),siteId:form.siteId.trim(),
+    warehouseId:form.warehouseId.trim(),itemCode:form.itemCode.trim(),
+    productVersion:form.productVersion.trim(),
+    leafLocationId:form.leafLocationId.trim(),
+    employeeId:readIntent==='CUSTODY'?form.employeeId.trim():'',
+    cursor:'',limit:25};
+   const res=await fetch('/api/hft/stores/read',{method:'POST',
+    credentials:'same-origin',cache:'no-store',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});
+   const answer=await res.json() as StockReadReply;
+   if(!res.ok)throw new Error(answer.code||'READBACK_UNAVAILABLE');
+   if(answer.state!=='AUTHORITATIVE_READ'||answer.durable!==true||
+     answer.synthetic!==false||answer.intent!==readIntent||!Array.isArray(answer.rows)||
+     answer.rows.length>25)
+    throw new Error('AUTHORITATIVE_READBACK_NOT_VERIFIED');
+   setReadResult(answer);setReadError('');
+  }catch(error){setReadError(error instanceof Error?error.message:'READBACK_UNAVAILABLE');}
+  finally{setReadBusy(false);}
  }
  const field=(key:keyof FormData)=>{
   if(key==='qcState')return <label key={key}>{names[key]}<select value={form.qcState} onChange={e=>update('qcState',e.target.value as FormData['qcState'])}>
@@ -160,6 +193,26 @@ export default function StoresOperationsPage(){
    {last?<p>Request type: {last.state} · Quantity: {last.quantity??form.quantity} ·
      Stored: {last.durable===true?'YES':'NO'} ·
      Stock moved: {last.stockChanged===true?'YES':'NO'}</p>:null}
+  </section>
+  <section className="panel" aria-label="Authoritative PostgreSQL readback">
+   <h2>Verified Stores readback</h2>
+   <p>Reads actual scoped balances, movements or custody through the authenticated protected API. Never uses preview totals.</p>
+   <label>Read type <select value={readIntent} onChange={e=>{
+    setReadIntent(e.target.value as typeof readIntent);setReadResult(null);
+   }}><option>BALANCES</option><option>MOVEMENTS</option><option>CUSTODY</option></select></label>
+   <button type="button" disabled={readBusy} onClick={()=>void loadAuthoritativeRead()}>
+    {readBusy?'Reading…':'Read protected PostgreSQL records'}
+   </button>
+   <p role="status" aria-live="polite">{readError}</p>
+   {readResult?<div>
+    <p>Verified rows: {readResult.rows?.length??0} · Epoch: {readResult.sourceEpoch}</p>
+    <ul>{readResult.rows?.map((x,i)=><li key={x.movementId||x.itemCode+'-'+i}>
+     {x.itemCode} / {x.productVersion} · {x.leafLocationId} · Quantity {x.quantity} ·
+     {x.stockState} {x.employeeId?'· Employee '+x.employeeId:''}
+     {x.humanAcknowledgement==='ACK_PENDING'?' · ACK PENDING':''}
+    </li>)}</ul>
+    {readResult.nextCursor?<p>More records exist; this view is limited to 25 rows per request.</p>:null}
+   </div>:null}
   </section>
  </main>;
 }
