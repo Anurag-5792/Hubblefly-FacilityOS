@@ -7,6 +7,7 @@
     "node": ">=22.0.0 <23"
   },
   "scripts": {
+    "prebuild": "node tools/hft_neon_staging_discovery.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -18,7 +19,8 @@
     "verify:lock": "node tools/hft_check_lockfile.mjs",
     "verify:handover": "python3 tools/hft_check_handover_docs.py",
     "verify:online-db": "node --experimental-strip-types tools/hft_online_db_preflight.mjs --stores",
-    "verify:online-db:masters": "node --experimental-strip-types tools/hft_online_db_preflight.mjs --masters"
+    "verify:online-db:masters": "node --experimental-strip-types tools/hft_online_db_preflight.mjs --masters",
+    "verify:neon:staging": "node tools/hft_neon_staging_discovery.mjs"
   },
   "dependencies": {
     "next": "15.5.28",
