@@ -46,7 +46,7 @@ const names:Partial<Record<keyof FormData,string>>={
  lineId:'Count line ID',condition:'Observed condition',inventoryState:'Stock category',
  evidenceId:'Count evidence reference',sourceLeafId:'Source leaf bin',
  destinationLeafId:'Destination leaf bin',transferDocumentId:'Movement document',reason:'Movement reason'};
-type Reply={state?:string;code?:string;stockChanged?:boolean;durable?:boolean;
+type Reply={state?:string;code?:string;requestId?:string;stockChanged?:boolean;durable?:boolean;
  locationVerified?:boolean;businessAuthorityVerified?:boolean;quantity?:string};
 export default function StoresOperationsPage(){
  const [kind,setKind]=useState<Kind>('IN');
