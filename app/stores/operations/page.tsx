@@ -52,6 +52,7 @@ export default function StoresOperationsPage(){
  const [kind,setKind]=useState<Kind>('IN');
  const [form,setForm]=useState<FormData>(initial);
  const [busy,setBusy]=useState(false);
+ const [intent,setIntent]=useState<'PREPARE'|'POST'>('PREPARE');
  const [last,setLast]=useState<Reply|null>(null);
  const [feedback,setFeedback]=useState('No validated request. No stock or count data have been saved.');
  function update<K extends keyof FormData>(key:K,value:FormData[K]){
@@ -61,7 +62,8 @@ export default function StoresOperationsPage(){
   setFeedback('Mode changed. No pending data have been saved or posted.');}
  async function submit(event:FormEvent<HTMLFormElement>){
   event.preventDefault();setBusy(true);setLast(null);
-  setFeedback('Verifying signed session and structural request. No stock posting occurs.');
+  setFeedback(intent==='POST'?'Requesting protected database posting; no success until durable proof is returned.':
+   'Verifying signed session and structural request. No stock posting occurs.');
   const common={contractVersion:'HFT-R1-STORES-P0-PREPARE-V1',requestId:crypto.randomUUID(),
    kind,legalEntityId:form.legalEntityId.trim(),siteId:form.siteId.trim(),
    warehouseId:form.warehouseId.trim(),itemCode:form.itemCode.trim(),
@@ -70,17 +72,32 @@ export default function StoresOperationsPage(){
    batchNo:form.batchNo.trim()};
   const additional=Object.fromEntries(fields[kind].map(key=>[key,form[key].trim()]));
   try{
-   const res=await fetch('/api/hft/stores/prepare',{method:'POST',credentials:'same-origin',
+   const res=await fetch(intent==='POST'?'/api/hft/stores/submit':'/api/hft/stores/prepare',{
+    method:'POST',credentials:'same-origin',
     cache:'no-store',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({...common,...additional})});
    const output=await res.json() as Reply;
    if(!res.ok)throw new Error(output.code||'SOURCE_UNAVAILABLE');
-   if(output.state!=='VALIDATED_NOT_POSTED'||output.stockChanged!==false||
-      output.durable!==false||output.locationVerified!==false||
-      output.businessAuthorityVerified!==false)
-    throw new Error('UNQUALIFIED_RESPONSE_REJECTED');
-   setLast(output);
-   setFeedback('Structure checked only. NOT SAVED. NOT POSTED. Confirm real location, approval, QC and database authority before operational use.');
+   if(intent==='POST'){
+    const postKind=kind==='IN'||kind==='OUT';
+    const actual=postKind&&output.state==='POSTED_VERIFIED'&&
+     output.durable===true&&output.stockChanged===true&&
+     output.requestId===common.requestId;
+    const observed=kind==='COUNT'&&output.state==='COUNT_OBSERVATION_COMMITTED'&&
+     output.durable===true&&output.stockChanged===false&&
+     output.requestId===common.requestId;
+    if(!actual&&!observed)throw new Error('PROTECTED_DATABASE_PROOF_REQUIRED');
+    setLast(output);
+    setFeedback(actual?'Protected stock posting reported committed. Independently verify balance and custody readback.':
+     'Physical count observation committed. No stock adjustment was made.');
+   }else{
+    if(output.state!=='VALIDATED_NOT_POSTED'||output.stockChanged!==false||
+       output.durable!==false||output.locationVerified!==false||
+       output.businessAuthorityVerified!==false)
+      throw new Error('UNQUALIFIED_RESPONSE_REJECTED');
+    setLast(output);
+    setFeedback('Structure checked only. NOT SAVED. NOT POSTED.');
+   }
   }catch(err){setFeedback(err instanceof Error?err.message:'VALIDATION_UNAVAILABLE');}
   finally{setBusy(false);}
  }
@@ -104,8 +121,8 @@ export default function StoresOperationsPage(){
    <p>Actual warehouse, rack, level, position, stack slot and bin are verified only by the qualified location registry.</p>
   </div><Link className="masters-back" href="/stores/masters">Masters</Link></header>
   <section className={styles.warning} role="status">
-   <strong>NOT OPERATIONAL — no stock or count data can be saved here.</strong>
-   <p>This source workbench validates form structure using a signed HFT session, but it does not post stock, register a physical count, verify the displayed bin or issue an approval. Do not use it as a goods-receipt or issue record.</p>
+   <strong>Protected database posting requires independently qualified SQL and genuine human approvals.</strong>
+   <p>Validation never changes stock. Protected submission uses signed server identity and fails closed until qualified PostgreSQL authority is installed; it cannot create its own approval or Hold clearance. Do not treat a rejected request as a receipt or issue record.</p>
   </section>
   <nav className={styles.tabs} aria-label="Stores operation">
    {(['IN','OUT','COUNT','TRANSFER'] as const).map(x=><button type="button" key={x}
@@ -127,11 +144,22 @@ export default function StoresOperationsPage(){
     <div className={styles.fields}>{fields[kind].map(field)}</div>
     <p className={styles.caption}>A leaf-bin ID is not proof of its rack-to-bin hierarchy. Counts cannot alter stock; transfers require protected authorization. Work-order-only issues require additional backend qualification.</p>
    </section>
-   <button className="primary-button" type="submit" disabled={busy}>{busy?'Checking…':'Validate only — do not post'}</button>
+   <label>Submission intent
+    <select value={intent} onChange={e=>{setIntent(e.target.value as 'PREPARE'|'POST');setLast(null);}}>
+     <option value="PREPARE">Validate only — no persistence</option>
+     <option value="POST">Request protected database transaction</option>
+    </select>
+   </label>
+   <button className="primary-button" type="submit" disabled={busy||intent==='POST'&&kind==='TRANSFER'}>
+    {busy?'Checking…':intent==='POST'?'Request protected transaction':'Validate only — do not post'}
+   </button>
+   {intent==='POST'&&kind==='TRANSFER'?<p role="alert">Transfer remains blocked until the single P2 protected writer supports authorized atomic relocation.</p>:null}
   </form>
   <section aria-live="polite" className={styles.result}>
    <h2>Result</h2><p>{feedback}</p>
-   {last?<p>Request type: {last.state} · Quantity: {last.quantity} · Stored: NO · Stock moved: NO</p>:null}
+   {last?<p>Request type: {last.state} · Quantity: {last.quantity??form.quantity} ·
+     Stored: {last.durable===true?'YES':'NO'} ·
+     Stock moved: {last.stockChanged===true?'YES':'NO'}</p>:null}
   </section>
  </main>;
 }
