@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """HFT R1 Neon staging bootstrap runner. Source preparation only until review/execution pins are populated."""
 from __future__ import annotations
+try:
+ from tools.hft_neon_recovery_v2 import validate_v2,validate_phase
+except ModuleNotFoundError:
+ from hft_neon_recovery_v2 import validate_v2,validate_phase
 import argparse, datetime as dt, hashlib, json, os, re, shutil, subprocess, sys, ssl, urllib.request
 from pathlib import Path
 
@@ -42,7 +46,7 @@ def manifest():
  if set(d)!={'schema','mode','minimum_postgresql_major','executable_directory','migrations','incompatible_provenance'} or d['schema']!='HFT_R1_CANONICAL_MIGRATION_MANIFEST_V1' or d['mode']!='ISOLATED_NONPRODUCTION' or d['minimum_postgresql_major']!=15 or d['executable_directory']!='db/migrations': raise Stop('MANIFEST_FORMAT')
  if len(d.get('migrations') or [])!=6: raise Stop('MANIFEST_COUNT')
  out=[]
- for exp,item in zip(MIGS,d['migrations'],strict=True):
+ for exp,item in zip(MIGS,d['migrations']):
   v,n,h=exp
   if item!={'version':v,'file':n,'sha256':h}: raise Stop(f'MANIFEST_ENTRY:{v}')
   p=SQL_DIR/n
@@ -93,15 +97,15 @@ def control_plane_live(env=None,getter=None):
  get=(lambda p:getter(p,token)) if getter else (lambda p:_get(p,token))
  root='/api/v2/projects/'+PROJECT
  project=get(root).get('project'); branches=get(root+'/branches').get('branches'); endpoints=get(root+'/endpoints').get('endpoints')
- dbs=get(root+'/branches/'+BRANCH+'/databases').get('databases'); snaps=get(root+'/snapshots').get('snapshots')
- if not isinstance(project,dict) or not all(isinstance(x,list) for x in (branches,endpoints,dbs,snaps)): raise Stop('CONTROL_PLANE_INCOMPLETE')
+ dbs=get(root+'/branches/'+BRANCH+'/databases').get('databases')
+ if not isinstance(project,dict) or not all(isinstance(x,list) for x in (branches,endpoints,dbs)): raise Stop('CONTROL_PLANE_INCOMPLETE')
  target=[x for x in branches if x.get('id')==BRANCH]; prod=[x for x in branches if x.get('name')=='production']
  ep=[x for x in endpoints if x.get('id')==ENDPOINT]; database=[x for x in dbs if x.get('name')==DB]
  if project.get('id')!=PROJECT or len(target)!=1 or target[0].get('name')!=BRANCH_NAME or target[0].get('default') is not False or target[0].get('primary') is not False: raise Stop('CONTROL_PLANE_TARGET')
  if len(prod)!=1 or prod[0].get('id')==BRANCH or prod[0].get('default') is not True or prod[0].get('primary') is not True: raise Stop('PRODUCTION_BRANCH_EXCLUSION')
  if len(ep)!=1 or ep[0].get('host')!=HOST or ep[0].get('branch_id')!=BRANCH or ep[0].get('type')!='read_write' or ep[0].get('region_id')!='aws-ap-southeast-1': raise Stop('CONTROL_PLANE_ENDPOINT')
  if len(database)!=1 or database[0].get('owner_name')!=OWNER: raise Stop('CONTROL_PLANE_DATABASE')
- return {'captured_at_utc':now().isoformat().replace('+00:00','Z'),'project':project,'branch':target[0],'production_branch':prod[0],'endpoint':ep[0],'database':database[0],'snapshots':snaps}
+ return {'captured_at_utc':now().isoformat().replace('+00:00','Z'),'project':project,'branch':target[0],'production_branch':prod[0],'endpoint':ep[0],'database':database[0],'preservation_branch':None}
 
 def auth_artifact(path,phase,recovery_path):
  expected=pin(REVIEW_PIN,'INDEPENDENT_REVIEW') ; review_path=os.environ.get('HFT_BOOTSTRAP019_REVIEW_EVIDENCE','')
@@ -119,17 +123,22 @@ def auth_artifact(path,phase,recovery_path):
  return a
 
 def recovery_evidence(path,a,live,detail_path):
- r=json.loads(path.read_bytes()); required={'schema','authorization_id','project_id','branch_id','database','snapshot_id','snapshot_name','snapshot_created_at_utc','snapshot_retention_mode','snapshot_detail_readback_sha256','readback_at_utc','readback_by','evidence_custodian','restore_contract'}
- if set(r)!=required or r['schema']!='HFT_R1_NEON_PRECHANGE_RECOVERY_V1' or r['authorization_id']!=a['authorization_id'] or r['project_id']!=PROJECT or r['branch_id']!=BRANCH or r['database']!=DB or r['readback_by']!=a['independent_verifier'] or r['evidence_custodian']!=a['evidence_custodian'] or r['restore_contract']!='RESTORE_TO_SEPARATE_NONPRODUCTION_BRANCH' or r['snapshot_retention_mode']!='INDEFINITE': raise Stop('RECOVERY_EVIDENCE_SCOPE')
- found=[x for x in live['snapshots'] if x.get('id')==r['snapshot_id']]
- if len(found)!=1 or found[0].get('source_branch_id')!=BRANCH or found[0].get('name')!=r['snapshot_name'] or found[0].get('manual') is not True: raise Stop('RECOVERY_SNAPSHOT_READBACK')
- if found[0].get('created_at')!=r['snapshot_created_at_utc']: raise Stop('RECOVERY_SNAPSHOT_CREATED_AT')
- if not detail_path or not detail_path.is_file() or detail_path.is_symlink() or sha(detail_path.read_bytes())!=r['snapshot_detail_readback_sha256']: raise Stop('RECOVERY_DETAIL_READBACK_HASH')
- d=json.loads(detail_path.read_bytes()); need={'schema','project_id','snapshot_id','snapshot_name','source_branch_id','created_at_utc','retention_mode','readback_at_utc','readback_by','readback_method'}
- if set(d)!=need or d['schema']!='HFT_R1_NEON_SNAPSHOT_DETAIL_READBACK_V1' or d['project_id']!=PROJECT or d['snapshot_id']!=r['snapshot_id'] or d['snapshot_name']!=r['snapshot_name'] or d['source_branch_id']!=BRANCH or d['created_at_utc']!=r['snapshot_created_at_utc'] or d['retention_mode']!='INDEFINITE' or d['readback_by']!=a['independent_verifier'] or d['readback_method']!='NEON_SNAPSHOTS_GET': raise Stop('RECOVERY_DETAIL_READBACK_SCOPE')
- rb=utc(r['readback_at_utc']); drb=utc(d['readback_at_utc']); created=utc(r['snapshot_created_at_utc'])
- if rb!=drb or not created<=rb<=now() or now()-rb>dt.timedelta(minutes=30): raise Stop('RECOVERY_READBACK_STALE')
- return r
+ # The old child-branch manual-snapshot contract is prohibited.
+ # Detail path now holds a canonical manifest of independently preserved files.
+ r=json.loads(path.read_bytes())
+ if r.get('schema')!='HFT_R1_NEON_PRECHANGE_RECOVERY_V2':
+  raise Stop('RECOVERY_V1_CHILD_SNAPSHOT_PROHIBITED')
+ if not detail_path or not detail_path.is_file() or detail_path.is_symlink():
+  raise Stop('RECOVERY_V2_EVIDENCE_FILE_MAP_REQUIRED')
+ files=json.loads(detail_path.read_text())
+ provider=live.get('preservation_branch')
+ if not isinstance(provider,dict): raise Stop('RECOVERY_V2_PRESERVATION_NOT_ATTESTED')
+ try: result=validate_v2(r,provider,files)
+ except (ValueError,KeyError,TypeError) as ex:
+  raise Stop('RECOVERY_V2_INVALID') from None
+ if a.get('recovery_evidence_sha256')!=sha(path.read_bytes()):
+  raise Stop('RECOVERY_V2_AUTHORIZATION_HASH_MISMATCH')
+ return result
 
 def env_for(user):
  e=dict(os.environ)
@@ -188,8 +197,22 @@ def main():
  if not a.journal: raise Stop('JOURNAL_REQUIRED')
  if a.phase in MUTATING:
   if not a.authorization_artifact or not a.recovery_evidence: raise Stop('AUTHORIZATION_AND_RECOVERY_REQUIRED')
-  auth=auth_artifact(a.authorization_artifact,a.phase,a.recovery_evidence); rec=recovery_evidence(a.recovery_evidence,auth,live,a.snapshot_detail_readback)
-  journal(a.journal,'authorization_and_recovery_verified',phase=a.phase,authorization_id=auth['authorization_id'],operator=auth['operator'],custodian=auth['evidence_custodian'],independent_verifier=auth['independent_verifier'],snapshot_id=rec['snapshot_id'],control_plane_sha256=sha(json.dumps(live,sort_keys=True,default=str).encode()))
+  auth=auth_artifact(a.authorization_artifact,a.phase,a.recovery_evidence)
+  recovery_document=json.loads(a.recovery_evidence.read_bytes())
+  preservation_id=recovery_document.get('preservation',{}).get('branch_id','')
+  if not isinstance(preservation_id,str) or not re.fullmatch(r'br-[a-z0-9-]{8,80}',preservation_id):
+   raise Stop('RECOVERY_V2_PRESERVATION_ID_REQUIRED')
+  token=os.environ.get('HFT_NEON_CONTROL_PLANE_API_TOKEN','')
+  detail=_get('/api/v2/projects/'+PROJECT+'/branches/'+preservation_id,token)
+  b=detail.get('branch')
+  if not isinstance(b,dict): raise Stop('RECOVERY_V2_PROVIDER_BRANCH_NOT_FOUND')
+  live['preservation_branch']={'id':b.get('id'),'name':b.get('name'),
+    'parent_id':b.get('parent_id'),'parent_lsn':b.get('parent_lsn'),
+    'parent_timestamp':b.get('parent_timestamp'),'created_at':b.get('created_at'),
+    'is_default':b.get('default'),'is_primary':b.get('primary'),
+    'endpoints':b.get('endpoints',[]),'retention':b.get('retention')}
+  rec=recovery_evidence(a.recovery_evidence,auth,live,a.snapshot_detail_readback)
+  journal(a.journal,'authorization_and_recovery_verified',phase=a.phase,authorization_id=auth['authorization_id'],operator=auth['operator'],custodian=auth['evidence_custodian'],independent_verifier=auth['independent_verifier'],recovery_v2_sha256=rec['recovery_hash'],control_plane_sha256=sha(json.dumps(live,sort_keys=True,default=str).encode()))
  user=OWNER if a.phase in {'preflight-owner','prepare-security','finalize-dba','verify-final-dba'} else (RLOGIN if a.phase=='verify-runtime-negative' else (ALOGIN if a.phase=='verify-audit' else MIG))
  e=env_for(user); ident=sql_attest(e,user); journal(a.journal,'sql_identity_verified',phase=a.phase,user=user,identity=ident)
  if a.phase=='preflight-owner': empty(e); print('OWNER_PREFLIGHT=PASS'); return 0
