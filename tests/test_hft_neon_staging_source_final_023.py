@@ -45,7 +45,7 @@ class SourceFinal023(unittest.TestCase):
   with tempfile.TemporaryDirectory() as td:
    td=pathlib.Path(td);review=td/'review.json';review.write_text('accepted-review')
    recovery=td/'recovery.json'
-   recovery_obj={'schema':'HFT_R1_NEON_PRECHANGE_RECOVERY_V1','authorization_id':'AUTH-1','project_id':m.PROJECT,'branch_id':m.BRANCH,'database':m.DB,'snapshot_id':'snap-good','snapshot_name':'hft-r1-bootstrap019-prechange-001','snapshot_created_at_utc':'2026-11-02T08:00:00Z','snapshot_expires_at_utc':'2026-11-04T20:00:00Z','readback_at_utc':'2026-11-02T08:10:00Z','readback_by':'Verifier Human','evidence_custodian':'Custodian Human','restore_contract':'RESTORE_TO_SEPARATE_NONPRODUCTION_BRANCH'}
+   recovery_obj={'schema':'HFT_R1_NEON_PRECHANGE_RECOVERY_V1','authorization_id':'AUTH-1','project_id':m.PROJECT,'branch_id':m.BRANCH,'database':m.DB,'snapshot_id':'snap-good','snapshot_name':'hft-r1-bootstrap019-prechange-001','snapshot_created_at_utc':'2026-11-02T08:00:00Z','snapshot_retention_mode':'INDEFINITE','snapshot_detail_readback_sha256':'0'*64,'readback_at_utc':'2026-11-02T08:10:00Z','readback_by':'Verifier Human','evidence_custodian':'Custodian Human','restore_contract':'RESTORE_TO_SEPARATE_NONPRODUCTION_BRANCH'}
    recovery.write_text(json.dumps(recovery_obj,separators=(',',':'),sort_keys=True))
    auth=td/'auth.json';t=m.now()
    obj={'schema':'HFT_R1_MASTER_V3_BOOTSTRAP019_EXEC_AUTH_V1','authorization_id':'AUTH-1','project_id':m.PROJECT,'branch_id':m.BRANCH,'database':m.DB,'approved_phases':['migrate'],'not_before_utc':(t-m.dt.timedelta(minutes=5)).isoformat().replace('+00:00','Z'),'expires_at_utc':(t+m.dt.timedelta(hours=1)).isoformat().replace('+00:00','Z'),'decision_maker':'Director Human','operator':'Operator Human','evidence_custodian':'Custodian Human','independent_verifier':'Verifier Human','recovery_evidence_sha256':m.sha(recovery.read_bytes()),'runner_sha256':m.sha(pathlib.Path(m.__file__).read_bytes()),'role_sql_sha256':m.ROLE_SHA,'creator_sql_sha256':m.CREATOR_SHA,'owner_close_sql_sha256':m.OWNER_CLOSE_SHA,'dba_close_sql_sha256':m.DBA_CLOSE_SHA,'manifest_sha256':m.MANIFEST_SHA,'production_branch_excluded':True,'scope':'CANONICAL_0001_0006_STAGING_ONLY'}
@@ -56,15 +56,18 @@ class SourceFinal023(unittest.TestCase):
     bad=dict(obj);bad['expires_at_utc']='2020-01-01T00:00:00Z';auth.write_text(json.dumps(bad,separators=(',',':'),sort_keys=True));ep.write_text(m.sha(auth.read_bytes()))
     with patch.object(m,'EXEC_PIN',ep):
      with self.assertRaisesRegex(m.Stop,'EXECUTION_AUTHORIZATION_WINDOW'):m.auth_artifact(auth,'migrate',recovery)
- def test_recovery_requires_live_snapshot_retention_and_independent_readback(self):
-  t=m.now();future=(t+m.dt.timedelta(days=2)).isoformat().replace('+00:00','Z');created=(t-m.dt.timedelta(minutes=10)).isoformat().replace('+00:00','Z');readback=(t-m.dt.timedelta(minutes=1)).isoformat().replace('+00:00','Z')
-  live=self.live();live['snapshots'][0].update(created_at=created,expires_at=future)
+ def test_recovery_requires_live_snapshot_and_hash_bound_independent_detail_readback(self):
+  t=m.now();created=(t-m.dt.timedelta(minutes=10)).isoformat().replace('+00:00','Z');readback=(t-m.dt.timedelta(minutes=1)).isoformat().replace('+00:00','Z')
+  live=self.live();live['snapshots'][0].update(created_at=created)
   a={'authorization_id':'AUTH-1','expires_at_utc':(t+m.dt.timedelta(hours=1)).isoformat().replace('+00:00','Z'),'independent_verifier':'Verifier Human','evidence_custodian':'Custodian Human'}
   with tempfile.TemporaryDirectory() as td:
-   p=pathlib.Path(td)/'r';obj={'schema':'HFT_R1_NEON_PRECHANGE_RECOVERY_V1','authorization_id':'AUTH-1','project_id':m.PROJECT,'branch_id':m.BRANCH,'database':m.DB,'snapshot_id':'snap-good','snapshot_name':'hft-r1-bootstrap019-prechange-001','snapshot_created_at_utc':created,'snapshot_expires_at_utc':future,'readback_at_utc':readback,'readback_by':'Verifier Human','evidence_custodian':'Custodian Human','restore_contract':'RESTORE_TO_SEPARATE_NONPRODUCTION_BRANCH'};p.write_text(json.dumps(obj))
-   self.assertEqual(m.recovery_evidence(p,a,live)['snapshot_id'],'snap-good')
-   live['snapshots'][0].pop('expires_at')
-   with self.assertRaisesRegex(m.Stop,'RECOVERY_RETENTION_UNVERIFIED'):m.recovery_evidence(p,a,live)
+   td=pathlib.Path(td);detail=td/'detail.json'
+   det={'schema':'HFT_R1_NEON_SNAPSHOT_DETAIL_READBACK_V1','project_id':m.PROJECT,'snapshot_id':'snap-good','snapshot_name':'hft-r1-bootstrap019-prechange-001','source_branch_id':m.BRANCH,'created_at_utc':created,'retention_mode':'INDEFINITE','readback_at_utc':readback,'readback_by':'Verifier Human','readback_method':'NEON_SNAPSHOTS_GET'}
+   detail.write_text(json.dumps(det,separators=(',',':'),sort_keys=True))
+   p=td/'r';obj={'schema':'HFT_R1_NEON_PRECHANGE_RECOVERY_V1','authorization_id':'AUTH-1','project_id':m.PROJECT,'branch_id':m.BRANCH,'database':m.DB,'snapshot_id':'snap-good','snapshot_name':'hft-r1-bootstrap019-prechange-001','snapshot_created_at_utc':created,'snapshot_retention_mode':'INDEFINITE','snapshot_detail_readback_sha256':m.sha(detail.read_bytes()),'readback_at_utc':readback,'readback_by':'Verifier Human','evidence_custodian':'Custodian Human','restore_contract':'RESTORE_TO_SEPARATE_NONPRODUCTION_BRANCH'};p.write_text(json.dumps(obj))
+   self.assertEqual(m.recovery_evidence(p,a,live,detail)['snapshot_id'],'snap-good')
+   detail.write_text('{}')
+   with self.assertRaisesRegex(m.Stop,'RECOVERY_DETAIL_READBACK_HASH'):m.recovery_evidence(p,a,live,detail)
  def test_atomic_batch_and_0001_state_guard(self):
   s=m.batch_sql(m.manifest());self.assertEqual(s.count('BEGIN;'),1);self.assertEqual(s.count('COMMIT;'),1);self.assertEqual(s.count('INSERT INTO hft.schema_revision'),6);self.assertIn('MIGRATION_0001_UNEXPECTED_STATE',s)
  def test_owner_aware_acl_sources(self):
