@@ -118,17 +118,17 @@ def auth_artifact(path,phase,recovery_path):
  if sha(recovery_path.read_bytes())!=a['recovery_evidence_sha256']: raise Stop('RECOVERY_NOT_BOUND_TO_AUTHORIZATION')
  return a
 
-def recovery_evidence(path,a,live):
- r=json.loads(path.read_bytes()); required={'schema','authorization_id','project_id','branch_id','database','snapshot_id','snapshot_name','snapshot_created_at_utc','snapshot_expires_at_utc','readback_at_utc','readback_by','evidence_custodian','restore_contract'}
- if set(r)!=required or r['schema']!='HFT_R1_NEON_PRECHANGE_RECOVERY_V1' or r['authorization_id']!=a['authorization_id'] or r['project_id']!=PROJECT or r['branch_id']!=BRANCH or r['database']!=DB or r['readback_by']!=a['independent_verifier'] or r['evidence_custodian']!=a['evidence_custodian'] or r['restore_contract']!='RESTORE_TO_SEPARATE_NONPRODUCTION_BRANCH': raise Stop('RECOVERY_EVIDENCE_SCOPE')
+def recovery_evidence(path,a,live,detail_path):
+ r=json.loads(path.read_bytes()); required={'schema','authorization_id','project_id','branch_id','database','snapshot_id','snapshot_name','snapshot_created_at_utc','snapshot_retention_mode','snapshot_detail_readback_sha256','readback_at_utc','readback_by','evidence_custodian','restore_contract'}
+ if set(r)!=required or r['schema']!='HFT_R1_NEON_PRECHANGE_RECOVERY_V1' or r['authorization_id']!=a['authorization_id'] or r['project_id']!=PROJECT or r['branch_id']!=BRANCH or r['database']!=DB or r['readback_by']!=a['independent_verifier'] or r['evidence_custodian']!=a['evidence_custodian'] or r['restore_contract']!='RESTORE_TO_SEPARATE_NONPRODUCTION_BRANCH' or r['snapshot_retention_mode']!='INDEFINITE': raise Stop('RECOVERY_EVIDENCE_SCOPE')
  found=[x for x in live['snapshots'] if x.get('id')==r['snapshot_id']]
  if len(found)!=1 or found[0].get('source_branch_id')!=BRANCH or found[0].get('name')!=r['snapshot_name'] or found[0].get('manual') is not True: raise Stop('RECOVERY_SNAPSHOT_READBACK')
  if found[0].get('created_at')!=r['snapshot_created_at_utc']: raise Stop('RECOVERY_SNAPSHOT_CREATED_AT')
- live_exp=found[0].get('expires_at')
- if live_exp is None or live_exp!=r['snapshot_expires_at_utc']: raise Stop('RECOVERY_RETENTION_UNVERIFIED')
- if utc(r['snapshot_expires_at_utc']) < utc(a['expires_at_utc'])+dt.timedelta(hours=24): raise Stop('RECOVERY_RETENTION_TOO_SHORT')
- rb=utc(r['readback_at_utc']); created=utc(r['snapshot_created_at_utc'])
- if not created<=rb<=now() or now()-rb>dt.timedelta(minutes=30): raise Stop('RECOVERY_READBACK_STALE')
+ if not detail_path or not detail_path.is_file() or detail_path.is_symlink() or sha(detail_path.read_bytes())!=r['snapshot_detail_readback_sha256']: raise Stop('RECOVERY_DETAIL_READBACK_HASH')
+ d=json.loads(detail_path.read_bytes()); need={'schema','project_id','snapshot_id','snapshot_name','source_branch_id','created_at_utc','retention_mode','readback_at_utc','readback_by','readback_method'}
+ if set(d)!=need or d['schema']!='HFT_R1_NEON_SNAPSHOT_DETAIL_READBACK_V1' or d['project_id']!=PROJECT or d['snapshot_id']!=r['snapshot_id'] or d['snapshot_name']!=r['snapshot_name'] or d['source_branch_id']!=BRANCH or d['created_at_utc']!=r['snapshot_created_at_utc'] or d['retention_mode']!='INDEFINITE' or d['readback_by']!=a['independent_verifier'] or d['readback_method']!='NEON_SNAPSHOTS_GET': raise Stop('RECOVERY_DETAIL_READBACK_SCOPE')
+ rb=utc(r['readback_at_utc']); drb=utc(d['readback_at_utc']); created=utc(r['snapshot_created_at_utc'])
+ if rb!=drb or not created<=rb<=now() or now()-rb>dt.timedelta(minutes=30): raise Stop('RECOVERY_READBACK_STALE')
  return r
 
 def env_for(user):
@@ -179,7 +179,7 @@ def journal(path,event,**kw):
 MUTATING={'prepare-security','prepare-migration-owner','migrate','finalize-owner','finalize-dba'}
 def main():
  ap=argparse.ArgumentParser(); ap.add_argument('phase',choices=['verify-manifest','preflight-control','preflight-owner','prepare-security','prepare-migration-owner','migrate','finalize-owner','finalize-dba','verify-final-dba','verify-runtime-negative','verify-audit'])
- ap.add_argument('--authorization-artifact',type=Path); ap.add_argument('--recovery-evidence',type=Path); ap.add_argument('--journal',type=Path); a=ap.parse_args(); plan=manifest()
+ ap.add_argument('--authorization-artifact',type=Path); ap.add_argument('--recovery-evidence',type=Path); ap.add_argument('--snapshot-detail-readback',type=Path); ap.add_argument('--journal',type=Path); a=ap.parse_args(); plan=manifest()
  if a.phase=='verify-manifest':
   for v,p,h,_ in plan: print(f'MIGRATION_{v:04d}=CANONICAL_VALIDATED file={p.name} sha256={h}')
   print('MANIFEST_ONLY_VALIDATED_NO_DATABASE_EXECUTION'); return 0
@@ -188,7 +188,7 @@ def main():
  if not a.journal: raise Stop('JOURNAL_REQUIRED')
  if a.phase in MUTATING:
   if not a.authorization_artifact or not a.recovery_evidence: raise Stop('AUTHORIZATION_AND_RECOVERY_REQUIRED')
-  auth=auth_artifact(a.authorization_artifact,a.phase,a.recovery_evidence); rec=recovery_evidence(a.recovery_evidence,auth,live)
+  auth=auth_artifact(a.authorization_artifact,a.phase,a.recovery_evidence); rec=recovery_evidence(a.recovery_evidence,auth,live,a.snapshot_detail_readback)
   journal(a.journal,'authorization_and_recovery_verified',phase=a.phase,authorization_id=auth['authorization_id'],operator=auth['operator'],custodian=auth['evidence_custodian'],independent_verifier=auth['independent_verifier'],snapshot_id=rec['snapshot_id'],control_plane_sha256=sha(json.dumps(live,sort_keys=True,default=str).encode()))
  user=OWNER if a.phase in {'preflight-owner','prepare-security','finalize-dba','verify-final-dba'} else (RLOGIN if a.phase=='verify-runtime-negative' else (ALOGIN if a.phase=='verify-audit' else MIG))
  e=env_for(user); ident=sql_attest(e,user); journal(a.journal,'sql_identity_verified',phase=a.phase,user=user,identity=ident)
