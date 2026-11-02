@@ -23,7 +23,7 @@ class SourceFinal023(unittest.TestCase):
   x=self.live();self.assertEqual(x['branch']['id'],m.BRANCH);self.assertEqual(x['database']['owner_name'],m.OWNER)
   def bad(path,token):
    x=fake_get(path,token)
-   if path.endswith('/branches'):x['branches'][1]['id']=m.BRANCH
+   if path.endswith('/branches'):x['branches'][1]['primary']=False
    return x
   with self.assertRaisesRegex(m.Stop,'PRODUCTION_BRANCH_EXCLUSION'):
    m.control_plane_live({'HFT_NEON_CONTROL_PLANE_API_TOKEN':TOKEN},bad)
