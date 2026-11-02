@@ -46,17 +46,11 @@ The runner re-hashes itself and every package source before execution and requir
 
 Before any mutating phase, the authorization artifact must bind a recovery evidence file with schema `HFT_R1_NEON_PRECHANGE_RECOVERY_V1`.
 
-The runner requires an actual Neon manual snapshot returned by a fresh Neon control-plane read with:
+The runner requires an actual Neon **manual snapshot retained indefinitely**. A fresh Neon control-plane read must independently return the snapshot ID, exact name, `source_branch_id=br-dawn-moon-azd9xzrp`, provider `created_at`, and `manual=true`.
 
-- snapshot ID;
-- exact name;
-- `source_branch_id=br-dawn-moon-azd9xzrp`;
-- exact provider `created_at`;
-- exact provider `expires_at`;
-- `manual=true`;
-- expiry at least 24 hours beyond the execution authorization window.
+Neon's documented list/update API examples do not reliably return an `expires_at` field, so the runner does not invent retention proof from that response. Instead, an independent human verifier must run the read-only `neon snapshots get <snapshot_id> --project-id red-silence-36758131` procedure after creation and preserve a normalized `HFT_R1_NEON_SNAPSHOT_DETAIL_READBACK_V1` artifact stating `retention_mode=INDEFINITE`. Its exact SHA-256 is embedded in the recovery evidence, and the exact recovery-evidence SHA-256 is embedded in the MASTER execution authorization artifact.
 
-The evidence also records independent human readback time/verifier, evidence custodian and the restore contract `RESTORE_TO_SEPARATE_NONPRODUCTION_BRANCH`. The readback must be no more than 30 minutes old when a mutating phase starts. Missing provider retention metadata, stale readback, mismatched branch, or a recovery file not cryptographically bound by the MASTER artifact fails closed.
+The recovery evidence records independent human readback time/verifier, evidence custodian and the restore contract `RESTORE_TO_SEPARATE_NONPRODUCTION_BRANCH`. The detail readback must be no more than 30 minutes old when a mutating phase starts. Missing/mismatched live snapshot identity, missing detail artifact, hash mismatch, stale readback, or a recovery file not cryptographically bound by the MASTER artifact fails closed.
 
 Snapshot creation/restore is not authorized by SOURCE-FINAL-023.
 
@@ -123,7 +117,7 @@ The original six migration files and hashes are unchanged. The runner verifies t
 After final review and separate execution authority only:
 
 1. `verify-manifest`
-2. obtain pre-change snapshot and independently read it back
+2. obtain an indefinitely retained pre-change manual snapshot and independently read it back with `neon snapshots get`
 3. `preflight-control`
 4. `preflight-owner`
 5. `prepare-security`
