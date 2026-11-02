@@ -37,6 +37,11 @@ BEGIN
  OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace,
    LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
    WHERE n.nspname='hft' AND a.grantee=0 AND a.privilege_type='EXECUTE')
+ OR NOT EXISTS(SELECT 1 FROM pg_default_acl d
+   WHERE d.defaclrole=(SELECT oid FROM pg_roles WHERE rolname='hft_staging_migration_owner')
+   AND d.defaclnamespace=0 AND d.defaclobjtype='f'
+   AND NOT EXISTS(SELECT 1 FROM aclexplode(d.defaclacl) a
+     WHERE a.grantee=0 AND a.privilege_type='EXECUTE'))
  OR EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
    WHERE n.nspname='hft' AND c.relkind IN ('r','p','v','m','S')
    AND (CASE WHEN c.relkind='S' THEN
