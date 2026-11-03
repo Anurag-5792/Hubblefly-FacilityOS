@@ -10,4 +10,16 @@ Recovery V2 manifest schema is `HFT_R1_NEON_PRECHANGE_RECOVERY_V2`, with `projec
 
 Provider preservation branch requires exact parent, parent LSN, parent timestamp if available, creation time, not default/primary, zero new endpoints, and independently confirmed finite expiry or actual indefinite provider evidence. A finite expiry can NEVER masquerade as indefinite. Provider evidence is canonically normalized and SHA-256 bound.
 
-Dump requires dir¶»§q«^
+Dump requires direct TLS verification, PostgreSQL 18 compatible `pg_dump -Fc`, pg_dump/pg_restore tool versions, SHA-256, file byte size, creation time, provider endpoint, and independent `pg_restore --list` SHA-256. Inventory records hash-bound roles, memberships, schemas, extensions, objects, owners, ACLs, revisions and source state. Recovery A must be a branch descended from preservation; Recovery B must be a separate recovery DB restored via `pg_restore --single-transaction`. Both require exit evidence, catalog and role/ACL independent readback and witnessed evidence. Neither may target `vercel-dev` nor Neon default `production`.
+
+The existing runner refuses `HFT_R1_NEON_PRECHANGE_RECOVERY_V1` and never uses the former `snapshots` control-plane result. Canonical SQL 0001â€“0006 and local-only migration runner are untouched. Gate A remains HOLD because the pinned review/execution approvals are HOLD.
+
+Chat 13 must produce actual provider preservation, dump, inventory and witness-backed restore evidence after a separate Gate R authorization. Chat 10/11 must review the exact revision and independently approve a later Gate A. These source checks DO NOT constitute a real recovery test, production GO, or Neon mutation.
+
+---
+
+**3 November 2026 supersession:** Recovery V2 025 is retained for historical source
+provenance only. Its synthetic branch-retention object, hash-only restore PASS
+evidence, and unwired phase validator are superseded by
+HFT-R1-RECOVERY-V2-ENFORCE-026.md. The exact committed V2 source and SHA-bound
+runner are controlling. Neither Gate R nor Gate A is operationally qualified.
