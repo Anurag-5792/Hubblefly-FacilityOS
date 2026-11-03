@@ -74,11 +74,21 @@ export async function discover(env,poolFactory){
   query_timeout:8000,allowExitOnIdle:true});
  return inspectReadOnly(pool,cfg);
 }
+/** Source-only builds do not implicitly contact Neon. Independent READ ONLY
+ * discovery requires a separately scoped, explicit environment authorization.
+ * This does not authorize a migration, provisioning or live posting.
+ */
+export function mayRunReadOnlyDiscovery(env){
+ if(env.HFT_NEON_READONLY_DISCOVERY_APPROVAL!=='HFT_R1_NEON_READ_ONLY_ATTESTATION_V1')
+  return false;
+ return previewConfig(env)!==null;
+}
 if(process.argv[1]===fileURLToPath(import.meta.url)){
  try{
-  const r=await discover(process.env,async options=>{
-   const {Pool}=await import('pg');return new Pool(options);
-  });
+  const r=mayRunReadOnlyDiscovery(process.env)?
+   await discover(process.env,async options=>{
+    const {Pool}=await import('pg');return new Pool(options);
+   }):{skipped:'SOURCE_BUILD_NO_APPROVED_DATABASE_DISCOVERY'};
   process.stdout.write('HFT_NEON_STAGING_DISCOVERY='+JSON.stringify(r)+'\n');
  }catch(error){
   // Never log raw database errors, host, URI, login or connection secrets.

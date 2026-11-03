@@ -16,3 +16,4 @@ export function inspectReadOnly(pool:ReadonlyPool,
 export function discover(env:Record<string,string|undefined>,
  createPool:(config:Record<string,unknown>)=>Promise<ReadonlyPool>):Promise<Readonly<Record<string,unknown>>>;
 
+export function mayRunReadOnlyDiscovery(env:Record<string,string|undefined>):boolean;

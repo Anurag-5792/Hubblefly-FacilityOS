@@ -1,7 +1,7 @@
 /** Synthetic DB client protocol tests; not live Neon evidence. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {discover,previewConfig,inspectReadOnly}
+import {discover,previewConfig,inspectReadOnly,mayRunReadOnlyDiscovery}
  from '../../tools/hft_neon_staging_discovery.mjs';
 const env={VERCEL_ENV:'preview',
  VERCEL_GIT_COMMIT_REF:'engineering/hft-r1-stores-foundation',
@@ -82,3 +82,11 @@ test('mismatched target database denies qualification and rolls back',async()=>{
  assert.ok(v.executed.includes('ROLLBACK'));
 });
 
+
+test('automatic source builds cannot run Neon SQL without separate read-only approval',()=>{
+ assert.equal(mayRunReadOnlyDiscovery(env),false);
+ assert.equal(mayRunReadOnlyDiscovery({...env,VERCEL_ENV:'production',
+  HFT_NEON_READONLY_DISCOVERY_APPROVAL:'HFT_R1_NEON_READ_ONLY_ATTESTATION_V1'}),false);
+ assert.equal(mayRunReadOnlyDiscovery({...env,
+  HFT_NEON_READONLY_DISCOVERY_APPROVAL:'HFT_R1_NEON_READ_ONLY_ATTESTATION_V1'}),true);
+});

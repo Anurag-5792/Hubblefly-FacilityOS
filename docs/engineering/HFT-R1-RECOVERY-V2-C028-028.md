@@ -98,3 +98,17 @@ HOLD. The two new catalog/collector pins remain HOLD.
 
 No database or resource operation is authorized by this document.
 
+
+## Automatic Preview read-only discovery — scope correction
+
+The first source commit of this package caused the pre-existing Vercel Preview
+prebuild hook to run one READ ONLY Neon discovery query. It reported PG18, TLS
+verified, no HFT schema and no stock posting. This was automatic platform
+behavior, not a database or resource mutation, but it was outside C028's
+strict no-SQL execution boundary and is not concealed as zero DB access.
+
+The source-only build hook now returns SKIPPED by default and cannot contact
+Neon unless a distinct HFT_NEON_READONLY_DISCOVERY_APPROVAL environment
+authorization is explicitly set on the specific Preview branch. Existing
+positive discovery tests remain available without disabling TLS validation.
+No production credential or production environment has been changed.
