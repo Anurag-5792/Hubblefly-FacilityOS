@@ -13,7 +13,8 @@ live_database_phase_state BEFORE every mutating phase. An approved-clean
 pre-state allows public schema but denies all unapproved user relations,
 functions, extensions, policies, constraints, indexes, roles and default
 privileges. After exact six SHA-256 revisions, source checks full catalog
-schemas, relations, functions/procedures, triggers, constraints, indexes,
+schemas, relations, full column definitions/defaults/identity/nullable flags,
+sequence allocation settings, functions/procedures, triggers, constraints, indexes,
 RLS policies, extensions, roles, memberships, effective relation, function,
 sequence, schema and database privileges, user types, rewrite rules,
 event triggers, publications, operators, collations and default privileges.
@@ -112,3 +113,14 @@ Neon unless a distinct HFT_NEON_READONLY_DISCOVERY_APPROVAL environment
 authorization is explicitly set on the specific Preview branch. Existing
 positive discovery tests remain available without disabling TLS validation.
 No production credential or production environment has been changed.
+
+### 3 November 2026 — C028 exact-catalog closing amendment
+
+The pre-existing 22-category read-only catalog collector omitted per-column
+PostgreSQL attributes and sequence allocation parameters. These two blind
+spots are now closed by 24 categories, including full column data types,
+nullability, defaults, identity/generated flags, storage and sequence
+start/increment/min/max/cache/cycle. Synthetic SHA-pinned negative tests
+reject unauthorized columns, modified column attributes and altered sequence
+settings. config/hft-bootstrap019-canonical-catalog.sha256 remains HOLD, so
+actual PG18 reference fingerprint qualification and Gate A remain NO-GO.

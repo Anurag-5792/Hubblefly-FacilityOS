@@ -119,7 +119,7 @@ def auth_artifact(path,phase,recovery_path):
  if not review_path or sha(Path(review_path).read_bytes())!=expected: raise Stop('INDEPENDENT_REVIEW_EVIDENCE')
  apin=pin(EXEC_PIN,'EXECUTION_AUTHORIZATION'); raw=path.read_bytes()
  if sha(raw)!=apin: raise Stop('EXECUTION_AUTHORIZATION_HASH')
- a=json.loads(raw); required={'schema','authorization_id','project_id','branch_id','database','approved_phases','not_before_utc','expires_at_utc','decision_maker','operator','evidence_custodian','independent_verifier','recovery_evidence_sha256','recovery_validator_sha256','runner_sha256','role_sql_sha256','creator_sql_sha256','owner_close_sql_sha256','dba_close_sql_sha256','manifest_sha256','production_branch_excluded','scope'}
+ a=json.loads(raw); required={'schema','authorization_id','project_id','branch_id','database','approved_phases','not_before_utc','expires_at_utc','decision_maker','operator','evidence_custodian','independent_verifier','recovery_evidence_sha256','recovery_validator_sha256','catalog_collector_sha256','runner_sha256','role_sql_sha256','creator_sql_sha256','owner_close_sql_sha256','dba_close_sql_sha256','manifest_sha256','production_branch_excluded','scope'}
  if set(a)!=required or a['schema']!='HFT_R1_MASTER_V3_BOOTSTRAP019_EXEC_AUTH_V1' or a['project_id']!=PROJECT or a['branch_id']!=BRANCH or a['database']!=DB or a['production_branch_excluded'] is not True or a['scope']!='CANONICAL_0001_0006_STAGING_ONLY' or phase not in a['approved_phases']: raise Stop('EXECUTION_AUTHORIZATION_SCOPE')
  t=now(); nb=utc(a['not_before_utc']); ex=utc(a['expires_at_utc'])
  if not nb<=t<=ex or ex-nb>dt.timedelta(hours=12): raise Stop('EXECUTION_AUTHORIZATION_WINDOW')
@@ -127,7 +127,8 @@ def auth_artifact(path,phase,recovery_path):
  if any(not HUMAN.fullmatch(v) or v.upper() in {'TBD','UNKNOWN','AI','CHATGPT','MAVERICK'} for v in vals) or vals[1]==vals[3]: raise Stop('HUMAN_AUTHORIZATION')
  if sha(Path(__file__).read_bytes())!=a['runner_sha256'] or (
   a['recovery_validator_sha256']!=pin(RECOVERY_SOURCE_PIN,'RECOVERY_V2_SOURCE')
-  or a['recovery_validator_sha256']!=sha((ROOT/'tools/hft_neon_recovery_v2.py').read_bytes())
+  or a['recovery_validator_sha256']!=sha((ROOT/'tools/hft_neon_recovery_v2.py').read_bytes()) or
+  a['catalog_collector_sha256']!=sha((ROOT/'tools/hft_c028_catalog.py').read_bytes())
  ) or a['role_sql_sha256']!=ROLE_SHA or a['creator_sql_sha256']!=CREATOR_SHA or a['owner_close_sql_sha256']!=OWNER_CLOSE_SHA or a['dba_close_sql_sha256']!=DBA_CLOSE_SHA or a['manifest_sha256']!=MANIFEST_SHA: raise Stop('AUTHORIZED_PACKAGE_HASH')
  if sha(recovery_path.read_bytes())!=a['recovery_evidence_sha256']: raise Stop('RECOVERY_NOT_BOUND_TO_AUTHORIZATION')
  return a

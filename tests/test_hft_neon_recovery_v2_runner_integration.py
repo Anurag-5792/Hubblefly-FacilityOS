@@ -34,6 +34,7 @@ class RunnerEnforcement(unittest.TestCase):
    'operator':'Test Human Operator','evidence_custodian':'Test Human Custodian',
    'independent_verifier':'Test Different Human Verifier',
    'recovery_validator_sha256':self.source,
+   'catalog_collector_sha256':runner.sha((runner.ROOT/'tools/hft_c028_catalog.py').read_bytes()),
    'recovery_evidence_sha256':runner.sha(self.manifest.read_bytes()),
    'expires_at_utc':self.f.ts(60)}
   self.live={'all_endpoints':[self.f.targets['restore_b_endpoint']],'production_branch':{'id':v2.PRODUCTION_ID}}

@@ -21,7 +21,7 @@ CANONICAL_SHA=(
  '664c7fcb57bbc699cc8cd727046e8a1048ecb89792d27abe1dd3aef024754044'
 )
 HEX=re.compile(r'^[a-f0-9]{64}$')
-CATEGORIES=('schemas','relations','functions','triggers','constraints',
+CATEGORIES=('schemas','relations','columns','sequence_settings','functions','triggers','constraints',
  'indexes','policies','extensions','roles','memberships','effective_grants',
  'function_grants','sequence_grants','schema_grants','database_grants',
  'types','rules','event_triggers','publications','operators','collations',
@@ -35,6 +35,28 @@ SQL={
  c.relrowsecurity,c.relforcerowsecurity,c.reloptions::text AS options,
  pg_get_expr(c.relpartbound,c.oid,true) AS partition_bound
  FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE """+BASIC,
+ 'columns':"""SELECT n.nspname||'.'||c.relname||'.'||a.attname AS id,
+ a.attnum AS ordinal,pg_catalog.format_type(a.atttypid,a.atttypmod) AS data_type,
+ a.attnotnull AS not_null,a.attidentity::text AS identity_mode,
+ a.attgenerated::text AS generated_mode,
+ a.attstorage::text AS storage_mode,a.attcompression::text AS compression,
+ a.attislocal AS local_column,a.attinhcount AS inherited_count,
+ a.attcollation::pg_catalog.regcollation::text AS collation,
+ pg_catalog.pg_get_expr(ad.adbin,ad.adrelid,true) AS default_expression,
+ a.attstattarget AS statistics_target
+ FROM pg_catalog.pg_attribute a
+ JOIN pg_catalog.pg_class c ON c.oid=a.attrelid
+ JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+ LEFT JOIN pg_catalog.pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum
+ WHERE """+BASIC+""" AND c.relkind IN ('r','p','v','m','f')
+ AND a.attnum>0 AND NOT a.attisdropped""",
+ 'sequence_settings':"""SELECT n.nspname||'.'||c.relname AS id,
+ pg_catalog.format_type(s.seqtypid,-1) AS data_type,
+ s.seqstart AS start_value,s.seqincrement AS increment_by,
+ s.seqmin AS minimum_value,s.seqmax AS maximum_value,
+ s.seqcache AS cache_size,s.seqcycle AS cycles
+ FROM pg_catalog.pg_sequence s JOIN pg_catalog.pg_class c ON c.oid=s.seqrelid
+ JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE """+BASIC,
  'functions':"""SELECT n.nspname||'.'||p.proname||'('||pg_get_function_identity_arguments(p.oid)||')' AS id,
  pg_get_userbyid(p.proowner) AS owner,p.prokind::text AS kind,
  p.prosecdef,p.provolatile::text AS volatility,p.proleakproof,p.proparallel::text AS parallel,
@@ -181,7 +203,7 @@ def collect(query):
 def verify_prebootstrap(query):
  observed=collect(query)
  if [x['id'] for x in observed['schemas']]!=['public']:fail('PRE_UNAPPROVED_SCHEMA')
- for category in ('relations','functions','triggers','constraints','indexes',
+ for category in ('relations','columns','sequence_settings','functions','triggers','constraints','indexes',
   'policies','extensions','roles','memberships','effective_grants',
   'function_grants','sequence_grants','schema_grants','database_grants',
  'types','rules','event_triggers','publications','operators','collations',
@@ -192,7 +214,7 @@ def verify_postcanonical(query,approved_pin=PIN):
  observed=collect(query)
  if not any(x['id']=='hft.schema_revision' for x in observed['relations']):
   fail('REVISION_TABLE_MISSING')
- for category in ('schemas','relations','functions','triggers','constraints','indexes'):
+ for category in ('schemas','relations','columns','functions','triggers','constraints','indexes'):
   if not observed[category]:fail('REQUIRED_'+category.upper()+'_MISSING')
  pin=Path(approved_pin)
  if pin.is_symlink() or not pin.is_file():fail('EXPECTED_FINGERPRINT_UNAVAILABLE')

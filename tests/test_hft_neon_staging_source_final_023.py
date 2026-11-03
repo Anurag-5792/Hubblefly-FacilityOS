@@ -49,7 +49,7 @@ class SourceFinal023(unittest.TestCase):
 
    recovery.write_text(json.dumps(recovery_obj,separators=(',',':'),sort_keys=True))
    auth=td/'auth.json';t=m.now()
-   obj={'schema':'HFT_R1_MASTER_V3_BOOTSTRAP019_EXEC_AUTH_V1','authorization_id':'AUTH-1','project_id':m.PROJECT,'branch_id':m.BRANCH,'database':m.DB,'approved_phases':['migrate'],'not_before_utc':(t-m.dt.timedelta(minutes=5)).isoformat().replace('+00:00','Z'),'expires_at_utc':(t+m.dt.timedelta(hours=1)).isoformat().replace('+00:00','Z'),'decision_maker':'Director Human','operator':'Operator Human','evidence_custodian':'Custodian Human','independent_verifier':'Verifier Human','recovery_evidence_sha256':m.sha(recovery.read_bytes()),'recovery_validator_sha256':m.sha((ROOT/'tools/hft_neon_recovery_v2.py').read_bytes()),'runner_sha256':m.sha(pathlib.Path(m.__file__).read_bytes()),'role_sql_sha256':m.ROLE_SHA,'creator_sql_sha256':m.CREATOR_SHA,'owner_close_sql_sha256':m.OWNER_CLOSE_SHA,'dba_close_sql_sha256':m.DBA_CLOSE_SHA,'manifest_sha256':m.MANIFEST_SHA,'production_branch_excluded':True,'scope':'CANONICAL_0001_0006_STAGING_ONLY'}
+   obj={'schema':'HFT_R1_MASTER_V3_BOOTSTRAP019_EXEC_AUTH_V1','authorization_id':'AUTH-1','project_id':m.PROJECT,'branch_id':m.BRANCH,'database':m.DB,'approved_phases':['migrate'],'not_before_utc':(t-m.dt.timedelta(minutes=5)).isoformat().replace('+00:00','Z'),'expires_at_utc':(t+m.dt.timedelta(hours=1)).isoformat().replace('+00:00','Z'),'decision_maker':'Director Human','operator':'Operator Human','evidence_custodian':'Custodian Human','independent_verifier':'Verifier Human','recovery_evidence_sha256':m.sha(recovery.read_bytes()),'recovery_validator_sha256':m.sha((ROOT/'tools/hft_neon_recovery_v2.py').read_bytes()),'catalog_collector_sha256':m.sha((ROOT/'tools/hft_c028_catalog.py').read_bytes()),'runner_sha256':m.sha(pathlib.Path(m.__file__).read_bytes()),'role_sql_sha256':m.ROLE_SHA,'creator_sql_sha256':m.CREATOR_SHA,'owner_close_sql_sha256':m.OWNER_CLOSE_SHA,'dba_close_sql_sha256':m.DBA_CLOSE_SHA,'manifest_sha256':m.MANIFEST_SHA,'production_branch_excluded':True,'scope':'CANONICAL_0001_0006_STAGING_ONLY'}
    auth.write_text(json.dumps(obj,separators=(',',':'),sort_keys=True))
    rp=td/'rp';ep=td/'ep';rp.write_text(m.sha(review.read_bytes()));ep.write_text(m.sha(auth.read_bytes()))
    with patch.object(m,'REVIEW_PIN',rp),patch.object(m,'EXEC_PIN',ep),patch.dict(os.environ,{'HFT_BOOTSTRAP019_REVIEW_EVIDENCE':str(review)},clear=False):
@@ -61,6 +61,13 @@ class SourceFinal023(unittest.TestCase):
     auth.write_text(json.dumps(invalid,separators=(',',':'),sort_keys=True))
     ep.write_text(m.sha(auth.read_bytes()))
     with self.assertRaisesRegex(m.Stop,'AUTHORIZED_PACKAGE_HASH'):m.auth_artifact(auth,'migrate',recovery)
+    # A modified exact PostgreSQL catalog collector must invalidate Gate A
+    # even when all other Recovery V2 hashes still match.
+    invalid=dict(obj);invalid['catalog_collector_sha256']='0'*64
+    auth.write_text(json.dumps(invalid,separators=(',',':'),sort_keys=True))
+    ep.write_text(m.sha(auth.read_bytes()))
+    with self.assertRaisesRegex(m.Stop,'AUTHORIZED_PACKAGE_HASH'):
+     m.auth_artifact(auth,'migrate',recovery)
  def test_recovery_v1_child_snapshot_is_prohibited(self):
   with tempfile.TemporaryDirectory() as td:
    td=pathlib.Path(td);e=td/'legacy.json'
