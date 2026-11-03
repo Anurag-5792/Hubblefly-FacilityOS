@@ -7,6 +7,10 @@ except ModuleNotFoundError:
  from hft_neon_recovery_v2 import validate_v2,validate_phase,PRODUCTION_ID,normalized as v2_normalized
 import argparse, datetime as dt, hashlib, json, os, re, shutil, subprocess, sys, ssl, urllib.request
 from pathlib import Path
+try:
+ from tools import hft_c028_catalog as c028_catalog
+except ModuleNotFoundError:
+ import hft_c028_catalog as c028_catalog
 
 ROOT=Path(__file__).resolve().parents[1]; SQL_DIR=ROOT/'db'/'migrations'; MANIFEST=SQL_DIR/'manifest.v1.json'
 PROJECT='red-silence-36758131'; BRANCH='br-dawn-moon-azd9xzrp'; BRANCH_NAME='vercel-dev'; DB='neondb'
@@ -17,6 +21,7 @@ LOCK='HFT:R1:NEON:STAGING:MIGRATIONS'; MANIFEST_SHA='ce51d77af4db16b8d97dcbcc10c
 REVIEW_PIN=ROOT/'config/hft-bootstrap019-review.sha256'; EXEC_PIN=ROOT/'config/hft-bootstrap019-execution.sha256'
 RECOVERY_SOURCE_PIN=ROOT/'config/hft-recovery-v2-source.sha256'
 RECOVERY_WITNESS_PIN=ROOT/'config/hft-recovery-v2-witness-trust.sha256'
+RECOVERY_COLLECTOR_PIN=ROOT/'config/hft-recovery-v2-collector-trust.sha256'
 ROLE_SQL='HFT-R1-BOOTSTRAP-019-DBA-ROLE-NONEXECUTABLE.sql'; ROLE_SHA='d652a7489e877c5039a58d8b68f7734a9a0aa71b736a48b49599ce69e8999b01'
 CREATOR_SQL='HFT-R1-BOOTSTRAP-019-CREATOR-ACL-NONEXECUTABLE.sql'; CREATOR_SHA='e7e9c3b58fcb468addc3d7e1220a81034e4e86c0a67bfbfe5a34ca955c29d09a'
 OWNER_CLOSE_SQL='HFT-R1-BOOTSTRAP-019-OWNER-CLOSE-NONEXECUTABLE.sql'; OWNER_CLOSE_SHA='d21c9794d4fffce91fb2eef0abc39300afbc9e0acc1a33ce46c47cb72c6be9f8'
@@ -144,6 +149,7 @@ def recovery_evidence(path,authorization,live,detail_path,getter=None):
   authorization.get('recovery_validator_sha256')!=source_pin):
   raise Stop('RECOVERY_V2_SOURCE_HASH_NOT_AUTHORIZED')
  witness_pin=pin(RECOVERY_WITNESS_PIN,'RECOVERY_V2_WITNESS')
+ collector_pin=pin(RECOVERY_COLLECTOR_PIN,'RECOVERY_V2_COLLECTOR')
  preserve=r.get('preservation')
  if not isinstance(preserve,dict):raise Stop('RECOVERY_V2_PRESERVATION_NOT_IDENTIFIED')
  preserv_id=preserve.get('branch_id')
@@ -178,11 +184,16 @@ def recovery_evidence(path,authorization,live,detail_path,getter=None):
  stamp=now().isoformat().replace('+00:00','Z')
  provider={'branch':p,'endpoints':live.get('all_endpoints'),
   'verified_at':stamp}
+ endpoint_candidates=[x for x in live.get('all_endpoints',[]) if
+  isinstance(x,dict) and x.get('branch_id')==b_branch]
+ if len(endpoint_candidates)!=1:
+  raise Stop('RECOVERY_V2_B_DIRECT_ENDPOINT_NOT_ATTESTED')
  targets={'restore_a_branch':ra,'restore_b_branch':rb,
+  'restore_b_endpoint':endpoint_candidates[0],
   'restore_b_databases':dbs,'production_branch_id':live['production_branch']['id'],
   'verified_at':stamp}
  try:
-  result=validate_v2(r,provider,files,targets=targets,trust_sha256=witness_pin)
+  result=validate_v2(r,provider,files,targets=targets,trust_sha256=witness_pin,collector_trust_sha256=collector_pin)
  except (ValueError,KeyError,TypeError,FileNotFoundError):
   raise Stop('RECOVERY_V2_PROVIDER_RECEIPT_OR_WITNESS_INVALID') from None
  if authorization is None:
@@ -266,6 +277,10 @@ def live_database_phase_state(e,phase):
  if info['schema_exists'] is False and info['ledger_exists'] is False:
   if info['non_system_user_objects']!=0:
    raise Stop('PHASE_PRECHANGE_UNEXPECTED_OBJECTS')
+  # Separate complete catalog read catches rogue public functions, policies,
+  # constraints, extensions and schemas not represented by pg_class counts.
+  try:c028_catalog.verify_prebootstrap(lambda statement:psql(statement,e))
+  except ValueError:raise Stop('PHASE_PRECHANGE_UNAPPROVED_CATALOG') from None
   if phase=='prepare-security':
    if info['migration_role_exists'] is not False:
     raise Stop('PHASE_PREPARE_SECURITY_ROLE_ALREADY_EXISTS')
@@ -294,6 +309,11 @@ def live_database_phase_state(e,phase):
   except (ValueError,TypeError):raise Stop('PHASE_REVISION_READBACK_INVALID') from None
   expected=[{'version':v,'sha256':h} for v,_,h in MIGS]
   if rows!=expected:raise Stop('PHASE_CANONICAL_REVISION_MISMATCH')
+  # Exact source SHA-bound complete schema/roles/ACL/fn/index/trigger/
+  # constraint/policy fingerprint. HOLD until independent PG18 reviewer pins
+  # the actual qualified reference capture; no invented expected fingerprint.
+  try:c028_catalog.verify_postcanonical(lambda statement:psql(statement,e))
+  except ValueError:raise Stop('PHASE_CANONICAL_CATALOG_HASH_NOT_QUALIFIED') from None
   return 'EXACT_CANONICAL_0001_0006'
  raise Stop('PHASE_DATABASE_STATE_INCONSISTENT')
 

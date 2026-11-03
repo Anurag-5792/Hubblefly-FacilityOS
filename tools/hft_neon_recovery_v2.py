@@ -102,7 +102,10 @@ def check_preservation(e,provider,now):
  if p['is_default'] is not False or p['is_primary'] is not False or p['endpoint_count']!=0:
   stop('PRESERVATION_PRIMARY_OR_ENDPOINT')
  freshness(provider['verified_at'],now)
- actual=preservation_provider_projection(provider.get('branch'),provider.get('endpoints'))
+ branch=provider.get('branch')
+ if not isinstance(branch,dict) or branch.get('current_state')!='ready':
+  stop('PRESERVATION_PROVIDER_NOT_READY')
+ actual=preservation_provider_projection(branch,provider.get('endpoints'))
  mapping={'branch_id':'id','name':'name','parent_id':'parent_id','parent_lsn':'parent_lsn',
  'parent_timestamp':'parent_timestamp','created_at':'created_at',
  'is_default':'default','is_primary':'primary'}
@@ -174,12 +177,23 @@ def verify_restore_provider(e,targets,preservation,now):
  if not isinstance(targets,dict):stop('RESTORE_PROVIDER_READBACK_MISSING')
  freshness(targets.get('verified_at'),now)
  a=targets.get('restore_a_branch'); b=targets.get('restore_b_branch')
+ endpoint=targets.get('restore_b_endpoint')
  dbs=targets.get('restore_b_databases')
  if not isinstance(a,dict) or not isinstance(b,dict) or not isinstance(dbs,list):
   stop('RESTORE_PROVIDER_TARGETS_MISSING')
  forbidden={STAGING,PRODUCTION_ID,preservation['branch_id'],'production'}
  ra=e['restore_a'];rb=e['restore_b']
  for target in (a,b):
+  if target.get('current_state')!='ready':stop('RESTORE_BRANCH_NOT_READY')
+  if 'expires_at' not in target or 'ttl_interval_seconds' not in target:
+   stop('RESTORE_PROVIDER_RETENTION_FIELDS_MISSING')
+  ttl=target['ttl_interval_seconds']
+  if ttl is not None and (type(ttl)!=int or ttl<=0):
+   stop('RESTORE_PROVIDER_TTL_INVALID')
+  expiry=target['expires_at']
+  if expiry is not None and instant(expiry)<=max(now,instant(e['evidence_expires_at'])):
+   stop('RESTORE_BRANCH_EXPIRES_BEFORE_RECOVERY_WINDOW')
+  if expiry is None and ttl is not None:stop('RESTORE_TTL_WITHOUT_EXPIRY')
   if target.get('project_id')!=PROJECT or target.get('id') in forbidden or (
     target.get('name') in ('production','vercel-dev')) or (
     target.get('default') is not False) or (
@@ -187,6 +201,8 @@ def verify_restore_provider(e,targets,preservation,now):
    stop('RESTORE_PRODUCTION_STAGING_OR_DEFAULT_TARGET')
  if a.get('id')!=ra['target_id'] or a.get('parent_id')!=preservation['branch_id']:
   stop('RESTORE_A_NOT_DERIVED_FROM_PRESERVATION')
+ if a.get('parent_lsn')!=e['source_lsn'] or a.get('parent_lsn')!=preservation['parent_lsn']:
+  stop('RESTORE_A_FORK_LSN_NOT_AUTHORIZED')
  if b.get('id')!=rb.get('recovery_branch_id') or b.get('id')==a.get('id'):
   stop('RESTORE_B_NOT_ISOLATED_BRANCH')
  if b.get('parent_id') in forbidden or b.get('parent_id')==a.get('id'):
@@ -197,11 +213,92 @@ def verify_restore_provider(e,targets,preservation,now):
  found=[item for item in dbs if isinstance(item,dict) and item.get('name')==rb['target_id']]
  if len(found)!=1 or found[0].get('branch_id') not in (None,b['id']):
   stop('RESTORE_B_DATABASE_PROVIDER_NOT_BOUND')
+ if not isinstance(endpoint,dict) or endpoint.get('branch_id')!=b.get('id') or (
+   endpoint.get('type')!='read_write' or endpoint.get('region_id')!='aws-ap-southeast-1' or
+   not re.fullmatch(r'ep-[a-z0-9-]{7,100}',str(endpoint.get('id',''))) or
+   not re.fullmatch(r'ep-[a-z0-9.-]{8,230}\.neon\.tech',str(endpoint.get('host',''))) or
+   '-pooler.' in endpoint.get('host','')):
+  stop('RESTORE_B_UNAUTHORIZED_ENDPOINT')
  if targets.get('production_branch_id')!=PRODUCTION_ID:
   stop('RESTORE_PRODUCTION_ID_NOT_VERIFIED')
  return True
 
-def validate_restore(e,files,now,targets):
+def verify_independent_collector(record,files,label,category,trust_sha):
+ if not isinstance(trust_sha,str) or not HEX.fullmatch(trust_sha):
+  stop('INDEPENDENT_COLLECTOR_TRUST_NOT_APPROVED')
+ trust=evidence_json(files['collector_trust'],trust_sha)
+ fields(trust,('schema','collector_id','identity_issuer','verified_by',
+  'verified_at','public_key_pem','status'))
+ if trust['schema']!='HFT_R1_INDEPENDENT_CATALOG_COLLECTOR_V1' or (
+  trust['identity_issuer']!='HFT_CORPORATE_IDENTITY' or
+  trust['status']!='ACTIVE' or trust['verified_by']==trust['collector_id'] or
+  not trust['verified_by'] or 'BEGIN PUBLIC KEY' not in str(trust['public_key_pem'])):
+  stop('COLLECTOR_CORPORATE_TRUST_UNVERIFIED')
+ info=fields(record['collector'],('collector_id','trust_sha256',
+  'query_source_sha256','signature_sha256'))
+ if info['collector_id']!=trust['collector_id'] or info['trust_sha256']!=trust_sha:
+  stop('COLLECTOR_IDENTITY_NOT_ENROLLED')
+ query_source=Path(__file__).with_name('hft_c028_catalog.py')
+ if query_source.is_symlink() or not query_source.is_file() or (
+  info['query_source_sha256']!=sha(query_source.read_bytes())):
+  stop('COLLECTOR_QUERY_SOURCE_DRIFT')
+ sig=evidence_bytes(files[label+'_'+category+'_collector_signature'],
+  info['signature_sha256'])
+ unsigned={k:v for k,v in record.items() if k!='collector'}
+ with tempfile.TemporaryDirectory(prefix='hft-c028-collector-') as tmp:
+  f=Path(tmp)
+  (f/'key.pem').write_text(trust['public_key_pem'])
+  (f/'observation.json').write_bytes(normalized(unsigned))
+  (f/'signature').write_bytes(sig)
+  try:
+   result=subprocess.run(['openssl','pkeyutl','-verify','-pubin',
+    '-inkey',str(f/'key.pem'),'-rawin','-in',str(f/'observation.json'),
+    '-sigfile',str(f/'signature')],capture_output=True,timeout=5)
+  except (OSError,subprocess.TimeoutExpired):
+   stop('COLLECTOR_SIGNATURE_VERIFICATION_UNAVAILABLE')
+  if result.returncode!=0:stop('COLLECTOR_OBSERVATION_SIGNATURE_INVALID')
+
+def verify_restore_b_destination(receipt,files,item,targets,now,trust_sha):
+ endpoint=targets.get('restore_b_endpoint')
+ if not isinstance(endpoint,dict):stop('RESTORE_B_ENDPOINT_NOT_VERIFIED')
+ path=files.get('restore_b_connection')
+ if not path:stop('RESTORE_B_CONNECTION_RECEIPT_REQUIRED')
+ actual=evidence_json(path,receipt['connection_sha256'])
+ fields(actual,('schema','project_id','branch_id','endpoint_id','host',
+  'port','database','login','sslmode','client_tls_verified',
+  'server_database','server_session_user','server_version_num',
+  'captured_at','argv','environment_routing','environment_keys','collector'))
+ if actual['schema']!='HFT_R1_RESTORE_B_CONNECTION_ATTESTATION_V1' or (
+  actual['project_id']!=PROJECT or actual['branch_id']!=item['recovery_branch_id'] or
+  actual['endpoint_id']!=endpoint['id'] or actual['host']!=endpoint['host'] or
+  actual['port']!=5432 or actual['database']!=item['target_id'] or
+  actual['server_database']!=item['target_id'] or
+  actual['login']!=actual['server_session_user'] or
+  actual['server_version_num']!=180006 or
+  actual['sslmode']!='verify-full' or actual['client_tls_verified'] is not True):
+  stop('RESTORE_B_ACTUAL_CONNECTION_NOT_ISOLATED')
+ if not isinstance(actual['login'],str) or not re.fullmatch(r'hft_restore_[a-z0-9_]{5,60}',actual['login']):
+  stop('RESTORE_B_LOGIN_NOT_RESTRICTED')
+ if instant(actual['captured_at'])<instant(receipt['started_at']) or (
+  instant(actual['captured_at'])>instant(receipt['completed_at'])):
+  stop('RESTORE_B_CONNECTION_CAPTURE_NOT_IN_EXECUTION_WINDOW')
+ # No alternate URI or hidden libpq path can override the approved branch.
+ if actual['environment_routing']!={'PGSSLMODE':'verify-full'} or (
+  actual['environment_keys']!=['PGPASSWORD','PGSSLMODE']):
+  stop('RESTORE_B_ENVIRONMENT_ROUTING_NOT_ATTESTED')
+ if not isinstance(receipt['command_argv'],list):
+  stop('RESTORE_B_COMMAND_ARGUMENTS_NOT_ATTESTED')
+ cmd=receipt['command_argv']
+ if len(cmd)!=9 or not isinstance(cmd[-1],str) or not cmd[-1].startswith('/restricted/') or '..' in cmd[-1].split('/'):
+  stop('RESTORE_B_DUMP_FILE_ROUTE_INVALID')
+ expected=['pg_restore','--single-transaction','--exit-on-error',
+  '--format=custom','--host='+actual['host'],'--port=5432',
+  '--username='+actual['login'],'--dbname='+actual['database'],cmd[-1]]
+ if cmd!=expected or actual['argv']!=expected:
+  stop('RESTORE_B_EFFECTIVE_COMMAND_ROUTING_INVALID')
+ verify_independent_collector(actual,files,'restore_b','connection',trust_sha)
+
+def validate_restore(e,files,now,targets,collector_trust_sha256):
  inv=e['inventory'];dump=e['dump']
  latest_readback=instant(e['evidence_created_at'])
  for key,kind in (('restore_a','preservation_branch'),('restore_b','logical_database')):
@@ -219,7 +316,7 @@ def validate_restore(e,files,now,targets):
    'source_branch_id','source_lsn','source_state_sha256','dump_sha256',
    'inventory_sha256','started_at','completed_at','exit_code','command_argv',
    'provider_operation_id','stdout_sha256','stderr_sha256',
-   'catalog_sha256','role_acl_sha256'))
+   'catalog_sha256','role_acl_sha256','connection_sha256'))
   if receipt['schema']!='HFT_R1_RESTORE_EXECUTION_RECEIPT_V2' or (
    receipt['kind']!=kind or receipt['target_id']!=r['target_id'] or
    receipt['recovery_branch_id']!=r['recovery_branch_id'] or
@@ -255,10 +352,9 @@ def validate_restore(e,files,now,targets):
     stop('RESTORE_A_EXECUTION_RECEIPT_INVALID')
   else:
    if receipt['operation']!='PG_RESTORE_SINGLE_TRANSACTION' or (
-    not isinstance(argv,list) or 'pg_restore' not in argv[:1] or
-    '--single-transaction' not in argv or '--exit-on-error' not in argv or
     receipt['provider_operation_id'] is not None):
     stop('RESTORE_B_SINGLE_TRANSACTION_NOT_ATTESTED')
+   verify_restore_b_destination(receipt,files,r,targets,now,collector_trust_sha256)
   evidence_bytes(files[key+'_stdout'],receipt['stdout_sha256'])
   evidence_bytes(files[key+'_stderr'],receipt['stderr_sha256'])
   for category,fields_map in (
@@ -267,7 +363,7 @@ def validate_restore(e,files,now,targets):
    expected=r['catalog_sha256'] if category=='catalog' else r['role_acl_sha256']
    record=evidence_json(files[key+'_'+category],expected)
    fields(record,('schema','branch_id','database','source_lsn',
-    'source_state_sha256','captured_at',*fields_map))
+    'source_state_sha256','captured_at',*fields_map,'collector'))
    if record['schema']!='HFT_R1_RESTORED_'+category.upper()+'_READBACK_V2' or (
     record['branch_id']!=r['recovery_branch_id'] or
     record['database']!= (DB if key=='restore_a' else r['target_id']) or
@@ -278,9 +374,13 @@ def validate_restore(e,files,now,targets):
    if captured<instant(receipt['completed_at']) or captured>now:
     stop('RESTORE_INDEPENDENT_READBACK_TIME_INVALID')
    latest_readback=max(latest_readback,captured)
+   source=evidence_json(files['inventory'],inv['sha256'])
    for field in fields_map:
-    if record[field]!=digest(inv[field]):
-     stop('RESTORE_CATALOG_OR_ACL_MISMATCH')
+    observed=record[field]
+    if not isinstance(observed,list) or observed!=source[field] or (
+     sha(normalized(observed))!=digest(inv[field])):
+     stop('RESTORE_OBSERVED_CATALOG_OR_ACL_MISMATCH')
+   verify_independent_collector(record,files,key,category,collector_trust_sha256)
  return latest_readback
 
 def verify_witness(e,files,now,expected_trust_sha256,not_before,signature_verifier=None):
@@ -339,7 +439,7 @@ def verify_witness(e,files,now,expected_trust_sha256,not_before,signature_verifi
    stop('INDEPENDENT_WITNESS_SIGNATURE_INVALID')
  return True
 
-def validate_v2(e,provider,files,now=None,targets=None,trust_sha256=None,signature_verifier=None):
+def validate_v2(e,provider,files,now=None,targets=None,trust_sha256=None,signature_verifier=None,collector_trust_sha256=None):
  now=now or dt.datetime.now(dt.timezone.utc)
  fields(e,('schema','project_id','source_branch_id','database','source_lsn',
  'source_state_sha256','preservation','dump','inventory','restore_a','restore_b',
@@ -360,7 +460,10 @@ def validate_v2(e,provider,files,now=None,targets=None,trust_sha256=None,signatu
  if instant(inv['captured_at'])>now or instant(dump['created_at'])>now:
   stop('PRECHANGE_CAPTURE_FROM_FUTURE')
  verify_restore_provider(e,targets,preserve,now)
- last_readback=validate_restore(e,files,now,targets)
+ last_readback=validate_restore(e,files,now,targets,collector_trust_sha256)
+ if instant(targets['verified_at'])<last_readback or (
+  instant(provider['verified_at'])<last_readback):
+  stop('PROVIDER_STATUS_STALE_AFTER_RESTORE')
  verify_witness(e,files,now,trust_sha256,last_readback,signature_verifier)
  return {'schema':SCHEMA,'recovery_hash':sha(normalized(e)),
   'status':'SOURCE_EVIDENCE_CRYPTOGRAPHICALLY_VERIFIED_NOT_PROVIDER_QUALIFIED'}

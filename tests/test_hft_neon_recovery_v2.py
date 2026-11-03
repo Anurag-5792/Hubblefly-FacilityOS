@@ -62,16 +62,48 @@ class RecoveryV2Contract(unittest.TestCase):
     'source_state_sha256':state,'source_lsn':lsn,'captured_at':inv['captured_at'],
     **{k:m.sha(m.normalized(v)) for k,v in sections.items()}}}
   self.targets={'verified_at':self.ts(-2),'production_branch_id':m.PRODUCTION_ID,
+   'restore_b_endpoint':{'id':'ep-recovery-b-001','host':'ep-recovery-b-001.c-3.ap-southeast-1.aws.neon.tech',
+    'branch_id':'br-restore-b-abc123','type':'read_write','region_id':'aws-ap-southeast-1'},
    'restore_a_branch':{'id':'br-restore-a-abc123','name':'hft-recovery-a',
     'project_id':m.PROJECT,'parent_id':preservation['id'],
     'default':False,'primary':False,'current_state':'ready',
-    'created_at':self.ts(-7)},
+    'created_at':self.ts(-7),'expires_at':self.ts(2880),
+    'ttl_interval_seconds':172800,'parent_lsn':lsn},
    'restore_b_branch':{'id':'br-restore-b-abc123','name':'hft-recovery-b',
     'project_id':m.PROJECT,'parent_id':'br-independent-seed-abc123',
     'default':False,'primary':False,'current_state':'ready',
-    'created_at':self.ts(-20)},
+    'created_at':self.ts(-20),'expires_at':self.ts(2880),
+    'ttl_interval_seconds':172800},
    'restore_b_databases':[{'name':'hft_restore_abc12345',
     'branch_id':'br-restore-b-abc123'}]}
+  collector_private=self.root/'collector-private.key'
+  collector_public=self.root/'collector-public.pem'
+  subprocess.run(['openssl','genpkey','-algorithm','ED25519',
+   '-out',str(collector_private)],capture_output=True,check=True)
+  subprocess.run(['openssl','pkey','-in',str(collector_private),
+   '-pubout','-out',str(collector_public)],capture_output=True,check=True)
+  trust_record={'schema':'HFT_R1_INDEPENDENT_CATALOG_COLLECTOR_V1',
+   'collector_id':'TEST-QUALIFIED-OBSERVATION-COLLECTOR',
+   'identity_issuer':'HFT_CORPORATE_IDENTITY',
+   'verified_by':'Separate Human Enrolment Officer',
+   'verified_at':self.ts(-60),'public_key_pem':collector_public.read_text(),
+   'status':'ACTIVE'}
+  self.collector_trust_sha=save('collector_trust',trust_record)
+  def signed_observation(name,document):
+   unsigned=self.root/(name+'-unsigned')
+   unsigned.write_bytes(m.normalized(document))
+   signature=self.root/(name+'-collector-signature')
+   subprocess.run(['openssl','pkeyutl','-sign','-inkey',str(collector_private),
+    '-rawin','-in',str(unsigned),'-out',str(signature)],
+    capture_output=True,check=True)
+   sig_sha=save(name+'_collector_signature',signature.read_bytes(),True)
+   document['collector']={
+    'collector_id':'TEST-QUALIFIED-OBSERVATION-COLLECTOR',
+    'trust_sha256':self.collector_trust_sha,
+    'query_source_sha256':m.sha((Path(__file__).resolve().parents[1]/
+       'tools/hft_c028_catalog.py').read_bytes()),
+    'signature_sha256':sig_sha}
+   return document
   for kind_name,kind in (('restore_a','preservation_branch'),('restore_b','logical_database')):
    a=kind_name=='restore_a'
    branch=self.targets['restore_a_branch' if a else 'restore_b_branch']['id']
@@ -79,13 +111,33 @@ class RecoveryV2Contract(unittest.TestCase):
    common={'branch_id':branch,'database':m.DB if a else target,
     'source_lsn':lsn,'source_state_sha256':state,'captured_at':self.ts(-3)}
    catalog={'schema':'HFT_R1_RESTORED_CATALOG_READBACK_V2',**common,
-    **{k:self.e['inventory'][k] for k in ('schemas','extensions','objects','revisions')}}
+    **{k:sections[k] for k in ('schemas','extensions','objects','revisions')}}
    acl={'schema':'HFT_R1_RESTORED_ACL_READBACK_V2',**common,
-    **{k:self.e['inventory'][k] for k in ('roles','memberships','owners','acls')}}
-   cat_sha=save(kind_name+'_catalog',catalog)
-   acl_sha=save(kind_name+'_acl',acl)
+    **{k:sections[k] for k in ('roles','memberships','owners','acls')}}
+   cat_sha=save(kind_name+'_catalog',
+    signed_observation(kind_name+'_catalog',catalog))
+   acl_sha=save(kind_name+'_acl',
+    signed_observation(kind_name+'_acl',acl))
    stdout_sha=save(kind_name+'_stdout',b'SYNTHETIC SUCCESS',True)
    stderr_sha=save(kind_name+'_stderr',b'',True)
+   restore_args=['pg_restore','--single-transaction','--exit-on-error',
+    '--format=custom','--host='+self.targets['restore_b_endpoint']['host'],
+    '--port=5432','--username=hft_restore_test_login',
+    '--dbname=hft_restore_abc12345','/restricted/test-dump.backup']
+   connection_sha=None
+   if not a:
+    connection={'schema':'HFT_R1_RESTORE_B_CONNECTION_ATTESTATION_V1',
+     'project_id':m.PROJECT,'branch_id':branch,
+     'endpoint_id':self.targets['restore_b_endpoint']['id'],
+     'host':self.targets['restore_b_endpoint']['host'],
+     'port':5432,'database':target,'login':'hft_restore_test_login',
+     'sslmode':'verify-full','client_tls_verified':True,
+     'server_database':target,'server_session_user':'hft_restore_test_login',
+     'server_version_num':180006,'captured_at':self.ts(-6),
+     'argv':restore_args,'environment_routing':{'PGSSLMODE':'verify-full'},
+     'environment_keys':['PGPASSWORD','PGSSLMODE']}
+    connection_sha=save(kind_name+'_connection',
+     signed_observation(kind_name+'_connection',connection))
    receipt={'schema':'HFT_R1_RESTORE_EXECUTION_RECEIPT_V2','kind':kind,
     'operation':'NEON_BRANCH_DERIVE_FROM_PRESERVATION' if a else 'PG_RESTORE_SINGLE_TRANSACTION',
     'target_id':target,'recovery_branch_id':branch,
@@ -93,10 +145,11 @@ class RecoveryV2Contract(unittest.TestCase):
     'source_state_sha256':state,'dump_sha256':dump_hash,'inventory_sha256':inventory_hash,
     'started_at':self.ts(-8),'completed_at':self.ts(-5),'exit_code':0,
     'command_argv':['neon','branches','create','--parent',preservation['id']] if a
-      else ['pg_restore','--single-transaction','--exit-on-error','<REDACTED>'],
+      else restore_args,
     'provider_operation_id':'test-provider-operation-001' if a else None,
     'stdout_sha256':stdout_sha,'stderr_sha256':stderr_sha,
-    'catalog_sha256':cat_sha,'role_acl_sha256':acl_sha}
+    'catalog_sha256':cat_sha,'role_acl_sha256':acl_sha,
+    'connection_sha256':connection_sha}
    receipt_sha=save(kind_name,receipt)
    self.e[kind_name]={'kind':kind,'target_id':target,
     'source_branch_id':preservation['id'],'recovery_branch_id':branch,
@@ -130,14 +183,15 @@ class RecoveryV2Contract(unittest.TestCase):
    'signature_sha256':m.sha(signature.read_bytes()),'trust_record_sha256':self.trust_sha}
  def verify(self):
   return m.validate_v2(self.e,self.provider,self.files,now=self.now,
-   targets=self.targets,trust_sha256=self.trust_sha)
+   targets=self.targets,trust_sha256=self.trust_sha,
+   collector_trust_sha256=self.collector_trust_sha)
  def denial(self,reason):
   with self.assertRaises(ValueError) as error:self.verify()
   self.assertIn(reason,str(error.exception))
  def test_positive_actual_test_signature(self):
   self.assertEqual(self.verify()['schema'],m.SCHEMA)
  def test_missing_preservation(self):
-  self.provider['branch']=None;self.denial('PROVIDER_RECORD_MISSING')
+  self.provider['branch']=None;self.denial('PRESERVATION_PROVIDER_NOT_READY')
  def test_parent_production(self):
   self.e['preservation']['parent_id']=m.PRODUCTION_ID
   self.denial('PRESERVATION_NOT_FROM_STAGING')
@@ -168,6 +222,21 @@ class RecoveryV2Contract(unittest.TestCase):
  def test_recovery_a_wrong_parent(self):
   self.targets['restore_a_branch']['parent_id']=m.PRODUCTION_ID
   self.denial('RESTORE_A_NOT_DERIVED_FROM_PRESERVATION')
+ def test_recovery_a_correct_parent_wrong_fork_lsn(self):
+  self.targets['restore_a_branch']['parent_lsn']='2/BEEF'
+  self.denial('RESTORE_A_FORK_LSN_NOT_AUTHORIZED')
+ def test_unready_preservation_and_restore_branch(self):
+  self.provider['branch']['current_state']='deleting'
+  self.denial('PRESERVATION_PROVIDER_NOT_READY')
+  self.provider['branch']['current_state']='ready'
+  self.targets['restore_a_branch']['current_state']='creating'
+  self.denial('RESTORE_BRANCH_NOT_READY')
+ def test_expired_recovery_branch(self):
+  self.targets['restore_b_branch']['expires_at']=self.ts(-1)
+  self.denial('RESTORE_BRANCH_EXPIRES_BEFORE_RECOVERY_WINDOW')
+ def test_restore_ttl_without_expiration(self):
+  self.targets['restore_b_branch']['expires_at']=None
+  self.denial('RESTORE_TTL_WITHOUT_EXPIRY')
  def test_recovery_a_actual_production_id(self):
   self.targets['restore_a_branch']['id']=m.PRODUCTION_ID
   self.denial('RESTORE_PRODUCTION_STAGING_OR_DEFAULT_TARGET')
@@ -186,6 +255,56 @@ class RecoveryV2Contract(unittest.TestCase):
  def test_recovery_b_name_equals_active_database(self):
   self.e['restore_b']['target_id']=m.DB
   self.denial('RESTORE_B_DATABASE_NOT_ISOLATED')
+ def test_provider_status_stale_after_restoration(self):
+  self.targets['verified_at']=self.ts(-9)
+  self.denial('PROVIDER_STATUS_STALE_AFTER_RESTORE')
+ def test_restore_b_endpoint_routes_to_staging(self):
+  self.targets['restore_b_endpoint']['branch_id']=m.STAGING
+  self.denial('RESTORE_B_UNAUTHORIZED_ENDPOINT')
+ def test_restore_b_effective_dbname_override(self):
+  path=Path(self.files['restore_b'])
+  receipt=json.loads(path.read_text())
+  receipt['command_argv'][7]='--dbname=neondb'
+  path.write_bytes(m.normalized(receipt))
+  self.e['restore_b']['evidence_sha256']=m.sha(path.read_bytes())
+  self.denial('RESTORE_B_EFFECTIVE_COMMAND_ROUTING_INVALID')
+ def test_restore_b_connection_identity_wrong_database(self):
+  source=Path(self.files['restore_b_connection'])
+  conn=json.loads(source.read_text())
+  conn['server_database']='neondb'
+  source.write_bytes(m.normalized(conn))
+  receipt=Path(self.files['restore_b'])
+  r=json.loads(receipt.read_text())
+  r['connection_sha256']=m.sha(source.read_bytes())
+  receipt.write_bytes(m.normalized(r))
+  self.e['restore_b']['evidence_sha256']=m.sha(receipt.read_bytes())
+  self.denial('RESTORE_B_ACTUAL_CONNECTION_NOT_ISOLATED')
+ def test_restore_b_hidden_pg_host_override(self):
+  source=Path(self.files['restore_b_connection'])
+  conn=json.loads(source.read_text())
+  conn['environment_keys'].append('PGHOST')
+  source.write_bytes(m.normalized(conn))
+  receipt=Path(self.files['restore_b'])
+  r=json.loads(receipt.read_text())
+  r['connection_sha256']=m.sha(source.read_bytes())
+  receipt.write_bytes(m.normalized(r))
+  self.e['restore_b']['evidence_sha256']=m.sha(receipt.read_bytes())
+  self.denial('RESTORE_B_ENVIRONMENT_ROUTING_NOT_ATTESTED')
+ def test_copied_section_hashes_cannot_replace_observed_catalog(self):
+  source=Path(self.files['restore_a_catalog'])
+  record=json.loads(source.read_text())
+  record['schemas']=self.e['inventory']['schemas']
+  source.write_bytes(m.normalized(record))
+  self.e['restore_a']['catalog_sha256']=m.sha(source.read_bytes())
+  receipt=Path(self.files['restore_a'])
+  r=json.loads(receipt.read_text())
+  r['catalog_sha256']=self.e['restore_a']['catalog_sha256']
+  receipt.write_bytes(m.normalized(r))
+  self.e['restore_a']['evidence_sha256']=m.sha(receipt.read_bytes())
+  self.denial('RESTORE_OBSERVED_CATALOG_OR_ACL_MISMATCH')
+ def test_missing_independent_catalog_collector_receipt(self):
+  Path(self.files['restore_b_catalog_collector_signature']).unlink()
+  self.denial('EVIDENCE_FILE_MISSING')
  def test_restore_self_pass_but_failed_status(self):
   self.e['restore_b']['status']='FAIL'
   self.denial('RESTORE_FAILED')
