@@ -200,21 +200,135 @@ def collect(query):
   if ids!=sorted(set(ids)):fail('ROWSET_NONCANONICAL_OR_DUPLICATE')
   output[category]=rows
  return output
+# C030 phase references: each comes from independently witnessed PG18.6
+# application of the EXACT protected SQL transitions. No inferred hash is GO.
+STAGES=tuple('S'+str(i) for i in range(6))
+STAGE_PATHS={k:ROOT/'config'/('hft-bootstrap019-stage-'+k.lower()+'.sha256')
+             for k in STAGES}
+SECURITY_SQL=ROOT/'db/security/HFT-R1-BOOTSTRAP-019-DBA-ROLE-NONEXECUTABLE.sql'
+CREATOR_SQL=ROOT/'db/security/HFT-R1-BOOTSTRAP-019-CREATOR-ACL-NONEXECUTABLE.sql'
+OWNER_SQL=ROOT/'db/security/HFT-R1-BOOTSTRAP-019-OWNER-CLOSE-NONEXECUTABLE.sql'
+DBA_SQL=ROOT/'db/security/HFT-R1-BOOTSTRAP-019-DBA-CLOSE-NONEXECUTABLE.sql'
+TRANSITION_SOURCES=(SECURITY_SQL,CREATOR_SQL,OWNER_SQL,DBA_SQL)
+# The existing runner has independent SHA-pins for each protected SQL source.
+# Derive permitted roles and direct memberships *from* the existing DBA
+# bootstrap statement, rather than assuming a broad hft_* allowlist.
+def source_role_contract():
+ text=SECURITY_SQL.read_text()
+ expected_roles=set(re.findall(r'(?m)^CREATE ROLE (hft_[a-z0-9_]+)\b',text))
+ expected_memberships=set(
+  '%s->%s'%(member,parent)
+  for parent,member in re.findall(
+   r'(?m)^GRANT (hft_[a-z0-9_]+) TO (hft_[a-z0-9_]+) WITH ADMIN FALSE,INHERIT TRUE,SET FALSE;',
+   text))
+ if expected_roles!={'hft_staging_migration_owner','hft_r1_app_runtime',
+   'hft_staging_app_runtime','hft_r1_audit_verify',
+   'hft_staging_audit_verify'} or len(expected_memberships)!=2:
+  fail('PROTECTED_BOOTSTRAP_SQL_CONTRACT_CHANGED')
+ creator=CREATOR_SQL.read_text()
+ if (creator.count('ALTER DEFAULT PRIVILEGES FOR ROLE hft_staging_migration_owner')!=1 or
+     'REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC' not in creator):
+  fail('CREATOR_DEFAULT_SOURCE_CHANGED')
+ for sql in TRANSITION_SOURCES:
+  if sql.is_symlink() or not sql.is_file():fail('TRANSITION_SQL_MISSING')
+ return expected_roles,expected_memberships
+
+def approved_stage_references(paths=None):
+ """All six independent reference SHA-256s must be explicitly pinned.
+ HOLD or missing file forbids transition, including final read-only GO.
+ """
+ paths=STAGE_PATHS if paths is None else paths
+ if set(paths)!=set(STAGES):fail('STAGE_REFERENCE_SET_CHANGED')
+ refs={}
+ for stage in STAGES:
+  path=Path(paths[stage])
+  if path.is_symlink() or not path.is_file():fail('STAGE_REFERENCE_UNAVAILABLE')
+  value=path.read_text().strip()
+  if not HEX.fullmatch(value):fail('STAGE_REFERENCE_NOT_APPROVED')
+  refs[stage]=value
+ if len(set(refs.values()))!=len(STAGES):fail('STAGE_REFERENCE_REUSED')
+ return refs
+
+def stage_reference_bundle(paths=None):
+ refs=approved_stage_references(paths)
+ source_role_contract()
+ return sha(canonical({'schema':'HFT_R1_BOOTSTRAP019_PHASE_REFERENCE_V1',
+  'manifest_sha256':MANIFEST_SHA,
+  'stage_hashes':refs,
+  'transition_sql_sha256':{p.name:sha(p.read_bytes())
+                           for p in TRANSITION_SOURCES}}))
+
+def structural_stage_checks(observed,stage):
+ if [x['id'] for x in observed['schemas']] not in (['public'],['hft','public']):
+  fail('STAGE_UNAPPROVED_SCHEMAS')
+ roles,members=source_role_contract()
+ role_ids={x['id'] for x in observed['roles']}
+ member_ids={x['id'] for x in observed['memberships']}
+ if stage=='S0':
+  if role_ids or member_ids:fail('S0_BOOTSTRAP_ROLE_PREEXISTS')
+ else:
+  if role_ids!=roles or member_ids!=members:
+   fail('STAGE_APPROVED_ROLE_OR_MEMBERSHIP_MISMATCH')
+  for row in observed['roles']:
+   if any(row.get(k) is True for k in (
+       'rolsuper','rolcreatedb','rolcreaterole','rolreplication','rolbypassrls')):
+    fail('STAGE_ELEVATED_ROLE')
+  for row in observed['memberships']:
+   if (row.get('admin_option') is not False or
+       row.get('inherit_option') is not True or
+       row.get('set_option') is not False):
+    fail('STAGE_MEMBERSHIP_FLAGS')
+ if stage in ('S0','S1','S2'):
+  if [x['id'] for x in observed['schemas']]!=['public']:
+   fail('PRE_UNAPPROVED_SCHEMA')
+  for category in ('relations','columns','sequence_settings','functions',
+   'triggers','constraints','indexes','policies','extensions','types',
+   'rules','event_triggers','publications','operators','collations'):
+   if observed[category]:fail('PRE_UNAPPROVED_'+category.upper())
+ if stage=='S0':
+  for category in ('effective_grants','function_grants','sequence_grants',
+   'schema_grants','database_grants','default_privileges'):
+   if observed[category]:fail('S0_PREEXISTING_'+category.upper())
+ if stage=='S1' and observed['default_privileges']:
+  fail('S1_CREATOR_DEFAULTS_PREMATURE')
+ if stage=='S2':
+  defaults=observed['default_privileges']
+  if not any(x.get('id')=='hft_staging_migration_owner:f:GLOBAL'
+             for x in defaults):
+   fail('S2_CREATOR_DEFAULTS_MISSING')
+ if stage in ('S3','S4','S5'):
+  if [x['id'] for x in observed['schemas']]!=['hft','public']:
+   fail('POST_CANONICAL_SCHEMA')
+  if not any(x['id']=='hft.schema_revision' for x in observed['relations']):
+   fail('REVISION_TABLE_MISSING')
+  for category in ('relations','columns','functions','triggers',
+   'constraints','indexes'):
+   if not observed[category]:fail('REQUIRED_'+category.upper()+'_MISSING')
+
+def verify_stage(query,stage,reference_paths=None):
+ if stage not in STAGES:fail('STAGE_NOT_DECLARED')
+ refs=approved_stage_references(reference_paths)
+ observed=collect(query)  # real, unmocked 24-category reader
+ structural_stage_checks(observed,stage)
+ actual=sha(canonical(observed))
+ if actual!=refs[stage]:fail('STAGE_'+stage+'_EXTRA_MISSING_OR_ALTERED_CATALOG')
+ return actual
+
 def verify_prebootstrap(query):
+ """Legacy S0 only; NOT valid for post-security S1 or post-creator S2."""
  observed=collect(query)
- if [x['id'] for x in observed['schemas']]!=['public']:fail('PRE_UNAPPROVED_SCHEMA')
- for category in ('relations','columns','sequence_settings','functions','triggers','constraints','indexes',
-  'policies','extensions','roles','memberships','effective_grants',
-  'function_grants','sequence_grants','schema_grants','database_grants',
- 'types','rules','event_triggers','publications','operators','collations',
- 'default_privileges'):
-  if observed[category]:fail('PRE_UNAPPROVED_'+category.upper())
+ structural_stage_checks(observed,'S0')
  return sha(canonical(observed))
+
 def verify_postcanonical(query,approved_pin=PIN):
+ """Historical C028 strict full-catalog reference; S3/S4/S5 must use verify_stage."""
  observed=collect(query)
+ # Historical C028 contract: source hashing only. C030 phase guards use the
+ # stricter verify_stage() with complete per-state role, ACL and source checks.
  if not any(x['id']=='hft.schema_revision' for x in observed['relations']):
   fail('REVISION_TABLE_MISSING')
- for category in ('schemas','relations','columns','functions','triggers','constraints','indexes'):
+ for category in ('schemas','relations','columns','functions','triggers',
+  'constraints','indexes'):
   if not observed[category]:fail('REQUIRED_'+category.upper()+'_MISSING')
  pin=Path(approved_pin)
  if pin.is_symlink() or not pin.is_file():fail('EXPECTED_FINGERPRINT_UNAVAILABLE')
@@ -223,4 +337,3 @@ def verify_postcanonical(query,approved_pin=PIN):
  actual=sha(canonical(observed))
  if actual!=expected:fail('EXTRA_MISSING_OR_ALTERED_CATALOG')
  return actual
-

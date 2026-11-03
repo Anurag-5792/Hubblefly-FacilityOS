@@ -119,16 +119,20 @@ def auth_artifact(path,phase,recovery_path):
  if not review_path or sha(Path(review_path).read_bytes())!=expected: raise Stop('INDEPENDENT_REVIEW_EVIDENCE')
  apin=pin(EXEC_PIN,'EXECUTION_AUTHORIZATION'); raw=path.read_bytes()
  if sha(raw)!=apin: raise Stop('EXECUTION_AUTHORIZATION_HASH')
- a=json.loads(raw); required={'schema','authorization_id','project_id','branch_id','database','approved_phases','not_before_utc','expires_at_utc','decision_maker','operator','evidence_custodian','independent_verifier','recovery_evidence_sha256','recovery_validator_sha256','catalog_collector_sha256','runner_sha256','role_sql_sha256','creator_sql_sha256','owner_close_sql_sha256','dba_close_sql_sha256','manifest_sha256','production_branch_excluded','scope'}
+ a=json.loads(raw); required={'schema','authorization_id','project_id','branch_id','database','approved_phases','not_before_utc','expires_at_utc','decision_maker','operator','evidence_custodian','independent_verifier','recovery_evidence_sha256','recovery_validator_sha256','catalog_collector_sha256','phase_reference_bundle_sha256','runner_sha256','role_sql_sha256','creator_sql_sha256','owner_close_sql_sha256','dba_close_sql_sha256','manifest_sha256','production_branch_excluded','scope'}
  if set(a)!=required or a['schema']!='HFT_R1_MASTER_V3_BOOTSTRAP019_EXEC_AUTH_V1' or a['project_id']!=PROJECT or a['branch_id']!=BRANCH or a['database']!=DB or a['production_branch_excluded'] is not True or a['scope']!='CANONICAL_0001_0006_STAGING_ONLY' or phase not in a['approved_phases']: raise Stop('EXECUTION_AUTHORIZATION_SCOPE')
  t=now(); nb=utc(a['not_before_utc']); ex=utc(a['expires_at_utc'])
  if not nb<=t<=ex or ex-nb>dt.timedelta(hours=12): raise Stop('EXECUTION_AUTHORIZATION_WINDOW')
  vals=[a[k].strip() for k in ('decision_maker','operator','evidence_custodian','independent_verifier')]
  if any(not HUMAN.fullmatch(v) or v.upper() in {'TBD','UNKNOWN','AI','CHATGPT','MAVERICK'} for v in vals) or vals[1]==vals[3]: raise Stop('HUMAN_AUTHORIZATION')
+ try:
+  phase_ref_bundle=c028_catalog.stage_reference_bundle()
+ except ValueError:raise Stop('PHASE_REFERENCE_APPROVAL_REQUIRED') from None
  if sha(Path(__file__).read_bytes())!=a['runner_sha256'] or (
   a['recovery_validator_sha256']!=pin(RECOVERY_SOURCE_PIN,'RECOVERY_V2_SOURCE')
   or a['recovery_validator_sha256']!=sha((ROOT/'tools/hft_neon_recovery_v2.py').read_bytes()) or
-  a['catalog_collector_sha256']!=sha((ROOT/'tools/hft_c028_catalog.py').read_bytes())
+  a['catalog_collector_sha256']!=sha((ROOT/'tools/hft_c028_catalog.py').read_bytes()) or
+  a['phase_reference_bundle_sha256']!=phase_ref_bundle
  ) or a['role_sql_sha256']!=ROLE_SHA or a['creator_sql_sha256']!=CREATOR_SHA or a['owner_close_sql_sha256']!=OWNER_CLOSE_SHA or a['dba_close_sql_sha256']!=DBA_CLOSE_SHA or a['manifest_sha256']!=MANIFEST_SHA: raise Stop('AUTHORIZED_PACKAGE_HASH')
  if sha(recovery_path.read_bytes())!=a['recovery_evidence_sha256']: raise Stop('RECOVERY_NOT_BOUND_TO_AUTHORIZATION')
  return a
@@ -278,24 +282,18 @@ def live_database_phase_state(e,phase):
  if info['schema_exists'] is False and info['ledger_exists'] is False:
   if info['non_system_user_objects']!=0:
    raise Stop('PHASE_PRECHANGE_UNEXPECTED_OBJECTS')
-  # Separate complete catalog read catches rogue public functions, policies,
-  # constraints, extensions and schemas not represented by pg_class counts.
-  try:c028_catalog.verify_prebootstrap(lambda statement:psql(statement,e))
-  except ValueError:raise Stop('PHASE_PRECHANGE_UNAPPROVED_CATALOG') from None
-  if phase=='prepare-security':
-   if info['migration_role_exists'] is not False:
-    raise Stop('PHASE_PREPARE_SECURITY_ROLE_ALREADY_EXISTS')
-  elif phase=='prepare-migration-owner':
-   if info['migration_role_exists'] is not True:
-    raise Stop('PHASE_MIGRATION_ROLE_NOT_CREATED')
-  elif phase=='migrate':
-   if (info['migration_role_exists'] is not True or
-     info['creator_default_restricted'] is not True):
-    raise Stop('PHASE_MIGRATION_CREATOR_DEFAULTS_UNQUALIFIED')
-  elif phase=='preflight-owner':
-   pass
-  else:raise Stop('PHASE_POSTCHANGE_EXPECTED')
-  return 'APPROVED_EMPTY'
+  stage={'prepare-security':'S0','prepare-migration-owner':'S1',
+   'migrate':'S2','preflight-owner':'S0'}.get(phase)
+  if stage is None:raise Stop('PHASE_PRECHANGE_NOT_ALLOWED')
+  if stage=='S0' and info['migration_role_exists'] is not False:
+   raise Stop('PHASE_PREPARE_SECURITY_ROLE_ALREADY_EXISTS')
+  if stage in ('S1','S2') and info['migration_role_exists'] is not True:
+   raise Stop('PHASE_MIGRATION_ROLE_NOT_CREATED')
+  if stage=='S2' and info['creator_default_restricted'] is not True:
+   raise Stop('PHASE_MIGRATION_CREATOR_DEFAULTS_UNQUALIFIED')
+  try:c028_catalog.verify_stage(lambda statement:psql(statement,e),stage)
+  except ValueError:raise Stop('PHASE_'+stage+'_CATALOG_NOT_QUALIFIED') from None
+  return stage
  if info['schema_exists'] is True and info['ledger_exists'] is True:
   if info['required_catalog_present'] is not True or info['schema_owner']!=MIG:
    raise Stop('PHASE_EXPECTED_CANONICAL_CATALOG_MISSING')
@@ -310,12 +308,12 @@ def live_database_phase_state(e,phase):
   except (ValueError,TypeError):raise Stop('PHASE_REVISION_READBACK_INVALID') from None
   expected=[{'version':v,'sha256':h} for v,_,h in MIGS]
   if rows!=expected:raise Stop('PHASE_CANONICAL_REVISION_MISMATCH')
-  # Exact source SHA-bound complete schema/roles/ACL/fn/index/trigger/
-  # constraint/policy fingerprint. HOLD until independent PG18 reviewer pins
-  # the actual qualified reference capture; no invented expected fingerprint.
-  try:c028_catalog.verify_postcanonical(lambda statement:psql(statement,e))
-  except ValueError:raise Stop('PHASE_CANONICAL_CATALOG_HASH_NOT_QUALIFIED') from None
-  return 'EXACT_CANONICAL_0001_0006'
+  stage={'finalize-owner':'S3','finalize-dba':'S4',
+   'verify-final-dba':'S5'}.get(phase)
+  if stage is None:raise Stop('PHASE_POSTCHANGE_NOT_ALLOWED')
+  try:c028_catalog.verify_stage(lambda statement:psql(statement,e),stage)
+  except ValueError:raise Stop('PHASE_'+stage+'_CATALOG_NOT_QUALIFIED') from None
+  return stage
  raise Stop('PHASE_DATABASE_STATE_INCONSISTENT')
 
 
@@ -376,7 +374,12 @@ def main():
  if a.phase=='preflight-owner': empty(e); print('OWNER_PREFLIGHT=PASS'); return 0
  if a.phase in MUTATING:
   observed=live_database_phase_state(e,a.phase)
-  try:validate_phase(a.phase,observed,'A_AUTHORIZED')
+  expected={'prepare-security':'S0','prepare-migration-owner':'S1',
+   'migrate':'S2','finalize-owner':'S3','finalize-dba':'S4'}[a.phase]
+  if observed!=expected:raise Stop('PHASE_TRANSITION_MISMATCH')
+  try:validate_phase(a.phase,
+   'APPROVED_EMPTY' if observed in ('S0','S1','S2') else 'EXACT_CANONICAL_0001_0006',
+   'A_AUTHORIZED')
   except ValueError:raise Stop('PHASE_GUARD_DENIED') from None
   journal(a.journal,'live_phase_guard_verified',phase=a.phase,state=observed)
  if a.phase=='prepare-security': empty(e); out=psql(security_sql(),e); assert 'HFT_SECURITY_BOOTSTRAP_ACK' in out; print('SECURITY_BOOTSTRAP=COMMITTED;ATTENDED_PASSWORD_SETTING_REQUIRED'); return 0
@@ -391,6 +394,8 @@ def main():
  if a.phase=='finalize-owner': ledger(e); out=psql(owner_close_sql(),e); assert 'HFT_OWNER_CLOSE_ACK' in out; print('OWNER_OBJECT_ACL_CLOSE=PASS'); return 0
  if a.phase=='finalize-dba': ledger(e); out=psql(dba_close_sql(),e); assert 'HFT_DBA_CLOSE_ACK' in out; print('DBA_DATABASE_CREATE_CLOSE=PASS'); return 0
  if a.phase=='verify-final-dba':
+  if live_database_phase_state(e,'verify-final-dba')!='S5':
+   raise Stop('FINAL_SEALED_S5_REQUIRED')
   ledger(e); got=psql(final_catalog_sql(),e); exp=f'{MIG}|false|false|false|true|true|0|0|0|0'
   if got!=exp: raise Stop('FINAL_CATALOG:'+got)
   print('FINAL_CATALOG_SECURITY=PASS'); return 0

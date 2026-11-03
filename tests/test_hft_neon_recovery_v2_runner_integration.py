@@ -94,11 +94,17 @@ class RunnerEnforcement(unittest.TestCase):
    return json.dumps(rows)
   raise AssertionError('UNEXPECTED_SQL')
  def test_live_catalog_classifies_empty_and_post_exact_state(self):
-  with patch.object(runner,'psql',side_effect=lambda q,e:self.read_sql(q,False)),patch.object(runner.c028_catalog,'verify_prebootstrap',return_value='0'*64):
-   self.assertEqual(runner.live_database_phase_state({},'prepare-security'),'APPROVED_EMPTY')
-  with patch.object(runner,'psql',side_effect=lambda q,e:self.read_sql(q,True)),patch.object(runner.c028_catalog,'verify_postcanonical',return_value='0'*64):
-   self.assertEqual(runner.live_database_phase_state({},'finalize-owner'),
-    'EXACT_CANONICAL_0001_0006')
+  # Reuse synthetic PG responses but DO NOT patch the catalog classifier.
+  spec=importlib.util.spec_from_file_location('hft_c030_stages',
+   Path(__file__).with_name('test_hft_c030_phase_transitions.py'))
+  module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+  case=module.C030Lifecycle('test_complete_sequential_s0_to_s5_positive')
+  case.setUp()
+  try:
+   self.assertEqual(case.classify('prepare-security','S0'),'S0')
+   self.assertEqual(case.classify('finalize-owner','S3'),'S3')
+   self.assertEqual(case.classify('verify-final-dba','S5'),'S5')
+  finally:case.doCleanups()
  def test_live_catalog_rejects_invalid_revision(self):
   with patch.object(runner,'psql',side_effect=lambda q,e:self.read_sql(q,True,True)):
    with self.assertRaisesRegex(runner.Stop,'PHASE_CANONICAL_REVISION_MISMATCH'):

@@ -48,11 +48,19 @@ class SourceFinal023(unittest.TestCase):
    recovery_obj={'schema':'HFT_R1_NEON_PRECHANGE_RECOVERY_V2','project_id':m.PROJECT,'source_branch_id':m.BRANCH,'database':m.DB,'source_state_sha256':'0'*64}
 
    recovery.write_text(json.dumps(recovery_obj,separators=(',',':'),sort_keys=True))
+   # TEST-ONLY approved reference SHA fixtures, NEVER committed approvals.
+   stage_paths={}
+   for idx,stage in enumerate(m.c028_catalog.STAGES):
+    stage_file=td/(stage+'.sha256')
+    stage_file.write_text(format(idx+1,'x')*64+'\n')
+    stage_paths[stage]=stage_file
+   with patch.object(m.c028_catalog,'STAGE_PATHS',stage_paths):
+    synthetic_bundle=m.c028_catalog.stage_reference_bundle()
    auth=td/'auth.json';t=m.now()
-   obj={'schema':'HFT_R1_MASTER_V3_BOOTSTRAP019_EXEC_AUTH_V1','authorization_id':'AUTH-1','project_id':m.PROJECT,'branch_id':m.BRANCH,'database':m.DB,'approved_phases':['migrate'],'not_before_utc':(t-m.dt.timedelta(minutes=5)).isoformat().replace('+00:00','Z'),'expires_at_utc':(t+m.dt.timedelta(hours=1)).isoformat().replace('+00:00','Z'),'decision_maker':'Director Human','operator':'Operator Human','evidence_custodian':'Custodian Human','independent_verifier':'Verifier Human','recovery_evidence_sha256':m.sha(recovery.read_bytes()),'recovery_validator_sha256':m.sha((ROOT/'tools/hft_neon_recovery_v2.py').read_bytes()),'catalog_collector_sha256':m.sha((ROOT/'tools/hft_c028_catalog.py').read_bytes()),'runner_sha256':m.sha(pathlib.Path(m.__file__).read_bytes()),'role_sql_sha256':m.ROLE_SHA,'creator_sql_sha256':m.CREATOR_SHA,'owner_close_sql_sha256':m.OWNER_CLOSE_SHA,'dba_close_sql_sha256':m.DBA_CLOSE_SHA,'manifest_sha256':m.MANIFEST_SHA,'production_branch_excluded':True,'scope':'CANONICAL_0001_0006_STAGING_ONLY'}
+   obj={'schema':'HFT_R1_MASTER_V3_BOOTSTRAP019_EXEC_AUTH_V1','authorization_id':'AUTH-1','project_id':m.PROJECT,'branch_id':m.BRANCH,'database':m.DB,'approved_phases':['migrate'],'not_before_utc':(t-m.dt.timedelta(minutes=5)).isoformat().replace('+00:00','Z'),'expires_at_utc':(t+m.dt.timedelta(hours=1)).isoformat().replace('+00:00','Z'),'decision_maker':'Director Human','operator':'Operator Human','evidence_custodian':'Custodian Human','independent_verifier':'Verifier Human','recovery_evidence_sha256':m.sha(recovery.read_bytes()),'recovery_validator_sha256':m.sha((ROOT/'tools/hft_neon_recovery_v2.py').read_bytes()),'catalog_collector_sha256':m.sha((ROOT/'tools/hft_c028_catalog.py').read_bytes()),'phase_reference_bundle_sha256':synthetic_bundle,'runner_sha256':m.sha(pathlib.Path(m.__file__).read_bytes()),'role_sql_sha256':m.ROLE_SHA,'creator_sql_sha256':m.CREATOR_SHA,'owner_close_sql_sha256':m.OWNER_CLOSE_SHA,'dba_close_sql_sha256':m.DBA_CLOSE_SHA,'manifest_sha256':m.MANIFEST_SHA,'production_branch_excluded':True,'scope':'CANONICAL_0001_0006_STAGING_ONLY'}
    auth.write_text(json.dumps(obj,separators=(',',':'),sort_keys=True))
    rp=td/'rp';ep=td/'ep';rp.write_text(m.sha(review.read_bytes()));ep.write_text(m.sha(auth.read_bytes()))
-   with patch.object(m,'REVIEW_PIN',rp),patch.object(m,'EXEC_PIN',ep),patch.dict(os.environ,{'HFT_BOOTSTRAP019_REVIEW_EVIDENCE':str(review)},clear=False):
+   with patch.object(m,'REVIEW_PIN',rp),patch.object(m,'EXEC_PIN',ep),patch.object(m.c028_catalog,'STAGE_PATHS',stage_paths),patch.dict(os.environ,{'HFT_BOOTSTRAP019_REVIEW_EVIDENCE':str(review)},clear=False):
     a=m.auth_artifact(auth,'migrate',recovery);self.assertEqual(a['operator'],'Operator Human')
     bad=dict(obj);bad['expires_at_utc']='2020-01-01T00:00:00Z';auth.write_text(json.dumps(bad,separators=(',',':'),sort_keys=True));ep.write_text(m.sha(auth.read_bytes()))
     with patch.object(m,'EXEC_PIN',ep):
@@ -68,6 +76,26 @@ class SourceFinal023(unittest.TestCase):
     ep.write_text(m.sha(auth.read_bytes()))
     with self.assertRaisesRegex(m.Stop,'AUTHORIZED_PACKAGE_HASH'):
      m.auth_artifact(auth,'migrate',recovery)
+    # Even if the old approval payload and original runner code remain
+    # unchanged, replacing an S2 reference must invalidate that Gate A hash.
+    auth.write_text(json.dumps(obj,separators=(',',':'),sort_keys=True))
+    ep.write_text(m.sha(auth.read_bytes()))
+    stage_paths['S2'].write_text('e'*64+'\n')
+    with self.assertRaisesRegex(m.Stop,'AUTHORIZED_PACKAGE_HASH'):
+     m.auth_artifact(auth,'migrate',recovery)
+ def test_phase_pin_hash_change_invalidates_gate_a(self):
+  # Synthetic local auth: no real approval pins altered.
+  with tempfile.TemporaryDirectory() as tmp:
+   root=pathlib.Path(tmp)
+   ref_paths={}
+   for i,stage in enumerate(m.c028_catalog.STAGES):
+    f=root/(stage+'.sha256')
+    f.write_text(format(i+1,'x')*64+'\n')
+    ref_paths[stage]=f
+   with patch.object(m.c028_catalog,'STAGE_PATHS',ref_paths):
+    before=m.c028_catalog.stage_reference_bundle()
+    ref_paths['S2'].write_text('e'*64+'\n')
+    self.assertNotEqual(m.c028_catalog.stage_reference_bundle(),before)
  def test_recovery_v1_child_snapshot_is_prohibited(self):
   with tempfile.TemporaryDirectory() as td:
    td=pathlib.Path(td);e=td/'legacy.json'
