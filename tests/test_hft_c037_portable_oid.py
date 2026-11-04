@@ -270,6 +270,36 @@ class C037PortableOID(unittest.TestCase):
    self.assertNotEqual(out['collection_id'],second['collection_id'])
   finally:self.case.db.snapshots['S3']=old
 
+ def test_local_oid_evidence_is_retained_in_hash_bound_journal(self):
+  stage='S3';transport=self.case.db.sql(stage)
+  forensic={}
+  c.collect(lambda sql:transport(sql,{}),include_phase=True,
+   expected_identity=(runner.DB,runner.OWNER,runner.PGNUM),
+   evidence_out=forensic,branch_id=runner.BRANCH)
+  with tempfile.TemporaryDirectory() as td:
+   log=Path(td)/'role-forensic.jsonl'
+   runner.record_role_oid_evidence(log,'finalize-owner',forensic)
+   events=[json.loads(line) for line in log.read_text().splitlines()]
+   self.assertEqual(len(events),1)
+   event=events[0]
+   self.assertEqual(event['event'],'role_oid_forensic_observation')
+   self.assertEqual(event['project_id'],runner.PROJECT)
+   self.assertEqual(event['branch_id'],runner.BRANCH)
+   self.assertEqual(event['database'],runner.DB)
+   self.assertEqual(event['collection_id'],forensic['collection_id'])
+   self.assertEqual(event['collector_source_sha256'],
+    c.sha(Path(c.__file__).read_bytes()))
+   self.assertEqual(c.sha(c.canonical(event['raw_oid_evidence'])),
+    event['raw_oid_sha256'])
+   self.assertTrue(event['raw_oid_evidence']['role_oids'])
+   self.assertTrue(event['raw_oid_evidence']['grants'])
+   edited=copy.deepcopy(forensic)
+   edited['raw_oid_evidence']['role_oids']['neondb_owner']='1'
+   with self.assertRaisesRegex(runner.Stop,
+       'ROLE_OID_FORENSIC_EVIDENCE_INCOMPLETE'):
+    runner.record_role_oid_evidence(log,'finalize-owner',edited)
+   self.assertEqual(len(log.read_text().splitlines()),1)
+
  def test_revision_and_reference_changes_remain_rejected(self):
   for stage in c.STAGES:
    changed=copy.deepcopy(self.case.db.snapshots[stage])
