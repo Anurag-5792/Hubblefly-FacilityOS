@@ -19,7 +19,7 @@ PHASES=(('prepare-security','S0'),('prepare-migration-owner','S1'),
 def census_roles(*names):
  return [{'id':name,'role_oid':str(10000+i),
   'rolcanlogin':name in ('neondb_owner','hft_staging_migration_owner',
-   'hft_staging_app_runtime','hft_staging_audit_verify'),
+   'hft_staging_app_runtime','hft_staging_audit_verify','untracked_login'),
   'rolsuper':False,'rolinherit':True,'rolcreatedb':False,
   'rolcreaterole':False,'rolreplication':False,'rolbypassrls':False,
   'rolconnlimit':-1,'expires':None,'settings':None}
@@ -53,14 +53,15 @@ class FakePg18:
    rows['provider_roles']=[{'id':'neon_superuser','rolsuper':False},{'id':'neondb_owner','rolsuper':False}]
    rows['schema_public_grants']=[{'id':'public','public_create':False,'public_usage':True}]
    all_names=(set(c.PG18_PREDEFINED_ROLES)|
-    {'neondb_owner','neon_superuser'}|
+    {'neondb_owner','neon_superuser','untracked_login','intermediate_generic'}|
     (self.roles if stage!='S0' else set()))
    rows['role_census']=census_roles(*all_names)
    baseline_edges=[
     ('neondb_owner','neon_superuser','neon_superuser'),
     ('pg_monitor','pg_read_all_settings','neon_superuser'),
     ('pg_monitor','pg_read_all_stats','neon_superuser'),
-    ('pg_monitor','pg_stat_scan_tables','neon_superuser')]
+    ('pg_monitor','pg_stat_scan_tables','neon_superuser'),
+    ('untracked_login','intermediate_generic','neondb_owner')]
    rows['provider_memberships']=[{'id':'neondb_owner->neon_superuser',
     'admin_option':False,'inherit_option':True,'set_option':False}]
    if stage!='S0':
