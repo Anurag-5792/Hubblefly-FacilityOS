@@ -308,8 +308,14 @@ class C030Lifecycle(unittest.TestCase):
   self.marker=self.root/'journal.jsonl'
   continuity_file=self.root/'role-continuity.synthetic.json'
   continuity_file.write_text(json.dumps(self.continuity[stage]))
+  history_file=self.root/'historical-manifest.test.json'
+  history_file.write_text('{"synthetic":true}')
+  history_map=self.root/'historical-files.test.json'
+  history_map.write_text('{"synthetic":true}')
   argv=['hft-online-runner',phase,'--journal',str(self.marker),
    '--role-continuity-evidence',str(continuity_file),
+   '--historical-manifest',str(history_file),
+   '--historical-file-map',str(history_map),
    '--recovery-evidence',str(self.root/'recovery.json'),
    '--authorization-artifact',str(self.root/'auth.json'),
    '--snapshot-detail-readback',str(self.root/'files.json')]
@@ -324,6 +330,13 @@ class C030Lifecycle(unittest.TestCase):
     'authorization_id':'TEST-ONLY','operator':'Test Operator',
     'evidence_custodian':'Test Custodian',
     'independent_verifier':'Test Different Human'}))
+   # Historical signature verification is tested unmocked in C039; these
+   # older source fixtures isolate stage sequencing and mutation guards.
+   stack.enter_context(patch.object(runner,'authenticated_history_gate',
+    return_value={'stage':stage,'collection_ids':[],
+     'manifest_sha256':'a'*64,'predecessor_collection_sha256':'b'*64,
+     'root_collection_sha256':'c'*64,'predecessor_witness_sha256':'d'*64,
+     'collector_source_sha256':c.sha(Path(c.__file__).read_bytes())}))
    stack.enter_context(patch.object(runner,'recovery_evidence',return_value={
     'recovery_hash':'0'*64}))
    stack.enter_context(patch.object(runner,'env_for',return_value={}))
