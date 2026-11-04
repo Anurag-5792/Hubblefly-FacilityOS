@@ -9,6 +9,8 @@ import argparse, datetime as dt, hashlib, json, os, re, shutil, subprocess, sys,
 from pathlib import Path
 try:
  from tools import hft_c028_catalog as c028_catalog
+ import hft_c039_history as c039_history
+ from tools import hft_c039_history as c039_history
 except ModuleNotFoundError:
  import hft_c028_catalog as c028_catalog
 
@@ -114,13 +116,13 @@ def control_plane_live(env=None,getter=None):
  if len(database)!=1 or database[0].get('owner_name')!=OWNER: raise Stop('CONTROL_PLANE_DATABASE')
  return {'captured_at_utc':now().isoformat().replace('+00:00','Z'),'project':project,'branch':target[0],'production_branch':prod[0],'endpoint':ep[0],'all_endpoints':endpoints,'database':database[0]}
 
-def auth_artifact(path,phase,recovery_path,continuity_path=None):
+def auth_artifact(path,phase,recovery_path,continuity_path=None,history_manifest_path=None):
  expected=pin(REVIEW_PIN,'INDEPENDENT_REVIEW') ; review_path=os.environ.get('HFT_BOOTSTRAP019_REVIEW_EVIDENCE','')
  if not review_path or sha(Path(review_path).read_bytes())!=expected: raise Stop('INDEPENDENT_REVIEW_EVIDENCE')
  apin=pin(EXEC_PIN,'EXECUTION_AUTHORIZATION'); raw=path.read_bytes()
  if sha(raw)!=apin: raise Stop('EXECUTION_AUTHORIZATION_HASH')
- a=json.loads(raw); required={'schema','authorization_id','project_id','branch_id','database','approved_phases','not_before_utc','expires_at_utc','decision_maker','operator','evidence_custodian','independent_verifier','recovery_evidence_sha256','recovery_validator_sha256','catalog_collector_sha256','phase_reference_bundle_sha256','role_continuity_evidence_sha256','runner_sha256','role_sql_sha256','creator_sql_sha256','owner_close_sql_sha256','dba_close_sql_sha256','manifest_sha256','production_branch_excluded','scope'}
- if set(a)!=required or a['schema']!='HFT_R1_MASTER_V3_BOOTSTRAP019_EXEC_AUTH_V2' or a['project_id']!=PROJECT or a['branch_id']!=BRANCH or a['database']!=DB or a['production_branch_excluded'] is not True or a['scope']!='CANONICAL_0001_0006_STAGING_ONLY' or phase not in a['approved_phases']: raise Stop('EXECUTION_AUTHORIZATION_SCOPE')
+ a=json.loads(raw); required={'schema','authorization_id','project_id','branch_id','database','approved_phases','not_before_utc','expires_at_utc','decision_maker','operator','evidence_custodian','independent_verifier','recovery_evidence_sha256','recovery_validator_sha256','catalog_collector_sha256','phase_reference_bundle_sha256','role_continuity_evidence_sha256','historical_manifest_sha256','historical_root_collection_sha256','historical_verifier_sha256','runner_sha256','role_sql_sha256','creator_sql_sha256','owner_close_sql_sha256','dba_close_sql_sha256','manifest_sha256','production_branch_excluded','scope'}
+ if set(a)!=required or a['schema']!='HFT_R1_MASTER_V3_BOOTSTRAP019_EXEC_AUTH_V3' or a['project_id']!=PROJECT or a['branch_id']!=BRANCH or a['database']!=DB or a['production_branch_excluded'] is not True or a['scope']!='CANONICAL_0001_0006_STAGING_ONLY' or phase not in a['approved_phases']: raise Stop('EXECUTION_AUTHORIZATION_SCOPE')
  t=now(); nb=utc(a['not_before_utc']); ex=utc(a['expires_at_utc'])
  if not nb<=t<=ex or ex-nb>dt.timedelta(hours=12): raise Stop('EXECUTION_AUTHORIZATION_WINDOW')
  vals=[a[k].strip() for k in ('decision_maker','operator','evidence_custodian','independent_verifier')]
@@ -132,6 +134,7 @@ def auth_artifact(path,phase,recovery_path,continuity_path=None):
   a['recovery_validator_sha256']!=pin(RECOVERY_SOURCE_PIN,'RECOVERY_V2_SOURCE')
   or a['recovery_validator_sha256']!=sha((ROOT/'tools/hft_neon_recovery_v2.py').read_bytes()) or
   a['catalog_collector_sha256']!=sha((ROOT/'tools/hft_c028_catalog.py').read_bytes()) or
+  a['historical_verifier_sha256']!=sha((ROOT/'tools/hft_c039_history.py').read_bytes()) or
   a['phase_reference_bundle_sha256']!=phase_ref_bundle
  ) or a['role_sql_sha256']!=ROLE_SHA or a['creator_sql_sha256']!=CREATOR_SHA or a['owner_close_sql_sha256']!=OWNER_CLOSE_SHA or a['dba_close_sql_sha256']!=DBA_CLOSE_SHA or a['manifest_sha256']!=MANIFEST_SHA: raise Stop('AUTHORIZED_PACKAGE_HASH')
  if sha(recovery_path.read_bytes())!=a['recovery_evidence_sha256']: raise Stop('RECOVERY_NOT_BOUND_TO_AUTHORIZATION')
@@ -140,6 +143,15 @@ def auth_artifact(path,phase,recovery_path,continuity_path=None):
   raise Stop('ROLE_OID_CONTINUITY_EVIDENCE_REQUIRED')
  if sha(continuity_path.read_bytes())!=a['role_continuity_evidence_sha256']:
   raise Stop('ROLE_OID_CONTINUITY_AUTHORIZATION_HASH')
+ if (history_manifest_path is None or history_manifest_path.is_symlink()
+     or not history_manifest_path.is_file()):
+  raise Stop('HISTORY_MANIFEST_REQUIRED')
+ if (not isinstance(a['historical_manifest_sha256'],str) or
+     not HEX64.fullmatch(a['historical_manifest_sha256']) or
+     not isinstance(a['historical_root_collection_sha256'],str) or
+     not HEX64.fullmatch(a['historical_root_collection_sha256']) or
+     sha(history_manifest_path.read_bytes())!=a['historical_manifest_sha256']):
+  raise Stop('HISTORY_MANIFEST_NOT_GATE_A_BOUND')
  return a
 
 def recovery_evidence(path,authorization,live,detail_path,getter=None):
@@ -254,7 +266,36 @@ def load_role_continuity(path):
   raise Stop('ROLE_OID_CONTINUITY_EVIDENCE_INVALID')
  return obj
 
-def live_database_phase_state(e,phase,continuity=None,evidence_out=None):
+def authenticated_history_gate(phase,auth,continuity,manifest_path,filemap_path):
+ """Use actual corporate-pinned Ed25519 signatures and original bytes.
+
+ The untrusted continuity JSON is corroborated, never its own authority.
+ No source helper may issue Gate A or independently enroll a trust key.
+ """
+ stage={'prepare-security':'S0','prepare-migration-owner':'S1','migrate':'S2',
+  'finalize-owner':'S3','finalize-dba':'S4','verify-final-dba':'S5'}.get(phase)
+ if stage is None:raise Stop('HISTORY_PHASE_NOT_AUTHORIZABLE')
+ try:
+  proof=c039_history.validate_history(
+   manifest_path,filemap_path,auth['historical_manifest_sha256'],
+   stage,{'project_id':PROJECT,'branch_id':BRANCH,'database':DB},
+   c028_catalog.STAGE_PATHS,auth['catalog_collector_sha256'],
+   pin(RECOVERY_COLLECTOR_PIN,'RECOVERY_V2_COLLECTOR'),
+   pin(RECOVERY_WITNESS_PIN,'RECOVERY_V2_WITNESS'),
+   auth['not_before_utc'],
+   approved_baseline_sha256=auth['historical_root_collection_sha256'])
+ except ValueError:raise Stop('HISTORICAL_PREDECESSOR_NOT_AUTHENTICATED') from None
+ if (continuity.get('stage')!=stage or
+     continuity.get('anchor_stage')!=proof['previous_stage'] or
+     continuity.get('previous_collection_sha256')!=
+      proof['predecessor_collection_sha256'] or
+     continuity.get('witness_evidence_sha256')!=proof['predecessor_witness_sha256'] or
+     continuity.get('prior_role_oids')!=proof['prior_role_oids'] or
+     continuity.get('collector_source_sha256')!=proof['collector_source_sha256']):
+  raise Stop('CONTINUITY_CLAIMS_NOT_DERIVED_FROM_AUTHENTIC_HISTORY')
+ return proof
+
+def live_database_phase_state(e,phase,continuity=None,evidence_out=None,authenticated_history=None):
  """Read actual PostgreSQL catalog and revision rows, not a caller label.
 
  A single READ ONLY query checks the fixed catalog footprint. The revision
@@ -270,6 +311,11 @@ def live_database_phase_state(e,phase,continuity=None,evidence_out=None):
     evidence_out=source_collection,branch_id=BRANCH)
  except ValueError:
   raise Stop('PHASE_CONSISTENT_SNAPSHOT_NOT_QUALIFIED') from None
+ if authenticated_history is not None:
+  if (authenticated_history['stage'] not in c028_catalog.STAGES or
+      source_collection['collection_id'] in
+      authenticated_history['collection_ids']):
+   raise Stop('HISTORY_CURRENT_COLLECTION_REPLAY_OR_STAGE')
  if not isinstance(info,dict) or set(info)!={
    'schema_exists','ledger_exists','non_system_user_objects',
    'migration_role_exists','creator_default_restricted','schema_owner',
@@ -372,7 +418,7 @@ def record_role_oid_evidence(path,phase,collected):
 MUTATING={'prepare-security','prepare-migration-owner','migrate','finalize-owner','finalize-dba'}
 def main():
  ap=argparse.ArgumentParser(); ap.add_argument('phase',choices=['verify-manifest','preflight-control','preflight-owner','prepare-security','prepare-migration-owner','migrate','finalize-owner','finalize-dba','verify-final-dba','verify-runtime-negative','verify-audit','verify-recovery-v2'])
- ap.add_argument('--authorization-artifact',type=Path); ap.add_argument('--recovery-evidence',type=Path); ap.add_argument('--snapshot-detail-readback',type=Path); ap.add_argument('--role-continuity-evidence',type=Path); ap.add_argument('--journal',type=Path); a=ap.parse_args(); plan=manifest()
+ ap.add_argument('--authorization-artifact',type=Path); ap.add_argument('--recovery-evidence',type=Path); ap.add_argument('--snapshot-detail-readback',type=Path); ap.add_argument('--role-continuity-evidence',type=Path); ap.add_argument('--historical-manifest',type=Path); ap.add_argument('--historical-file-map',type=Path); ap.add_argument('--journal',type=Path); a=ap.parse_args(); plan=manifest()
  if a.phase=='verify-manifest':
   for v,p,h,_ in plan: print(f'MIGRATION_{v:04d}=CANONICAL_VALIDATED file={p.name} sha256={h}')
   print('MANIFEST_ONLY_VALIDATED_NO_DATABASE_EXECUTION'); return 0
@@ -391,21 +437,40 @@ def main():
   print('RECOVERY_V2_SOURCE_READBACK=VERIFIED;GATE_R_UNQUALIFIED;GATE_A_HOLD')
   return 0
  role_continuity=None
- if a.phase in MUTATING or a.phase=='verify-final-dba':
+ authenticated_history=None
+ authenticated_phase=a.phase in MUTATING or a.phase=='verify-final-dba'
+ if authenticated_phase:
+  if (not a.authorization_artifact or not a.recovery_evidence or
+      not a.role_continuity_evidence or not a.historical_manifest or
+      not a.historical_file_map):
+   raise Stop('AUTHENTICATED_HISTORY_AND_GATE_A_REQUIRED')
   role_continuity=load_role_continuity(a.role_continuity_evidence)
- if a.phase in MUTATING:
-  if not a.authorization_artifact or not a.recovery_evidence: raise Stop('AUTHORIZATION_AND_RECOVERY_REQUIRED')
   auth=auth_artifact(a.authorization_artifact,a.phase,a.recovery_evidence,
-   a.role_continuity_evidence)
+   a.role_continuity_evidence,a.historical_manifest)
+  authenticated_history=authenticated_history_gate(
+   a.phase,auth,role_continuity,a.historical_manifest,a.historical_file_map)
   rec=recovery_evidence(a.recovery_evidence,auth,live,a.snapshot_detail_readback)
-  journal(a.journal,'authorization_and_recovery_verified',phase=a.phase,authorization_id=auth['authorization_id'],operator=auth['operator'],custodian=auth['evidence_custodian'],independent_verifier=auth['independent_verifier'],recovery_v2_sha256=rec['recovery_hash'],control_plane_sha256=sha(json.dumps(live,sort_keys=True,default=str).encode()))
+  journal(a.journal,'authenticated_predecessor_verified',
+   phase=a.phase,history_manifest_sha256=authenticated_history['manifest_sha256'],
+   predecessor_collection_sha256=
+    authenticated_history['predecessor_collection_sha256'],
+   root_collection_sha256=authenticated_history['root_collection_sha256'],
+   predecessor_witness_sha256=authenticated_history['predecessor_witness_sha256'],
+   collector_source_sha256=authenticated_history['collector_source_sha256'],
+   authorization_id=auth['authorization_id'])
+  journal(a.journal,'authorization_and_recovery_verified',
+   phase=a.phase,authorization_id=auth['authorization_id'],
+   operator=auth['operator'],custodian=auth['evidence_custodian'],
+   independent_verifier=auth['independent_verifier'],
+   recovery_v2_sha256=rec['recovery_hash'],
+   control_plane_sha256=sha(json.dumps(live,sort_keys=True,default=str).encode()))
  user=OWNER if a.phase in {'preflight-owner','prepare-security','finalize-dba','verify-final-dba'} else (RLOGIN if a.phase=='verify-runtime-negative' else (ALOGIN if a.phase=='verify-audit' else MIG))
  e=env_for(user); ident=sql_attest(e,user); journal(a.journal,'sql_identity_verified',phase=a.phase,user=user,identity=ident)
  if a.phase=='preflight-owner': empty(e); print('OWNER_PREFLIGHT=PASS'); return 0
  if a.phase in MUTATING:
   oid_collection={}
   observed=live_database_phase_state(e,a.phase,continuity=role_continuity,
-   evidence_out=oid_collection)
+   evidence_out=oid_collection,authenticated_history=authenticated_history)
   expected={'prepare-security':'S0','prepare-migration-owner':'S1',
    'migrate':'S2','finalize-owner':'S3','finalize-dba':'S4'}[a.phase]
   if observed!=expected:raise Stop('PHASE_TRANSITION_MISMATCH')
@@ -433,7 +498,7 @@ def main():
  if a.phase=='verify-final-dba':
   final_oid_collection={}
   if live_database_phase_state(e,'verify-final-dba',continuity=role_continuity,
-      evidence_out=final_oid_collection)!='S5':
+      evidence_out=final_oid_collection,authenticated_history=authenticated_history)!='S5':
    raise Stop('FINAL_SEALED_S5_REQUIRED')
   record_role_oid_evidence(a.journal,'verify-final-dba',final_oid_collection)
   ledger(e); got=psql(final_catalog_sql(),e); exp=f'{MIG}|false|false|false|true|true|0|0|0|0'
