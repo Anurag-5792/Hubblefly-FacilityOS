@@ -9,10 +9,10 @@ import argparse, datetime as dt, hashlib, json, os, re, shutil, subprocess, sys,
 from pathlib import Path
 try:
  from tools import hft_c028_catalog as c028_catalog
- import hft_c039_history as c039_history
  from tools import hft_c039_history as c039_history
 except ModuleNotFoundError:
  import hft_c028_catalog as c028_catalog
+ import hft_c039_history as c039_history
 
 ROOT=Path(__file__).resolve().parents[1]; SQL_DIR=ROOT/'db'/'migrations'; MANIFEST=SQL_DIR/'manifest.v1.json'
 PROJECT='red-silence-36758131'; BRANCH='br-dawn-moon-azd9xzrp'; BRANCH_NAME='vercel-dev'; DB='neondb'
