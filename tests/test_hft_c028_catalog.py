@@ -9,6 +9,7 @@ class ExactCatalog(unittest.TestCase):
   rows['schemas']=[{'id':'public'}]
   rows['database_security']=[{'id':'neondb','owner':'neondb_owner','public_connect':False,'public_create':False,'public_temporary':False}]
   rows['provider_roles']=[{'id':'neon_superuser'},{'id':'neondb_owner'}]
+  rows['role_census']=[{'id':name} for name in sorted(set(c.PG18_PREDEFINED_ROLES)|{'neondb_owner','neon_superuser'})]
   rows['schema_public_grants']=[{'id':'public','public_create':False,'public_usage':True}]
   if post:
    rows['schemas']=[{'id':'hft'},{'id':'public'}]
@@ -38,12 +39,13 @@ class ExactCatalog(unittest.TestCase):
   return call,events
  def test_complete_canonical_queries_include_all_protected_categories(self):
   c.check_manifest()
-  self.assertEqual(len(c.CATEGORIES),28)
+  self.assertEqual(len(c.CATEGORIES),30)
   for required in ('schemas','relations','columns','sequence_settings','functions','triggers','constraints',
    'indexes','policies','extensions','roles','memberships','effective_grants',
    'function_grants','sequence_grants','schema_grants','database_grants',
    'types','rules','event_triggers','publications','operators','collations',
-   'default_privileges','database_security','provider_roles','provider_memberships','schema_public_grants'):
+   'default_privileges','database_security','provider_roles','provider_memberships','schema_public_grants',
+   'role_census','role_membership_census'):
    self.assertIn(required,c.CATEGORIES)
  def test_clean_prebootstrap_catalog(self):
   query,events=self.source(self.fixture(False))
