@@ -21,6 +21,9 @@ class FakePg18:
   for stage in c.STAGES:
    rows={category:[] for category in c.CATEGORIES}
    rows['schemas']=[{'id':'public'}]
+   rows['database_security']=[{'id':'neondb','owner':'neondb_owner','public_connect':False,'public_create':False,'public_temporary':False,'acl':'provider-qualified-placeholder'}]
+   rows['provider_roles']=[{'id':'neon_superuser','rolsuper':False},{'id':'neondb_owner','rolsuper':False}]
+   rows['schema_public_grants']=[{'id':'public','public_create':False,'public_usage':True}]
    if stage!='S0':
     rows['roles']=[{'id':x,'rolsuper':False,'rolcreatedb':False,
       'rolcreaterole':False,'rolreplication':False,'rolbypassrls':False}
@@ -53,6 +56,29 @@ class FakePg18:
   rows=self.snapshots[stage]
   post=stage in ('S3','S4','S5')
   def respond(statement,environment):
+   if statement.startswith('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;'):
+    if statement.count('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;')!=1 or statement.count('ROLLBACK;')!=1:
+     raise AssertionError('MULTIPLE_SNAPSHOT_TRANSACTIONS')
+    def frame(kind,value):
+     return json.dumps({'kind':kind,'pid':4399,'snapshot':'8:8:',
+      'database':'neondb','db_user':'neondb_owner','session_user':'neondb_owner',
+      'version':'180006','isolation':'repeatable read','read_only':'on',
+      'data':value},separators=(',',':'))
+    phase={'schema_exists':post,'ledger_exists':post,
+     'non_system_user_objects':8 if post else 0,
+     'migration_role_exists':stage!='S0',
+     'creator_default_restricted':stage not in ('S0','S1'),
+     'schema_owner':runner.MIG if post else None,
+     'required_catalog_present':post}
+    result=[frame('phase',phase)]
+    if post:result.append(frame('revision',[
+     {'version':v,'sha256':h} for v,_,h in runner.MIGS]))
+    for category in c.CATEGORIES:
+     if c.SQL[category] not in statement:
+      raise AssertionError('CATALOG_CATEGORY_MISSING:'+category)
+     result.append(frame(category,rows[category]))
+    return '\\n'.join(result)
+
    if 'json_build_object(' in statement and "'schema_exists'" in statement:
     return json.dumps({'schema_exists':post,'ledger_exists':post,
      'non_system_user_objects':8 if post else 0,
@@ -111,6 +137,35 @@ class C030Lifecycle(unittest.TestCase):
     with self.subTest(phase=phase,actual=wrong),self.assertRaises(
       (runner.Stop,ValueError)):
      self.classify(phase,wrong)
+ def test_c032_public_provider_and_membership_negative(self):
+  for stage,category,change in (
+   ('S0','database_security',{'public_create':True}),
+   ('S0','database_security',{'public_connect':True}),
+   ('S0','database_security',{'public_temporary':True}),
+   ('S1','database_security',{'public_create':True}),
+   ('S2','database_security',{'public_connect':True}),
+   ('S3','database_security',{'public_temporary':True}),
+   ('S4','schema_public_grants',{'public_create':True}),
+   ('S5','provider_roles',{'rolsuper':True})):
+   with self.subTest(stage=stage,category=category):
+    previous=copy.deepcopy(self.db.snapshots[stage][category])
+    self.db.snapshots[stage][category][0].update(change)
+    with self.assertRaises((ValueError,runner.Stop)):
+     self.classify(dict((s,p) for p,s in PHASES)[stage],stage)
+    self.db.snapshots[stage][category]=previous
+  stage='S1'
+  self.db.snapshots[stage]['provider_memberships'].append({
+   'id':'hft_staging_migration_owner->neon_superuser',
+   'admin_option':True,'inherit_option':True,'set_option':True})
+  with self.assertRaises((ValueError,runner.Stop)):
+   self.classify('prepare-migration-owner',stage)
+  self.db.snapshots[stage]['provider_memberships'].clear()
+ def test_c032_snapshot_transport_failure_denies_real_runner(self):
+  cases=['','{}','not json']
+  for raw in cases:
+   with self.subTest(raw=raw),patch.object(runner,'psql',return_value=raw):
+    with self.assertRaises((ValueError,runner.Stop)):
+     runner.live_database_phase_state({'PGUSER':runner.OWNER},'prepare-security')
  def test_extra_hft_role_and_membership_denied(self):
   for stage,category,value in (
     ('S1','roles',{'id':'hft_unauthorized_role'}),
