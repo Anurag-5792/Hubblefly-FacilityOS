@@ -346,6 +346,29 @@ def journal(path,event,**kw):
  path.parent.mkdir(parents=True,exist_ok=True)
  with path.open('a',encoding='utf-8') as f:f.write(json.dumps({'ts_utc':now().isoformat().replace('+00:00','Z'),'event':event,**kw},sort_keys=True,separators=(',',':'))+'\n')
 
+def record_role_oid_evidence(path,phase,collected):
+ """Preserve a self-consistent raw local identity map before mutation.
+
+ Journal records are hash-bound source evidence, NOT independently signed
+ witness evidence or approval to populate any HOLD. Custody is a separate gate.
+ """
+ raw=collected.get('raw_oid_evidence') if isinstance(collected,dict) else None
+ if (not isinstance(raw,dict) or
+     raw.get('schema')!=c028_catalog.OID_EVIDENCE_SCHEMA or
+     sha(c028_catalog.canonical(raw))!=collected.get('raw_oid_sha256') or
+     not isinstance(collected.get('collection_id'),str)):
+  raise Stop('ROLE_OID_FORENSIC_EVIDENCE_INCOMPLETE')
+ journal(path,'role_oid_forensic_observation',
+  phase=phase,collection_id=collected['collection_id'],
+  collector_source_sha256=collected['collector_source_sha256'],
+  project_id=PROJECT,branch_id=collected['branch_id'],
+  database=collected['database'],backend_pid=collected['backend_pid'],
+  snapshot=collected['snapshot'],
+  transport_sha256=collected['transport_sha256'],
+  portable_stage_sha256=collected['portable_stage_sha256'],
+  raw_oid_sha256=collected['raw_oid_sha256'],
+  raw_oid_evidence=raw)
+
 MUTATING={'prepare-security','prepare-migration-owner','migrate','finalize-owner','finalize-dba'}
 def main():
  ap=argparse.ArgumentParser(); ap.add_argument('phase',choices=['verify-manifest','preflight-control','preflight-owner','prepare-security','prepare-migration-owner','migrate','finalize-owner','finalize-dba','verify-final-dba','verify-runtime-negative','verify-audit','verify-recovery-v2'])
@@ -386,6 +409,7 @@ def main():
   expected={'prepare-security':'S0','prepare-migration-owner':'S1',
    'migrate':'S2','finalize-owner':'S3','finalize-dba':'S4'}[a.phase]
   if observed!=expected:raise Stop('PHASE_TRANSITION_MISMATCH')
+  record_role_oid_evidence(a.journal,a.phase,oid_collection)
   try:validate_phase(a.phase,
    'APPROVED_EMPTY' if observed in ('S0','S1','S2') else 'EXACT_CANONICAL_0001_0006',
    'A_AUTHORIZED')
@@ -407,8 +431,11 @@ def main():
  if a.phase=='finalize-owner': ledger(e); out=psql(owner_close_sql(),e); assert 'HFT_OWNER_CLOSE_ACK' in out; print('OWNER_OBJECT_ACL_CLOSE=PASS'); return 0
  if a.phase=='finalize-dba': ledger(e); out=psql(dba_close_sql(),e); assert 'HFT_DBA_CLOSE_ACK' in out; print('DBA_DATABASE_CREATE_CLOSE=PASS'); return 0
  if a.phase=='verify-final-dba':
-  if live_database_phase_state(e,'verify-final-dba',continuity=role_continuity)!='S5':
+  final_oid_collection={}
+  if live_database_phase_state(e,'verify-final-dba',continuity=role_continuity,
+      evidence_out=final_oid_collection)!='S5':
    raise Stop('FINAL_SEALED_S5_REQUIRED')
+  record_role_oid_evidence(a.journal,'verify-final-dba',final_oid_collection)
   ledger(e); got=psql(final_catalog_sql(),e); exp=f'{MIG}|false|false|false|true|true|0|0|0|0'
   if got!=exp: raise Stop('FINAL_CATALOG:'+got)
   print('FINAL_CATALOG_SECURITY=PASS'); return 0
