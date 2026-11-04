@@ -30,7 +30,7 @@ function loadComponent(filename:string,exportName:string):ComponentType<Entry>{
   return requireModule(name);
  }
  const execute=new Function('require','module','exports',generated.outputText) as
-  (req:(name:string)=>unknown,mod:typeof module,exp:Record<string,unknown>)=>void;
+  (req:(name:string)=>unknown,mod:typeof compiledModule,exp:Record<string,unknown>)=>void;
  execute(localRequire,compiledModule,compiledModule.exports);
  const component=compiledModule.exports[exportName];
  assert.equal(typeof component,'function');
