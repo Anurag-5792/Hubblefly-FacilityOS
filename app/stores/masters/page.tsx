@@ -1,6 +1,9 @@
 'use client';
 import Link from 'next/link';
-import {useState,type FormEvent} from 'react';
+import {useState,useRef,type FormEvent} from 'react';
+import {EmployeeMasterDirectory} from '../../../lib/hft/ui-reuse/EmployeeMasterDirectory';
+import {OwnerAccessProposalEditor} from '../../../lib/hft/ui-reuse/OwnerAccessProposalEditor';
+import type {EmployeeMasterRow} from '../../../lib/hft/ui-reuse/employee-view-model';
 
 type Kind='EMPLOYEE'|'ITEM'|'SUPPLIER'|'WAREHOUSE'|'LOCATION';
 type Operation='CREATE'|'EDIT'|'ACTIVATE'|'DEACTIVATE';
@@ -29,12 +32,21 @@ export default function MastersPage(){
   [warehouse,setWarehouse]=useState('');
  const [view,setView]=useState<View>('LIST'),[search,setSearch]=useState('');
  const [records,setRecords]=useState<readonly Item[]>([]);
+ const [employeeList,setEmployeeList]=useState<Readonly<{
+  scopeKey:string;records:readonly Item[]
+ }>|null>(null);
+ const requestEpoch=useRef(0);
  const [operation,setOperation]=useState<Operation>('CREATE');
  const [recordId,setRecordId]=useState(''),[version,setVersion]=useState('0');
  const [reason,setReason]=useState(''),[values,setValues]=useState<Record<string,string>>({});
  const [busy,setBusy]=useState(false),[status,setStatus]=useState('No verified database result loaded.');
  const scope={legalEntityId:entity.trim(),siteId:site.trim(),warehouseId:warehouse.trim()};
- function changeKind(next:Kind){setKind(next);setRecords([]);setValues({});
+ const scopeKey=[scope.legalEntityId,scope.siteId,scope.warehouseId].join('|');
+ function scopeChanged(setter:(value:string)=>void,value:string){
+  requestEpoch.current++;setter(value);setRecords([]);setEmployeeList(null);
+  setStatus('Scope changed. Reload authenticated records before editing.');
+ }
+ function changeKind(next:Kind){requestEpoch.current++;setKind(next);setRecords([]);setEmployeeList(null);setValues({});
   setRecordId('');setVersion('0');setOperation('CREATE');setStatus('Select scope and load authoritative records.');}
  async function call(payload:unknown):Promise<Reply>{
   const response=await fetch('/api/hft/masters',{method:'POST',
@@ -45,19 +57,30 @@ export default function MastersPage(){
   return result;
  }
  async function load(selected:View=view){
-  setBusy(true);setStatus('Checking signed session and persistent source.');
+  const epoch=++requestEpoch.current;
+  const readScope=scopeKey;
+  setBusy(true);setEmployeeList(null);setRecords([]);
+  setStatus('Checking signed session and persisted P3 scope.');
   try{
    const result=await call({intent:selected,kind,...scope,search:search.trim()});
-   setRecords(result.records||[]);
-   setView(selected);
-   setStatus(result.records?.length?
-    'Database records received. Read-only view.':
-    'No records returned for this scope; no sample records inserted.');
-  }catch(e){setRecords([]);setStatus(e instanceof Error?e.message:'Source unavailable');}
-  finally{setBusy(false);}
+   if(epoch!==requestEpoch.current)return;
+   if(result.state!=='AVAILABLE'||!Array.isArray(result.records))
+    throw new Error('P3_SIGNED_LIST_READBACK_NOT_AVAILABLE');
+   setRecords(result.records);setView(selected);
+   if(kind==='EMPLOYEE'&&selected==='LIST')
+    setEmployeeList({scopeKey:readScope,records:result.records});
+   setStatus(result.records.length?
+    'Scoped database response received; no records changed.':
+    'No verified records available for this scope.');
+  }catch(e){
+   if(epoch===requestEpoch.current){
+    setRecords([]);setEmployeeList(null);
+    setStatus(e instanceof Error?e.message:'Source unavailable');
+   }
+  }finally{if(epoch===requestEpoch.current)setBusy(false);}
  }
  async function submit(event:FormEvent<HTMLFormElement>){
-  event.preventDefault();setBusy(true);
+  event.preventDefault();requestEpoch.current++;setEmployeeList(null);setBusy(true);
   setStatus('Submitting immutable change request; no master activation has occurred.');
   try{
    const v:Record<string,string>={};
@@ -76,11 +99,20 @@ export default function MastersPage(){
  function selectRow(row:Item){
   const id=String(row.record_id||'');
   setRecordId(id);setVersion(String(row.version||'0'));setOperation('EDIT');
-  const val=row.values;
+  const val=row.master_values??row.values;
   if(val&&typeof val==='object'&&!Array.isArray(val))
    setValues(Object.fromEntries(Object.entries(val as Record<string,unknown>)
     .map(([k,v])=>[k,typeof v==='string'?v:''])));
   setStatus('Drafting a change for '+id+'. Existing data will not change without approval.');
+ }
+ function selectEmployee(row:EmployeeMasterRow){
+  if(!employeeList||employeeList.scopeKey!==scopeKey)
+   {setStatus('Employee source scope changed. Reload required.');return;}
+  setRecordId(row.recordId);setVersion(row.version);setOperation('EDIT');
+  setReason('');
+  setValues({fullName:row.fullName,department:row.department,
+   designation:row.designation,siteId:row.siteId});
+  setStatus('P3 Employee EDIT draft selected. Submit via independent approval workflow.');
  }
  return <main className="masters-shell">
   <header className="masters-head">
@@ -96,11 +128,14 @@ export default function MastersPage(){
    <div className="panel-heading"><div><p className="eyebrow">Authority</p><h2>Signed scope</h2></div>
     <span className="status">Database source required</span></div>
    <div className="masters-scope">
-    <label>Legal entity ID<input value={entity} onChange={e=>setEntity(e.target.value)}
+    <label>Legal entity ID<input value={entity} disabled={busy}
+      onChange={e=>scopeChanged(setEntity,e.target.value)}
       placeholder="From your authorized entity"/></label>
-    <label>Site ID<input value={site} onChange={e=>setSite(e.target.value)}
+    <label>Site ID<input value={site} disabled={busy}
+      onChange={e=>scopeChanged(setSite,e.target.value)}
       placeholder="From your authorized site"/></label>
-    <label>Warehouse ID<input value={warehouse} onChange={e=>setWarehouse(e.target.value)}
+    <label>Warehouse ID<input value={warehouse} disabled={busy}
+      onChange={e=>scopeChanged(setWarehouse,e.target.value)}
       placeholder="From your authorized warehouse"/></label>
    </div>
    <p className="masters-help">These fields select a scope. They never grant access; the API verifies the signed session and persisted permissions.</p>
@@ -109,7 +144,7 @@ export default function MastersPage(){
    <section className="panel">
     <div className="panel-heading"><div><p className="eyebrow">Persistent records</p><h2>Search & review</h2></div></div>
     <label className="masters-field">Master type
-     <select value={kind} onChange={e=>changeKind(e.target.value as Kind)}>
+     <select value={kind} disabled={busy} onChange={e=>changeKind(e.target.value as Kind)}>
       {kinds.map(k=><option key={k} value={k}>{k}</option>)}
      </select>
     </label>
@@ -129,7 +164,14 @@ export default function MastersPage(){
       {kind==='EMPLOYEE'?<Link className="mis-link" href="/stores/masters/approvals">
         Independent Employee approvals</Link>:null}
     </div>
-    <div className="masters-table-wrap">
+    {kind==='EMPLOYEE'&&view==='LIST'?
+     <EmployeeMasterDirectory rawP3Records={
+      employeeList?.scopeKey===scopeKey?employeeList.records:[]}
+      requestedScope={scope}
+      verifiedReadResponse={employeeList?.scopeKey===scopeKey}
+      mayRequestEdit={!busy}
+      onRequestEdit={selectEmployee}
+     />:<div className="masters-table-wrap">
      <table className="data-table"><thead><tr><th>ID</th><th>State</th><th>Revision</th><th>Action</th></tr></thead>
      <tbody>{records.map((record,i)=>{
       const recordKey=String(record.record_id||record.request_id||i);
@@ -145,7 +187,7 @@ export default function MastersPage(){
      })}</tbody>
      </table>
      {records.length===0?<p className="masters-help">No verified records available for this selection.</p>:null}
-    </div>
+    </div>}
    </section>
    <section className="panel">
     <div className="panel-heading"><div><p className="eyebrow">Governed workflow</p><h2>Propose a change</h2></div>
@@ -178,6 +220,17 @@ export default function MastersPage(){
     </form>
    </section>
   </div>
+  <details className="panel" aria-label="OWNER access proposal readiness">
+   <summary>OWNER route-access proposals — source integrated, IAM authority HOLD</summary>
+   <OwnerAccessProposalEditor
+    actor={null}
+    legalEntityId={scope.legalEntityId}
+    siteId={scope.siteId}
+    warehouseId={scope.warehouseId}
+    policyGeneration={0}
+    onPropose={()=>{setStatus('IAM proposal not submitted: protected authority not installed.');}}
+   />
+  </details>
   <div role="status" aria-live="polite" className="masters-result">{status}</div>
  </main>;
 }
