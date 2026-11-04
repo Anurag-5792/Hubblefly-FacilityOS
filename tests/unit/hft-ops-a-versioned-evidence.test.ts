@@ -221,11 +221,20 @@ test('OPS-A entry IDs and command IDs must bind immutable movement order',()=>{
 });
 test('OPS-A stale account version, skipped version and forged persisted version fail',()=>{
  const {readback,facts}=fresh(),f=facts[1];
- const altered=sealed(f.command,[{...f.movements[0],
-  accountBeforeVersion:0,accountAfterVersion:1},f.movements[1]]);
+ const changedSourceLeg={...f.movements[0],
+  accountBeforeVersion:0,accountAfterVersion:1};
+ // The original signed expected version itself first rejects the attempt.
+ const rejected=sealed(f.command,[changedSourceLeg,f.movements[1]]);
+ assert.throws(()=>verifyVersionedImmutableFact(rejected),
+  /STALE_AUTHORIZED_ACCOUNT_REVISION/);
+ // Even if the claimed expected revision is fraudulently realigned with the
+ // stale leg, full immutable history exposes a skipped account revision.
+ const altered=sealed({...f.command,expectedSourceAccountVersion:0},
+  [changedSourceLeg,f.movements[1]]);
  const contaminated=mutable(readback);
  contaminated.immutableFacts[1]=altered;
- assert.throws(()=>verifyVersionedLedgerReadback(contaminated),/ACCOUNT_VERSION_STALE_OR_SKIPPED/);
+ assert.throws(()=>verifyVersionedLedgerReadback(contaminated),
+  /ACCOUNT_VERSION_STALE_OR_SKIPPED/);
  const wrong=mutable(readback);
  wrong.accounts[0]={...wrong.accounts[0],persistedVersion:99};
  assert.throws(()=>verifyVersionedLedgerReadback(wrong),/ACCOUNT_VERSION_RECONSTRUCTION_MISMATCH/);
