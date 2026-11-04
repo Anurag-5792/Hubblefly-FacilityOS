@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 SQL=ROOT/'db/security/HFT-R1-OPS-A-VERSIONED-FORWARD-NONEXECUTABLE-CANDIDATE.sql'
 EVIDENCE=ROOT/'lib/hft/persistence/ops-a-versioned-evidence.ts'
+INVOCATION=ROOT/'lib/hft/security/ops-a-versioned-invocation.ts'
 P2=ROOT/'db/security/HFT-R1-P2-ONE-WRITER-REVIEW.sql'
 P0=ROOT/'db/security/HFT-R1-P0-STORES-PERSISTENCE-REVIEW.sql'
 MIG=ROOT/'db/migrations'
@@ -83,6 +84,28 @@ class OpsAContractReview(unittest.TestCase):
   self.assertNotIn('openOnlinePgPool',self.code)
   self.assertNotIn('INSERT INTO hft.',self.code)
   self.assertNotIn('UPDATE hft.',self.code)
+
+ def test_prospective_v2_js_and_sql_payload_field_parity(self):
+  js=INVOCATION.read_text()
+  marker='export const OPS_A_PAYLOAD_FIELDS=['
+  self.assertIn(marker,js)
+  js_fields=re.findall(r"'([^']+)'",
+    js.split(marker,1)[1].split('] as const;',1)[0])
+  sql_marker='DECLARE keys text[]:=ARRAY['
+  self.assertIn(sql_marker,self.sql)
+  sql_fields=re.findall(r"'([^']+)'",
+    self.sql.split(sql_marker,1)[1].split('];',1)[0])
+  self.assertEqual(len(js_fields),33)
+  self.assertEqual(len(sql_fields),33)
+  self.assertEqual(js_fields,sql_fields)
+  self.assertIn('hft.p2_length_prefixed_v1',self.sql)
+  self.assertIn('hft_crypto.digest',self.sql)
+  self.assertIn('REVOKE EXECUTE ON FUNCTION hft.ops_a_payload_fields_v2',self.sql)
+  self.assertIn('REVOKE EXECUTE ON FUNCTION hft.ops_a_payload_digest_v2',self.sql)
+  self.assertIn('OPS_A_POST_V2',js)
+  self.assertIn('opsATestOnlyMac',js)
+  self.assertNotIn('openOnlinePgPool',js)
+  self.assertNotIn('postProtectedStockCommand',js)
 
  def test_transfer_requires_one_future_p2_writer_and_not_receive_issue_pair(self):
   self.assertIn("There is intentionally NO executable ALTER to add TRANSFER",self.sql)

@@ -91,6 +91,30 @@ opening-stock cutover and pagination **in the database**, and the
 application must verify that returned proof before calling it authoritative.
 Do not derive operational balances from this in-memory test model.
 
+### Proposed P2 V2 signed payload source reference
+
+`lib/hft/security/ops-a-versioned-invocation.ts` defines a distinct,
+**not activated** `HFT-R1-OPS-A-P2-VERSIONED-POST-V2-PROPOSED` field
+contract (33 ordered string fields). It includes productVersion,
+serial/batch, both leaf IDs, both distinct account IDs, expected source
+and destination account versions, employee/original ISSUE, source document
+and fragment, quantity micro, source/policy/approval revisions, approver,
+actor and independent QC evidence. The approved payload digest uses the
+existing length-prefixed byte codec. A separate synthetic-key HMAC
+reference and negative test-vector verifier bind session, payload,
+expiry, nonce and key version. No production proof is issued and no
+signing key is enrolled or accepted.
+
+The protected SQL candidate contains a matching **SECURITY INVOKER,
+REVOKED**, non-authorizing field-order/digest reference using the existing
+P2 length-prefixed encoder and trusted hft_crypto digest. A Python
+source-contract test checks all 33 JS and SQL field names are exactly
+identical in order. Neither this reference digest nor the test HMAC
+constitutes a protected P2 writer/receiver: the real future
+SECURITY DEFINER must authenticate the session and key, bind the actual
+approved source state/revisions, Holds, human independence, account
+locks, nonce/replay, seal and audit in the same transaction.
+
 ## 3. Prospective forward-only SQL — NOT AUTHORIZED
 
 File: `db/security/HFT-R1-OPS-A-VERSIONED-FORWARD-NONEXECUTABLE-CANDIDATE.sql`.
@@ -124,7 +148,7 @@ merely because source CI passes.
 
 | ID | Needed work | Release consequence |
 |---|---|---|
-| OPS-A-H01 | Exact P2 V2 authenticated payload: product version, both leaf locations, actor, policy generation, signed source/approval, expected both account revisions, nonce, action and condition | No approved version-aware posting |
+| OPS-A-H01 | Proposed 33-field P2 V2 payload and test-HMAC byte codec are source-authored with JS/SQL parity; **actual** P2 PostgreSQL authentication, protected signed key/actor proof, effective approved source, nonce/replay and SQL issuer remain unimplemented | No approved version-aware posting |
 | OPS-A-H02 | Fully revised single SECURITY DEFINER P2 writer and COMMIT-time seal: deterministic source/destination locks, balanced versioned legs, serial/custody state, idempotency, holds, approvals, audit | IN/OUT/TRANSFER/RETURN remain blocked |
 | OPS-A-H03 | True version-aware P0 protected resolver, source/receipt/QC verification and separate restricted readback (including full audit reconstruction and pagination) | Current rejecting stubs must stay in force |
 | OPS-A-H04 | Approved HFT item/version/PRIMARY-photo, legal/site/warehouse/bin, employee, invoice/GRN/QC and human identity masters | Candidate SQL cannot legitimately resolve source identities |

@@ -47,6 +47,51 @@ BEGIN
  END IF;
 END $preflight$;
 
+-- Proposed JS / PostgreSQL source parity for V2 field identity. This does
+-- NOT verify an HMAC, actor session, approval, policy or privileged source.
+-- It is SECURITY INVOKER and REVOKED; P2 future definer must independently
+-- recheck exact 33 fields + original source revisions / maker-checker + Holds.
+CREATE OR REPLACE FUNCTION hft.ops_a_payload_fields_v2(p jsonb)
+RETURNS text[] LANGUAGE plpgsql IMMUTABLE
+SET search_path=pg_catalog,pg_temp AS $fields$
+DECLARE keys text[]:=ARRAY[
+ 'contractVersion','commandId','idempotencyKey','kind','legalEntityId',
+ 'siteId','warehouseId','itemCode','productVersion','controlType','serialNo',
+ 'batchNo','sourceLeafId','destinationLeafId','sourceAccountId',
+ 'destinationAccountId','sourceAccountBeforeVersion',
+ 'destinationAccountBeforeVersion','employeeId','originalIssueId',
+ 'sourceDocumentId','sourceActionKey','fragmentId','quantityMicro',
+ 'sourceRevision','approvalId','approvalRevision','policyGeneration',
+ 'approvedPayloadSha256','approvedBy','actorSubject','inspectedCondition',
+ 'inspectionEvidenceId'];
+ field text;
+BEGIN
+ IF p IS NULL OR pg_catalog.jsonb_typeof(p)<>'object'
+ OR (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p))<>33
+ OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_object_keys(p) AS x
+   WHERE NOT x=ANY(keys)) THEN
+  RAISE EXCEPTION 'OPS_A_V2_PAYLOAD_EXACT_KEYS_REQUIRED';
+ END IF;
+ FOREACH field IN ARRAY keys LOOP
+  IF pg_catalog.jsonb_typeof(p->field)<>'string' THEN
+   RAISE EXCEPTION 'OPS_A_V2_PAYLOAD_FIELD_TYPE_INVALID'; END IF;
+ END LOOP;
+ RETURN ARRAY(SELECT p->>k FROM pg_catalog.unnest(keys) AS k);
+END $fields$;
+CREATE OR REPLACE FUNCTION hft.ops_a_payload_digest_v2(p jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE
+SET search_path=pg_catalog,pg_temp AS $digest$
+ SELECT pg_catalog.encode(
+  hft_crypto.digest(hft.p2_length_prefixed_v1(
+    hft.ops_a_payload_fields_v2(p)),'sha256'),'hex');
+$digest$;
+REVOKE EXECUTE ON FUNCTION hft.ops_a_payload_fields_v2(jsonb)
+ FROM PUBLIC,hft_r1_app_runtime;
+REVOKE EXECUTE ON FUNCTION hft.ops_a_payload_digest_v2(jsonb)
+ FROM PUBLIC,hft_r1_app_runtime;
+-- These are not callable authority. The actual future V2 SECURITY DEFINER
+-- must validate the same canonical identity and independently verified proof.
+
 -- Add version to the EXISTING ledger's canonical account and immutable facts.
 -- There is no new balance table or second movement writer.
 -- The item_version_catalog candidate must expose the exact triple key:
