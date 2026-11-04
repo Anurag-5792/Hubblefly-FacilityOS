@@ -285,7 +285,10 @@ def authenticated_history_gate(phase,auth,continuity,manifest_path,filemap_path)
    auth['not_before_utc'],
    approved_baseline_sha256=auth['historical_root_collection_sha256'])
  except ValueError:raise Stop('HISTORICAL_PREDECESSOR_NOT_AUTHENTICATED') from None
- if (continuity.get('stage')!=stage or
+ if (continuity.get('schema')!=c028_catalog.ROLE_CONTINUITY_SCHEMA or
+     any(continuity.get(k)!=v for k,v in
+      {'project_id':PROJECT,'branch_id':BRANCH,'database':DB}.items()) or
+     continuity.get('stage')!=stage or
      continuity.get('anchor_stage')!=proof['previous_stage'] or
      continuity.get('previous_collection_sha256')!=
       proof['predecessor_collection_sha256'] or
