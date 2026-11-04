@@ -88,6 +88,25 @@ class SourceFinal023(unittest.TestCase):
     ep.write_text(m.sha(auth.read_bytes()))
     with self.assertRaisesRegex(m.Stop,'AUTHORIZED_PACKAGE_HASH'):
      m.auth_artifact(auth,'migrate',recovery,continuity,history)
+    # C039 versioned historical verifier code is also source-hash bound.
+    invalid=dict(obj);invalid['historical_verifier_sha256']='0'*64
+    auth.write_text(json.dumps(invalid,separators=(',',':'),sort_keys=True))
+    ep.write_text(m.sha(auth.read_bytes()))
+    with self.assertRaisesRegex(m.Stop,'AUTHORIZED_PACKAGE_HASH'):
+     m.auth_artifact(auth,'migrate',recovery,continuity,history)
+    # Post-authorization replacement of the historical manifest fails.
+    invalid=dict(obj);invalid['historical_manifest_sha256']='0'*64
+    auth.write_text(json.dumps(invalid,separators=(',',':'),sort_keys=True))
+    ep.write_text(m.sha(auth.read_bytes()))
+    with self.assertRaisesRegex(m.Stop,'HISTORY_MANIFEST_NOT_GATE_A_BOUND'):
+     m.auth_artifact(auth,'migrate',recovery,continuity,history)
+    auth.write_text(json.dumps(obj,separators=(',',':'),sort_keys=True))
+    ep.write_text(m.sha(auth.read_bytes()))
+    original_manifest=history.read_bytes()
+    history.write_bytes(original_manifest+b' ')
+    with self.assertRaisesRegex(m.Stop,'HISTORY_MANIFEST_NOT_GATE_A_BOUND'):
+     m.auth_artifact(auth,'migrate',recovery,continuity,history)
+    history.write_bytes(original_manifest)
     # Gate A must bind exact target-local continuity evidence bytes.
     auth.write_text(json.dumps(obj,separators=(',',':'),sort_keys=True))
     ep.write_text(m.sha(auth.read_bytes()))
@@ -98,6 +117,11 @@ class SourceFinal023(unittest.TestCase):
     continuity.write_bytes(original_continuity)
     # Legacy V1/V2 authorizations cannot silently be reused with V3 references.
     legacy=dict(obj);legacy['schema']='HFT_R1_MASTER_V3_BOOTSTRAP019_EXEC_AUTH_V1'
+    auth.write_text(json.dumps(legacy,separators=(',',':'),sort_keys=True))
+    ep.write_text(m.sha(auth.read_bytes()))
+    with self.assertRaisesRegex(m.Stop,'EXECUTION_AUTHORIZATION_SCOPE'):
+     m.auth_artifact(auth,'migrate',recovery,continuity,history)
+    legacy=dict(obj);legacy['schema']='HFT_R1_MASTER_V3_BOOTSTRAP019_EXEC_AUTH_V2'
     auth.write_text(json.dumps(legacy,separators=(',',':'),sort_keys=True))
     ep.write_text(m.sha(auth.read_bytes()))
     with self.assertRaisesRegex(m.Stop,'EXECUTION_AUTHORIZATION_SCOPE'):
