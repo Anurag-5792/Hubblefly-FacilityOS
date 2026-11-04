@@ -110,7 +110,7 @@ class RunnerEnforcement(unittest.TestCase):
    if drift:revisions[2]['sha256']='f'*64
    packets.append(frame('revision',revisions))
   packets.extend(frame(k,rows[k]) for k in catalog.CATEGORIES)
-  return '\\n'.join(packets)
+  return '\n'.join(packets)
  def test_live_catalog_classifies_empty_and_post_exact_state(self):
   # Reuse synthetic PG responses but DO NOT patch the catalog classifier.
   spec=importlib.util.spec_from_file_location('hft_c030_stages',
