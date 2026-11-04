@@ -192,6 +192,21 @@ class RecoveryV2Contract(unittest.TestCase):
    m.preservation_provider_projection(self.provider['branch'],
     self.provider['endpoints'])))
 
+ def resign_synthetic_witness(self):
+  """Refresh the TEST-ONLY Ed25519 witness for changed evidence bytes."""
+  source=Path(self.files['witness'])
+  witness=json.loads(source.read_bytes())
+  unsigned={key:value for key,value in self.e.items()
+   if key!='independent_witness'}
+  witness['subject_sha256']=m.sha(m.normalized(unsigned))
+  source.write_bytes(m.normalized(witness))
+  signature=Path(self.files['witness_signature'])
+  subprocess.run(['openssl','pkeyutl','-sign','-inkey',
+   str(self.root/'private.key'),'-rawin','-in',str(source),
+   '-out',str(signature)],capture_output=True,check=True)
+  self.e['independent_witness']['witness_file_sha256']=m.sha(source.read_bytes())
+  self.e['independent_witness']['signature_sha256']=m.sha(signature.read_bytes())
+
  def verify(self):
   return m.validate_v2(self.e,self.provider,self.files,now=self.now,
    targets=self.targets,trust_sha256=self.trust_sha,
@@ -259,6 +274,7 @@ class RecoveryV2Contract(unittest.TestCase):
   self.assertNotIn('ttl_interval_seconds',observed)
   self.assertNotEqual(explicit_sha,m.sha(m.normalized(observed)))
   self.rebind_preservation()
+  self.resign_synthetic_witness()
   self.assertEqual(self.verify()['schema'],m.SCHEMA)
 
  def test_missing_pair_with_old_provider_hash_fails_closed(self):
