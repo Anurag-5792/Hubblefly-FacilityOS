@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - engineering/hft-r1-stores-foundation
+  pull_request:
+    branches:
+      - main
 permissions:
   contents: read
 jobs:
