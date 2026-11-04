@@ -537,6 +537,7 @@ def collect(query,include_phase=False,expected_identity=None,evidence_out=None,b
    'revision_sha256':sha(canonical(data.get('revision')))}
   evidence_out.update(bound)
   evidence_out['collection_id']=sha(canonical(bound))
+  evidence_out['raw_oid_evidence']=oid_snapshot
  if include_phase:
   info=data['phase']
   if not isinstance(info,dict) or set(info)!={
