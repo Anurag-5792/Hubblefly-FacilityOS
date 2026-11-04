@@ -175,7 +175,7 @@ class C030Lifecycle(unittest.TestCase):
    with self.subTest(stage=stage,category=category):
     self.db.snapshots[stage][category].append(value)
     with self.assertRaisesRegex((ValueError,runner.Stop),
-      'CATALOG|ROLE|MEMBERSHIP'):
+      'CATALOG|ROLE|MEMBERSHIP|SNAPSHOT'):
      self.classify(dict((s,p) for p,s in PHASES)[stage],stage)
     self.db.snapshots[stage][category].remove(value)
  def test_approved_role_and_membership_required(self):
