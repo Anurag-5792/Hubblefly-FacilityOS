@@ -292,5 +292,9 @@ try{
  for(const child of [browser,server]){
   if(child?.pid){try{process.kill(-child.pid,'SIGTERM');}catch{/* already stopped */}}
  }
- if(tmp)await rm(tmp,{recursive:true,force:true});
+ // Chromium writes profile data during shutdown. Wait for its process
+ // group to exit and use bounded ENOTEMPTY retries; a cleanup race must not
+ // mask a genuine mounted workflow result.
+ await sleep(350);
+ if(tmp)await rm(tmp,{recursive:true,force:true,maxRetries:12,retryDelay:250});
 }
