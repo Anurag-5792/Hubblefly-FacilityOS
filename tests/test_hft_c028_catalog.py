@@ -7,6 +7,9 @@ class ExactCatalog(unittest.TestCase):
  def fixture(self,post):
   rows={k:[] for k in c.CATEGORIES}
   rows['schemas']=[{'id':'public'}]
+  rows['database_security']=[{'id':'neondb','owner':'neondb_owner','public_connect':False,'public_create':False,'public_temporary':False}]
+  rows['provider_roles']=[{'id':'neon_superuser'},{'id':'neondb_owner'}]
+  rows['schema_public_grants']=[{'id':'public','public_create':False,'public_usage':True}]
   if post:
    rows['schemas']=[{'id':'hft'},{'id':'public'}]
    rows['relations']=[{'id':'hft.schema_revision'},{'id':'hft.stock_entry'}]
@@ -17,28 +20,35 @@ class ExactCatalog(unittest.TestCase):
    rows['constraints']=[{'id':'hft.stock_entry_pkey@stock_entry'}]
    rows['indexes']=[{'id':'hft.stock_entry_pkey'}]
   return rows
- def source(self,rows):
+ def source(self,rows,mutate=None):
   events=[]
-  outputs=iter([json.dumps(rows[k],separators=(',',':')) for k in c.CATEGORIES])
   def call(sql):
    events.append(sql)
-   if not sql.startswith('BEGIN READ ONLY;') or not sql.rstrip().endswith('ROLLBACK;'):
-    raise AssertionError('MUTATION_SQL_FORBIDDEN')
-   return next(outputs)
+   self.assertEqual(sql.count('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;'),1)
+   self.assertEqual(sql.count('ROLLBACK;'),1)
+   self.assertIn("pg_current_snapshot()::text",sql)
+   if mutate is not None:mutate(rows)
+   frames=[]
+   for kind in c.CATEGORIES:
+    frame={'kind':kind,'pid':918,'snapshot':'3:3:','database':'neondb',
+      'db_user':'neondb_owner','session_user':'neondb_owner','version':'180006',
+      'isolation':'repeatable read','read_only':'on','data':rows[kind]}
+    frames.append(json.dumps(frame,separators=(',',':')))
+   return '\\n'.join(frames)
   return call,events
  def test_complete_canonical_queries_include_all_protected_categories(self):
   c.check_manifest()
-  self.assertEqual(len(c.CATEGORIES),24)
+  self.assertEqual(len(c.CATEGORIES),28)
   for required in ('schemas','relations','columns','sequence_settings','functions','triggers','constraints',
    'indexes','policies','extensions','roles','memberships','effective_grants',
    'function_grants','sequence_grants','schema_grants','database_grants',
    'types','rules','event_triggers','publications','operators','collations',
-   'default_privileges'):
+   'default_privileges','database_security','provider_roles','provider_memberships','schema_public_grants'):
    self.assertIn(required,c.CATEGORIES)
  def test_clean_prebootstrap_catalog(self):
   query,events=self.source(self.fixture(False))
   self.assertEqual(c.verify_prebootstrap(query),c.sha(c.canonical(self.fixture(False))))
-  self.assertEqual(len(events),len(c.CATEGORIES))
+  self.assertEqual(len(events),1)
  def test_rogue_public_function_is_denied_prebootstrap(self):
   data=self.fixture(False)
   data['functions']=[{'id':'public.rogue_writer()'}]
