@@ -77,7 +77,7 @@ class FakePg18:
      if c.SQL[category] not in statement:
       raise AssertionError('CATALOG_CATEGORY_MISSING:'+category)
      result.append(frame(category,rows[category]))
-    return '\\n'.join(result)
+    return '\n'.join(result)
 
    if 'json_build_object(' in statement and "'schema_exists'" in statement:
     return json.dumps({'schema_exists':post,'ledger_exists':post,
