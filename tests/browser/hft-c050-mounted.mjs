@@ -179,7 +179,18 @@ async function attemptedStaleSubmission(){
 async function testMountedWorkflow(){
  await wait(async()=>Boolean(await browserEvaluate(`document.querySelector('h1')?.textContent?.includes('Employee & Stores Masters')&&window.__HFT_C050_CALLS`)),
  'REACT_PAGE_LOAD');
- await sleep(550); // ensure client hydration before event dispatch
+ // Server-rendered HTML is visible before React's hydration handlers exist.
+ // Wait for an actual handled click (intercepted synthetic P3 LIST); without
+ // that handshake, input/change events can be silently ignored on slow CI.
+ let hydrated=false;
+ for(let attempt=0;attempt<40;attempt++){
+  const before=(await state()).calls;
+  await clickButton('Load masters');
+  await sleep(400);
+  if((await state()).calls>before){hydrated=true;break;}
+ }
+ assert.equal(hydrated,true,'REACT_HYDRATION_EVENT_HANDLER_NOT_READY');
+ await wait(async()=>!(await state()).pending,'HYDRATION_PROBE_SETTLED');
  await setScope('Legal entity ID','HFT');
  await setScope('Site ID','SITE1');
  await setScope('Warehouse ID','WH1');
