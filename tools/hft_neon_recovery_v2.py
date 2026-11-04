@@ -72,18 +72,56 @@ def freshness(value,now,minutes=15):
  if t>now or now-t>dt.timedelta(minutes=minutes):stop('PROVIDER_READBACK_STALE')
  return t
 
+def provider_retention_observation(branch,prefix):
+ """Classify trusted raw Neon branch retention without filling absent fields.
+
+ Both omitted and both explicit null mean no *scheduled* expiration, not an
+ indefinite provider-retention guarantee. Keep the raw presence distinction
+ in preservation_provider_projection's signed canonical evidence hash.
+ """
+ if not isinstance(branch,dict):stop(prefix+'_PROVIDER_RECORD_MISSING')
+ has_exp='expires_at' in branch
+ has_ttl='ttl_interval_seconds' in branch
+ if has_exp!=has_ttl:stop(prefix+'_PROVIDER_RETENTION_FIELDS_PARTIAL')
+ if not has_exp:
+  return ('NO_SCHEDULED_EXPIRATION',None,None)
+ exp=branch['expires_at'];ttl=branch['ttl_interval_seconds']
+ if exp is None and ttl is None:
+  return ('NO_SCHEDULED_EXPIRATION',None,None)
+ if exp is None or ttl is None:
+  stop(prefix+'_PROVIDER_RETENTION_PAIR_CONTRADICTION')
+ if type(ttl) is not int or ttl<=0:
+  stop(prefix+'_PROVIDER_TTL_INVALID')
+ if not isinstance(exp,str) or not exp:
+  stop(prefix+'_PROVIDER_EXPIRATION_INVALID')
+ expiry=instant(exp)
+ if 'created_at' not in branch or expiry<=instant(branch['created_at']):
+  stop(prefix+'_PROVIDER_EXPIRY_NOT_AFTER_CREATION')
+ # Neon TTL is the configured interval, which may be updated after creation.
+ # Do not infer a false equality between expires_at-created_at and the TTL.
+ return ('FINITE',exp,ttl)
+
 def preservation_provider_projection(branch,endpoints):
- """Normalize real Neon API properties, never an invented retention object."""
- if not isinstance(branch,dict) or not isinstance(endpoints,list):stop('PROVIDER_RECORD_MISSING')
+ """Canonical provider-derived fields, including actual retention presence.
+
+ Missing and null pairs are semantically equivalent, but their original
+ provider representations intentionally have DIFFERENT evidence hashes.
+ """
+ if not isinstance(branch,dict) or not isinstance(endpoints,list):
+  stop('PROVIDER_RECORD_MISSING')
  required=('id','name','project_id','parent_id','parent_lsn','created_at',
-  'default','primary','expires_at','ttl_interval_seconds')
+  'default','primary')
  if any(k not in branch for k in required):
-  stop('PROVIDER_RETENTION_FIELDS_ABSENT')
+  stop('PRESERVATION_PROVIDER_IDENTITY_FIELDS_ABSENT')
+ provider_retention_observation(branch,'PRESERVATION')
  keys=('id','name','project_id','parent_id','parent_lsn','parent_timestamp',
-       'created_at','default','primary','expires_at','ttl_interval_seconds')
+       'created_at','default','primary')
  projection={name:branch.get(name) for name in keys}
+ for key in ('expires_at','ttl_interval_seconds'):
+  if key in branch:projection[key]=branch[key]
  projection['endpoint_ids']=sorted(x['id'] for x in endpoints
-    if isinstance(x,dict) and x.get('branch_id')==branch.get('id') and isinstance(x.get('id'),str))
+    if isinstance(x,dict) and x.get('branch_id')==branch.get('id')
+    and isinstance(x.get('id'),str))
  return projection
 
 def check_preservation(e,provider,now):
@@ -118,20 +156,17 @@ def check_preservation(e,provider,now):
   stop('PRESERVATION_PROVIDER_HASH_DRIFT')
  if actual['parent_id']!=STAGING or actual['id'] in prohibited:
   stop('PRESERVATION_PRODUCTION_OR_STAGING_PARENT')
- ttl=actual['ttl_interval_seconds']
- if ttl is not None and (type(ttl)!=int or ttl<=0):stop('PROVIDER_TTL_INVALID')
- exp=actual['expires_at']
+ retention_mode,exp,ttl=provider_retention_observation(branch,'PRESERVATION')
  ret=fields(p['retention'],('mode','expires_at','ttl_interval_seconds','provider_verified_at'))
  freshness(ret['provider_verified_at'],now)
  if ret['expires_at']!=exp or ret['ttl_interval_seconds']!=ttl:
   stop('PROVIDER_RETENTION_MISMATCH')
- if ret['mode']=='FINITE':
-  if not exp or instant(exp)<=instant(e['evidence_expires_at']) or instant(exp)<=now:
-   stop('PRESERVATION_EXPIRES_BEFORE_RECOVERY_WINDOW')
- elif ret['mode']=='NO_SCHEDULED_EXPIRATION':
-  # Null expires_at shows only no scheduled expiry, NEVER guaranteed indefinite.
-  if exp is not None or ttl is not None:stop('PRESERVATION_RETENTION_CONTRADICTION')
- else:stop('UNSUPPORTED_INDEFINITE_OR_UNVERIFIED_RETENTION')
+ if ret['mode']=='INDEFINITE':stop('UNSUPPORTED_INDEFINITE_OR_UNVERIFIED_RETENTION')
+ if ret['mode']!='NO_SCHEDULED_EXPIRATION' or retention_mode!='NO_SCHEDULED_EXPIRATION':
+  # Preservation MUST remain a non-expiring parent of Recovery A. Even a
+  # finite expiry beyond today's evidence window is not qualified here.
+  stop('PRESERVATION_PARENT_SCHEDULED_EXPIRATION_PROHIBITED')
+ # No scheduled expiration is NOT an indefinite retention guarantee.
  return p
 
 def validate_inventory(e,files):
@@ -185,15 +220,10 @@ def verify_restore_provider(e,targets,preservation,now):
  ra=e['restore_a'];rb=e['restore_b']
  for target in (a,b):
   if target.get('current_state')!='ready':stop('RESTORE_BRANCH_NOT_READY')
-  if 'expires_at' not in target or 'ttl_interval_seconds' not in target:
-   stop('RESTORE_PROVIDER_RETENTION_FIELDS_MISSING')
-  ttl=target['ttl_interval_seconds']
-  if ttl is not None and (type(ttl)!=int or ttl<=0):
-   stop('RESTORE_PROVIDER_TTL_INVALID')
-  expiry=target['expires_at']
-  if expiry is not None and instant(expiry)<=max(now,instant(e['evidence_expires_at'])):
+  retention_mode,expiry,ttl=provider_retention_observation(target,'RESTORE')
+  if retention_mode=='FINITE' and (
+      instant(expiry)<=max(now,instant(e['evidence_expires_at']))):
    stop('RESTORE_BRANCH_EXPIRES_BEFORE_RECOVERY_WINDOW')
-  if expiry is None and ttl is not None:stop('RESTORE_TTL_WITHOUT_EXPIRY')
   if target.get('project_id')!=PROJECT or target.get('id') in forbidden or (
     target.get('name') in ('production','vercel-dev')) or (
     target.get('default') is not False) or (
