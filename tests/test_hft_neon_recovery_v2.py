@@ -199,6 +199,29 @@ class RecoveryV2Contract(unittest.TestCase):
  def denial(self,reason):
   with self.assertRaises(ValueError) as error:self.verify()
   self.assertIn(reason,str(error.exception))
+ def test_c047_source_pin_and_gate_a_source_identity_are_strict(self):
+  from unittest.mock import patch
+  from tools import hft_neon_staging_bootstrap as runner
+  repo=Path(__file__).resolve().parents[1]
+  pin_path=repo/'config/hft-recovery-v2-source.sha256'
+  approved=pin_path.read_text().strip()
+  self.assertEqual(approved,m.sha(Path(m.__file__).read_bytes()))
+  self.assertNotEqual(approved,'b217a9d1097c6f19a3065dcf9bad60358213977e4c4618913cce9a8cd1e8dd31')
+  # Fail before API calls or PostgreSQL, on either modified source pin or
+  # stale Gate A recovery_validator_sha256 field.
+  manifest=self.root/'c047-minimal-recovery.json'
+  manifest.write_bytes(m.normalized({'schema':m.SCHEMA}))
+  filemap=self.root/'c047-file-map.json'
+  filemap.write_bytes(m.normalized({}))
+  wrong_pin=self.root/'c047-unapproved-source.sha256'
+  wrong_pin.write_text('f'*64+'\n')
+  with patch.object(runner,'RECOVERY_SOURCE_PIN',wrong_pin):
+   with self.assertRaisesRegex(runner.Stop,'RECOVERY_V2_SOURCE_HASH_NOT_AUTHORIZED'):
+    runner.recovery_evidence(manifest,None,{},filemap)
+  with self.assertRaisesRegex(runner.Stop,'RECOVERY_V2_SOURCE_HASH_NOT_AUTHORIZED'):
+   runner.recovery_evidence(manifest,{'recovery_validator_sha256':'f'*64},
+    {},filemap)
+
  def test_positive_actual_test_signature(self):
   self.assertEqual(self.verify()['schema'],m.SCHEMA)
  def test_missing_preservation(self):
