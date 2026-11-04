@@ -86,13 +86,31 @@ class RunnerEnforcement(unittest.TestCase):
    'schema_owner':runner.MIG if post else None,
    'required_catalog_present':post}
  def read_sql(self,sql,post,drift=False):
-  if not sql.startswith('BEGIN READ ONLY'):raise AssertionError('DDL_WAS_ATTEMPTED')
-  if 'non_system_user_objects' in sql:return json.dumps(self.catalog(post))
-  if 'json_agg(' in sql:
-   rows=[{'version':v,'sha256':h} for v,_,h in runner.MIGS]
-   if drift:rows[2]['sha256']='f'*64
-   return json.dumps(rows)
-  raise AssertionError('UNEXPECTED_SQL')
+  # Emulate the real C032 single-backend snapshot envelope, rather than the
+  # superseded C028 multi-transaction transport.
+  from tools import hft_c028_catalog as catalog
+  if not sql.startswith('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;'):
+   raise AssertionError('DDL_WAS_ATTEMPTED')
+  if sql.count('ROLLBACK;')!=1 or any(catalog.SQL[k] not in sql for k in catalog.CATEGORIES):
+   raise AssertionError('INCOMPLETE_SNAPSHOT')
+  spec=importlib.util.spec_from_file_location('hft_c030_fixture',
+   Path(__file__).with_name('test_hft_c030_phase_transitions.py'))
+  module=importlib.util.module_from_spec(spec)
+  spec.loader.exec_module(module)
+  rows=module.FakePg18().snapshots['S3' if post else 'S0']
+  def frame(kind,data):
+   return json.dumps({'kind':kind,'pid':875,'snapshot':'9:9:',
+    'database':runner.DB,'db_user':runner.OWNER,
+    'session_user':runner.OWNER,'version':runner.PGNUM,
+    'isolation':'repeatable read','read_only':'on','data':data},
+    separators=(',',':'))
+  packets=[frame('phase',self.catalog(post))]
+  if post:
+   revisions=[{'version':v,'sha256':h} for v,_,h in runner.MIGS]
+   if drift:revisions[2]['sha256']='f'*64
+   packets.append(frame('revision',revisions))
+  packets.extend(frame(k,rows[k]) for k in catalog.CATEGORIES)
+  return '\\n'.join(packets)
  def test_live_catalog_classifies_empty_and_post_exact_state(self):
   # Reuse synthetic PG responses but DO NOT patch the catalog classifier.
   spec=importlib.util.spec_from_file_location('hft_c030_stages',
@@ -120,17 +138,13 @@ class RunnerEnforcement(unittest.TestCase):
    queried.append(q)
    return self.read_sql(q,post)
   with contextlib.ExitStack() as stack:
-   if catalog_failure=='pre':
-    stack.enter_context(patch.object(runner.c028_catalog,'verify_prebootstrap',
-     side_effect=ValueError('C028_CATALOG_PRE_UNAPPROVED_FUNCTIONS')))
+   # Legacy runner rejection test: keep the exact mutation boundary, but
+   # patch the current verify_stage interface, never the retired C028 gates.
+   if catalog_failure in ('pre','post'):
+    stack.enter_context(patch.object(runner.c028_catalog,'verify_stage',
+     side_effect=ValueError('C028_CATALOG_STAGE_UNAPPROVED')))
    else:
-    stack.enter_context(patch.object(runner.c028_catalog,'verify_prebootstrap',
-     return_value='0'*64))
-   if catalog_failure=='post':
-    stack.enter_context(patch.object(runner.c028_catalog,'verify_postcanonical',
-     side_effect=ValueError('C028_CATALOG_EXTRA_MISSING_OR_ALTERED_CATALOG')))
-   else:
-    stack.enter_context(patch.object(runner.c028_catalog,'verify_postcanonical',
+    stack.enter_context(patch.object(runner.c028_catalog,'verify_stage',
      return_value='0'*64))
    stack.enter_context(patch.object(runner,'pin',side_effect=self.pin))
    stack.enter_context(patch.object(runner,'clean_worktree'))
@@ -165,17 +179,17 @@ class RunnerEnforcement(unittest.TestCase):
    with self.subTest(phase=phase):
     rows=self.invoke(phase,post=post)
     self.assertTrue(rows)
-    self.assertTrue(all(q.startswith('BEGIN READ ONLY') for q in rows))
+    self.assertTrue(all(q.startswith('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;') for q in rows))
  def test_actual_runner_denies_rogue_function_before_bootstrap_mutation(self):
   queries=self.invoke('prepare-security',post=False,catalog_failure='pre')
   self.assertTrue(queries)
-  self.assertTrue(all(q.startswith('BEGIN READ ONLY') for q in queries))
+  self.assertTrue(all(q.startswith('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;') for q in queries))
  def test_actual_runner_denies_exact_v6_extra_or_missing_catalog(self):
   for phase in ('finalize-owner','finalize-dba'):
    with self.subTest(phase=phase):
     queries=self.invoke(phase,post=True,catalog_failure='post')
     self.assertTrue(queries)
-    self.assertTrue(all(q.startswith('BEGIN READ ONLY') for q in queries))
+    self.assertTrue(all(q.startswith('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;') for q in queries))
  def test_provider_and_evidence_failures_reach_no_postgres_sql(self):
   originals=(copy.deepcopy(self.f.e),copy.deepcopy(self.f.provider),
    copy.deepcopy(self.f.targets),
