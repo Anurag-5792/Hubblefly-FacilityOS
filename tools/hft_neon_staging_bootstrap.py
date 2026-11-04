@@ -245,35 +245,13 @@ def live_database_phase_state(e,phase):
  relation is queried ONLY after the catalog proves it exists. Subsequent
  mutating SQL retains its independent transactional guards against TOCTOU.
  """
- sql="""BEGIN READ ONLY;
- SELECT json_build_object(
- 'schema_exists',to_regnamespace('hft') IS NOT NULL,
- 'ledger_exists',to_regclass('hft.schema_revision') IS NOT NULL,
- 'non_system_user_objects',(SELECT count(*) FROM pg_class c
-   JOIN pg_namespace n ON n.oid=c.relnamespace
-   WHERE n.nspname NOT IN ('pg_catalog','information_schema')
-   AND n.nspname NOT LIKE 'pg_toast%'
-   AND n.nspname NOT LIKE 'pg_temp_%'
-   AND c.relkind IN ('r','p','v','m','f','S')),
- 'migration_role_exists',EXISTS(SELECT 1 FROM pg_roles
-   WHERE rolname='hft_staging_migration_owner'),
- 'creator_default_restricted',EXISTS(SELECT 1 FROM pg_default_acl d
-   WHERE d.defaclrole=(SELECT oid FROM pg_roles
-     WHERE rolname='hft_staging_migration_owner')
-     AND d.defaclnamespace=0 AND d.defaclobjtype='f'
-     AND NOT EXISTS(SELECT 1 FROM aclexplode(d.defaclacl) x
-       WHERE x.grantee=0 AND x.privilege_type='EXECUTE')),
- 'schema_owner',(SELECT pg_get_userbyid(n.nspowner)
-   FROM pg_namespace n WHERE n.nspname='hft'),
- 'required_catalog_present',(to_regclass('hft.schema_revision') IS NOT NULL
-   AND to_regclass('hft.stock_account') IS NOT NULL
-   AND to_regclass('hft.stock_entry') IS NOT NULL
-   AND to_regclass('hft.stock_command') IS NOT NULL
-   AND to_regclass('hft.stock_command_seal') IS NOT NULL)
- )::text;
- ROLLBACK;"""
- try: info=json.loads(psql(sql,e))
- except (ValueError,TypeError):raise Stop('PHASE_CATALOG_READBACK_INVALID') from None
+ # Same backend snapshot for phase, revision and all fingerprint categories.
+ try:
+  observed,info,revisions=c028_catalog.collect(
+   lambda statement:psql(statement,e),include_phase=True,
+   expected_identity=(DB,e.get('PGUSER',OWNER),PGNUM))
+ except ValueError:
+  raise Stop('PHASE_CONSISTENT_SNAPSHOT_NOT_QUALIFIED') from None
  if not isinstance(info,dict) or set(info)!={
    'schema_exists','ledger_exists','non_system_user_objects',
    'migration_role_exists','creator_default_restricted','schema_owner',
@@ -291,7 +269,7 @@ def live_database_phase_state(e,phase):
    raise Stop('PHASE_MIGRATION_ROLE_NOT_CREATED')
   if stage=='S2' and info['creator_default_restricted'] is not True:
    raise Stop('PHASE_MIGRATION_CREATOR_DEFAULTS_UNQUALIFIED')
-  try:c028_catalog.verify_stage(lambda statement:psql(statement,e),stage)
+  try:c028_catalog.verify_stage(None,stage,observed=observed)
   except ValueError:raise Stop('PHASE_'+stage+'_CATALOG_NOT_QUALIFIED') from None
   return stage
  if info['schema_exists'] is True and info['ledger_exists'] is True:
@@ -299,19 +277,14 @@ def live_database_phase_state(e,phase):
    raise Stop('PHASE_EXPECTED_CANONICAL_CATALOG_MISSING')
   if phase in ('prepare-security','prepare-migration-owner','migrate'):
    raise Stop('PHASE_PRECHANGE_EXPECTED')
-  revision=psql("""BEGIN READ ONLY;
- SELECT COALESCE(json_agg(json_build_object('version',version,
- 'sha256',sha256) ORDER BY version),'[]'::json)::text
- FROM hft.schema_revision;
- ROLLBACK;""",e)
-  try: rows=json.loads(revision)
-  except (ValueError,TypeError):raise Stop('PHASE_REVISION_READBACK_INVALID') from None
+  rows=revisions
+  if not isinstance(rows,list):raise Stop('PHASE_REVISION_READBACK_INVALID')
   expected=[{'version':v,'sha256':h} for v,_,h in MIGS]
   if rows!=expected:raise Stop('PHASE_CANONICAL_REVISION_MISMATCH')
   stage={'finalize-owner':'S3','finalize-dba':'S4',
    'verify-final-dba':'S5'}.get(phase)
   if stage is None:raise Stop('PHASE_POSTCHANGE_NOT_ALLOWED')
-  try:c028_catalog.verify_stage(lambda statement:psql(statement,e),stage)
+  try:c028_catalog.verify_stage(None,stage,observed=observed)
   except ValueError:raise Stop('PHASE_'+stage+'_CATALOG_NOT_QUALIFIED') from None
   return stage
  raise Stop('PHASE_DATABASE_STATE_INCONSISTENT')
