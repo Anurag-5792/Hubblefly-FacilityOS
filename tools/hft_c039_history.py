@@ -124,10 +124,10 @@ ENVELOPE_FIELDS={'schema','collector_source_sha256','branch_id','database',
  'phase_sha256','revision_sha256'}
 COLLECTION_FIELDS={'schema','project_id','branch_id','database','stage',
  'captured_at_utc','previous_collection_sha256','collection_envelope',
- 'collection_id','catalog','phase','revisions','raw_oid_evidence'}
+ 'collection_id','catalog','phase','revisions','raw_oid_evidence','transport_jsonl'}
 
 def build_collection(stage,target,observed,phase,revisions,envelope,
-    captured_at_utc,previous_collection_sha256=None):
+    captured_at_utc,previous_collection_sha256=None,transport_jsonl=None):
  """Source helper for an UNSIGNED artifact requiring independent signatures.
 
  This does not attest historical truth or enroll trust. A real artifact must
@@ -135,7 +135,17 @@ def build_collection(stage,target,observed,phase,revisions,envelope,
  """
  if not isinstance(envelope,dict) or not ENVELOPE_FIELDS.issubset(envelope):
   stop('COLLECTION_ENVELOPE_MISSING')
+ if not isinstance(transport_jsonl,str) or not transport_jsonl:
+  stop('ORIGINAL_TRANSPORT_REQUIRED')
  raw=catalog.raw_oid_evidence(observed)
+ reconstructed,read_phase,read_revisions=catalog.collect(
+  lambda statement:transport_jsonl,include_phase=True,
+  expected_identity=(target['database'],envelope['db_user'],
+   envelope['server_version']))
+ if reconstructed!=observed or read_phase!=phase or read_revisions!=revisions:
+  stop('ORIGINAL_TRANSPORT_CATALOG_CONFLICT')
+ if sha(transport_jsonl.encode('utf-8'))!=envelope['transport_sha256']:
+  stop('ORIGINAL_TRANSPORT_DIGEST_CONFLICT')
  content={k:envelope[k] for k in ENVELOPE_FIELDS}
  if (content['raw_oid_sha256']!=sha(canonical(raw)) or
      content['portable_stage_sha256']!=catalog.portable_stage_hash(observed) or
@@ -149,7 +159,7 @@ def build_collection(stage,target,observed,phase,revisions,envelope,
   'previous_collection_sha256':previous_collection_sha256,
   'collection_envelope':content,'collection_id':collection_id,
   'catalog':observed,'phase':phase,'revisions':revisions,
-  'raw_oid_evidence':raw}
+  'raw_oid_evidence':raw,'transport_jsonl':transport_jsonl}
 
 def stages_for(current_stage):
  if current_stage not in catalog.STAGES:stop('CURRENT_STAGE_INVALID')
@@ -179,6 +189,20 @@ def verify_collection(obj,stage,target,refs,collector_source,now):
  if obj['collection_id']!=sha(canonical(envelope)):
   stop('COLLECTION_ID_CHANGED')
  observed=obj['catalog']
+ transport=obj['transport_jsonl']
+ if not isinstance(transport,str) or not transport or (
+     sha(transport.encode('utf-8'))!=envelope['transport_sha256']):
+  stop('ORIGINAL_TRANSPORT_MISSING_OR_CHANGED')
+ try:
+  replayed,replayed_phase,replayed_revisions=catalog.collect(
+   lambda statement:transport,include_phase=True,
+   expected_identity=(target['database'],envelope['db_user'],
+    envelope['server_version']))
+ except (ValueError,TypeError):
+  stop('ORIGINAL_TRANSPORT_SNAPSHOT_INVALID')
+ if (replayed!=observed or replayed_phase!=obj['phase'] or
+     replayed_revisions!=obj['revisions']):
+  stop('ORIGINAL_TRANSPORT_NOT_SAME_COLLECTION')
  if not isinstance(observed,dict) or set(observed)!=set(catalog.CATEGORIES):
   stop('COLLECTION_CATALOG_INCOMPLETE')
  # Validate raw member/grantor/role OID paths and stage-specific source controls.
@@ -357,4 +381,6 @@ def validate_history(manifest_path,file_map_path,expected_manifest_sha256,
   'prior_role_oids':previous_map,
   'predecessor_captured_at_utc':previous_capture.isoformat().replace('+00:00','Z'),
   'witnessed_at_utc':previous_witness.isoformat().replace('+00:00','Z'),
-  'collector_source_sha256':approved_collector_source_sha256}
+  'collector_source_sha256':approved_collector_source_sha256,
+  'predecessor_witness_sha256':records[-1]['witness_sha256'],
+  'collection_ids':sorted(prior_collection_ids)}
