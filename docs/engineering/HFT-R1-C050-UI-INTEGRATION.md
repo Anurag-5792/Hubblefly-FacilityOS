@@ -31,6 +31,25 @@ auto-activation or HR designation -> role translation is introduced.
 A fresh scope change invalidates previously loaded records and in-flight
 responses; the UI never treats client selectors as a permission source.
 
+C050-CORRECT-005 additionally binds every Employee EDIT selection to the
+exact authenticated P3 LIST scope (entity/site/**warehouse**), selected
+record ID/revision and a monotonic LIST epoch. The selected record's nullable
+or blank physical warehouse value is NOT substituted for the original LIST
+warehouse. Scope changes synchronously clear the Employee edit selection,
+record ID, expected revision, field values, reason and edit operation.
+WH1 -> WH2 -> WH1 without a fresh signed LIST still fails before the POST.
+Immediately before submission, any missing/stale selection, changed scope,
+changed revision or changed selected ID aborts without issuing an API request.
+Only fresh LIST + new selection can create a new Employee EDIT. Other
+master CREATE and governed workflows continue through the existing P3 APIs.
+
+The C050-CORRECT mounted browser test runs the actual CI-local built
+Next.js page under headless Chromium with only synthetic P3 API responses
+intercepted. It asserts old-scope selection fails before fetch, including
+late LIST completion after a scope change, and current-scope EDIT is submitted
+to the existing request-only P3 handler. It does not constitute live API,
+PostgreSQL, IAM, corporate trust, deployment or human workflow acceptance.
+
 ## C050-02 — OWNER route-access proposal
 
 Existing route only: /stores/masters. No new /admin/access route, IAM API,

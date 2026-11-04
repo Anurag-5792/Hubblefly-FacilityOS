@@ -3,7 +3,10 @@ import Link from 'next/link';
 import {useState,useRef,type FormEvent} from 'react';
 import {EmployeeMasterDirectory} from '../../../lib/hft/ui-reuse/EmployeeMasterDirectory';
 import {OwnerAccessProposalEditor} from '../../../lib/hft/ui-reuse/OwnerAccessProposalEditor';
-import type {EmployeeMasterRow} from '../../../lib/hft/ui-reuse/employee-view-model';
+import {readEmployeeDirectory,bindEmployeeEditSelection,
+ assertCurrentEmployeeEdit,sameEmployeeScope,
+ type EmployeeMasterRow,type EmployeeScope,type EmployeeEditSelection}
+ from '../../../lib/hft/ui-reuse/employee-view-model';
 
 type Kind='EMPLOYEE'|'ITEM'|'SUPPLIER'|'WAREHOUSE'|'LOCATION';
 type Operation='CREATE'|'EDIT'|'ACTIVATE'|'DEACTIVATE';
@@ -32,22 +35,38 @@ export default function MastersPage(){
   [warehouse,setWarehouse]=useState('');
  const [view,setView]=useState<View>('LIST'),[search,setSearch]=useState('');
  const [records,setRecords]=useState<readonly Item[]>([]);
- const [employeeList,setEmployeeList]=useState<Readonly<{
-  scopeKey:string;records:readonly Item[]
- }>|null>(null);
+ type EmployeeListContext=Readonly<{
+  sourceScope:EmployeeScope;readEpoch:number;records:readonly Item[]
+ }>;
+ const [employeeList,setEmployeeList]=useState<EmployeeListContext|null>(null);
+ const employeeListRef=useRef<EmployeeListContext|null>(null);
+ const employeeEditRef=useRef<EmployeeEditSelection|null>(null);
  const requestEpoch=useRef(0);
  const [operation,setOperation]=useState<Operation>('CREATE');
  const [recordId,setRecordId]=useState(''),[version,setVersion]=useState('0');
  const [reason,setReason]=useState(''),[values,setValues]=useState<Record<string,string>>({});
- const [busy,setBusy]=useState(false),[status,setStatus]=useState('No verified database result loaded.');
+ const [busy,setBusy]=useState(false),[submitting,setSubmitting]=useState(false);
+ const [status,setStatus]=useState('No verified database result loaded.');
  const scope={legalEntityId:entity.trim(),siteId:site.trim(),warehouseId:warehouse.trim()};
- const scopeKey=[scope.legalEntityId,scope.siteId,scope.warehouseId].join('|');
- function scopeChanged(setter:(value:string)=>void,value:string){
-  requestEpoch.current++;setter(value);setRecords([]);setEmployeeList(null);
-  setStatus('Scope changed. Reload authenticated records before editing.');
+ function clearEmployeeSelection(){
+  employeeEditRef.current=null;
+  setRecordId('');setVersion('0');setValues({});setReason('');
+  setOperation('CREATE');
  }
- function changeKind(next:Kind){requestEpoch.current++;setKind(next);setRecords([]);setEmployeeList(null);setValues({});
-  setRecordId('');setVersion('0');setOperation('CREATE');setStatus('Select scope and load authoritative records.');}
+ function clearEmployeeList(){
+  employeeListRef.current=null;setEmployeeList(null);
+ }
+ function scopeChanged(setter:(value:string)=>void,value:string){
+  if(submitting)return;
+  // Epoch and refs change synchronously, before any pending LIST can resolve.
+  requestEpoch.current++;setter(value);setRecords([]);clearEmployeeList();
+  clearEmployeeSelection();setView('LIST');setBusy(false);
+  setStatus('Scope changed. Fresh authenticated LIST and selection required for Employee EDIT.');
+ }
+ function changeKind(next:Kind){
+  requestEpoch.current++;setKind(next);setRecords([]);clearEmployeeList();
+  clearEmployeeSelection();setStatus('Select scope and load authoritative records.');
+ }
  async function call(payload:unknown):Promise<Reply>{
   const response=await fetch('/api/hft/masters',{method:'POST',
    headers:{'Content-Type':'application/json'},credentials:'same-origin',
@@ -58,29 +77,50 @@ export default function MastersPage(){
  }
  async function load(selected:View=view){
   const epoch=++requestEpoch.current;
-  const readScope=scopeKey;
-  setBusy(true);setEmployeeList(null);setRecords([]);
+  const readScope:EmployeeScope={...scope};
+  setBusy(true);clearEmployeeList();setRecords([]);
+  if(kind==='EMPLOYEE')clearEmployeeSelection();
   setStatus('Checking signed session and persisted P3 scope.');
   try{
-   const result=await call({intent:selected,kind,...scope,search:search.trim()});
-   if(epoch!==requestEpoch.current)return;
+   const result=await call({intent:selected,kind,...readScope,search:search.trim()});
+   if(epoch!==requestEpoch.current)return; // Stale async LIST is never published.
    if(result.state!=='AVAILABLE'||!Array.isArray(result.records))
     throw new Error('P3_SIGNED_LIST_READBACK_NOT_AVAILABLE');
+   if(kind==='EMPLOYEE'&&selected==='LIST'){
+    // Reject an inconsistent complete readback before creating a selection source.
+    readEmployeeDirectory(result.records,readScope);
+    const context:EmployeeListContext={
+     sourceScope:Object.freeze({...readScope}),readEpoch:epoch,records:result.records};
+    employeeListRef.current=context;setEmployeeList(context);
+   }
    setRecords(result.records);setView(selected);
-   if(kind==='EMPLOYEE'&&selected==='LIST')
-    setEmployeeList({scopeKey:readScope,records:result.records});
    setStatus(result.records.length?
     'Scoped database response received; no records changed.':
     'No verified records available for this scope.');
   }catch(e){
    if(epoch===requestEpoch.current){
-    setRecords([]);setEmployeeList(null);
+    setRecords([]);clearEmployeeList();
     setStatus(e instanceof Error?e.message:'Source unavailable');
    }
   }finally{if(epoch===requestEpoch.current)setBusy(false);}
  }
  async function submit(event:FormEvent<HTMLFormElement>){
-  event.preventDefault();requestEpoch.current++;setEmployeeList(null);setBusy(true);
+  event.preventDefault();
+  if(busy)return;
+  // Mandatory preflight occurs BEFORE random UUID generation and ANY fetch.
+  if(kind==='EMPLOYEE'&&operation==='EDIT'){
+   try{
+    assertCurrentEmployeeEdit(employeeEditRef.current,scope,requestEpoch.current,
+     recordId.trim(),version.trim());
+   }catch{
+    clearEmployeeSelection();
+    setStatus('C050_EMPLOYEE_EDIT_STALE_SELECTION_SCOPE_OR_REVISION — fresh authenticated LIST and selection required.');
+    return;
+   }
+  }
+  const epoch=++requestEpoch.current;
+  clearEmployeeList();employeeEditRef.current=null;
+  setBusy(true);setSubmitting(true);
   setStatus('Submitting immutable change request; no master activation has occurred.');
   try{
    const v:Record<string,string>={};
@@ -90,11 +130,16 @@ export default function MastersPage(){
     contractVersion:'HFT-R1-P3-MASTER-V1',requestId:crypto.randomUUID(),
     kind,operation,...scope,recordId:recordId.trim(),expectedVersion:version.trim(),
     reason:reason.trim(),values:v}});
+   if(epoch!==requestEpoch.current)return;
    if(result.state!=='PENDING_APPROVAL')throw new Error('P3_APPROVAL_STATE_NOT_CONFIRMED');
    setStatus('Request persisted and read back: PENDING APPROVAL. No operational master was changed.');
    setView('REQUESTS');setRecords(result.records||[]);
-  }catch(e){setStatus(e instanceof Error?e.message:'Request unavailable');}
-  finally{setBusy(false);}
+  }catch(e){
+   if(epoch===requestEpoch.current)
+    setStatus(e instanceof Error?e.message:'Request unavailable');
+  }finally{
+   if(epoch===requestEpoch.current){setBusy(false);setSubmitting(false);}
+  }
  }
  function selectRow(row:Item){
   const id=String(row.record_id||'');
@@ -106,13 +151,28 @@ export default function MastersPage(){
   setStatus('Drafting a change for '+id+'. Existing data will not change without approval.');
  }
  function selectEmployee(row:EmployeeMasterRow){
-  if(!employeeList||employeeList.scopeKey!==scopeKey)
-   {setStatus('Employee source scope changed. Reload required.');return;}
-  setRecordId(row.recordId);setVersion(row.version);setOperation('EDIT');
-  setReason('');
-  setValues({fullName:row.fullName,department:row.department,
-   designation:row.designation,siteId:row.siteId});
-  setStatus('P3 Employee EDIT draft selected. Submit via independent approval workflow.');
+  const context=employeeListRef.current;
+  if(kind!=='EMPLOYEE'||view!=='LIST'||!context||
+     context.readEpoch!==requestEpoch.current||
+     !sameEmployeeScope(context.sourceScope,scope)){
+   setStatus('Employee source scope changed. Fresh LIST required.');return;
+  }
+  try{
+   // Only a row returned by this same verified LIST/revision may be selected.
+   const original=readEmployeeDirectory(context.records,context.sourceScope)
+    .find(r=>r.recordId===row.recordId&&r.version===row.version);
+   if(!original)throw Error('C050_EMPLOYEE_SELECTION_NOT_IN_LIST');
+   const selected=bindEmployeeEditSelection(original,context.sourceScope,
+    context.readEpoch);
+   employeeEditRef.current=selected;
+   setRecordId(original.recordId);setVersion(original.version);setOperation('EDIT');
+   setReason('');setValues({fullName:original.fullName,department:original.department,
+    designation:original.designation,siteId:original.siteId});
+   setStatus('P3 Employee EDIT draft selected. Submit via independent approval workflow.');
+  }catch{
+   clearEmployeeSelection();
+   setStatus('Employee selection no longer qualified. Fresh LIST required.');
+  }
  }
  return <main className="masters-shell">
   <header className="masters-head">
@@ -128,13 +188,13 @@ export default function MastersPage(){
    <div className="panel-heading"><div><p className="eyebrow">Authority</p><h2>Signed scope</h2></div>
     <span className="status">Database source required</span></div>
    <div className="masters-scope">
-    <label>Legal entity ID<input value={entity} disabled={busy}
+    <label>Legal entity ID<input value={entity} disabled={submitting}
       onChange={e=>scopeChanged(setEntity,e.target.value)}
       placeholder="From your authorized entity"/></label>
-    <label>Site ID<input value={site} disabled={busy}
+    <label>Site ID<input value={site} disabled={submitting}
       onChange={e=>scopeChanged(setSite,e.target.value)}
       placeholder="From your authorized site"/></label>
-    <label>Warehouse ID<input value={warehouse} disabled={busy}
+    <label>Warehouse ID<input value={warehouse} disabled={submitting}
       onChange={e=>scopeChanged(setWarehouse,e.target.value)}
       placeholder="From your authorized warehouse"/></label>
    </div>
@@ -166,9 +226,12 @@ export default function MastersPage(){
     </div>
     {kind==='EMPLOYEE'&&view==='LIST'?
      <EmployeeMasterDirectory rawP3Records={
-      employeeList?.scopeKey===scopeKey?employeeList.records:[]}
+      employeeList&&employeeList.readEpoch===requestEpoch.current&&
+       sameEmployeeScope(employeeList.sourceScope,scope)?employeeList.records:[]}
       requestedScope={scope}
-      verifiedReadResponse={employeeList?.scopeKey===scopeKey}
+      verifiedReadResponse={Boolean(employeeList&&
+       employeeList.readEpoch===requestEpoch.current&&
+       sameEmployeeScope(employeeList.sourceScope,scope))}
       mayRequestEdit={!busy}
       onRequestEdit={selectEmployee}
      />:<div className="masters-table-wrap">
@@ -194,7 +257,9 @@ export default function MastersPage(){
      <span className="status">No automatic approval</span></div>
     <form onSubmit={e=>void submit(e)} className="masters-form">
      <label>Operation<select value={operation} onChange={e=>{
-      const op=e.target.value as Operation;setOperation(op);if(op==='CREATE')setVersion('0');}}>
+      const op=e.target.value as Operation;
+      if(kind==='EMPLOYEE'&&op!==operation)clearEmployeeSelection();
+      setOperation(op);if(op==='CREATE')setVersion('0');}}>
       <option value="CREATE">Register inactive draft</option>
       <option value="EDIT">Request field revision</option>
       <option value="ACTIVATE">Request activation</option>

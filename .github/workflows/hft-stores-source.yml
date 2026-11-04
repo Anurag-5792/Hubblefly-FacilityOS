@@ -26,6 +26,8 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Verify source contracts and production build
         run: npm run verify
+      - name: C050 mounted React scope regression (CI-local synthetic P3)
+        run: node tests/browser/hft-c050-mounted.mjs
       - name: Production dependency audit (moderate or above)
         run: npm audit --omit=dev --audit-level=moderate
       - name: Full dependency tree advisory scan (high or above)

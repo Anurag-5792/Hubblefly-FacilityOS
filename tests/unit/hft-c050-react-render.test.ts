@@ -97,3 +97,16 @@ test('C050 components mounted on existing Masters page; no operational admin rou
  assert.match(page,/actor=\{null\}/);
  assert.equal(existsSync(resolve(root,'app/admin/access/page.tsx')),false);
 });
+
+test('C050-CORRECT mounted page binds edit to exact LIST scope, epoch and revision',()=>{
+ const page=readFileSync(resolve(root,'app/stores/masters/page.tsx'),'utf8');
+ assert.match(page,/bindEmployeeEditSelection\(original,context\.sourceScope/);
+ assert.match(page,/assertCurrentEmployeeEdit\(employeeEditRef\.current,scope,requestEpoch\.current/);
+ assert.match(page,/context\.readEpoch!==requestEpoch\.current/);
+ assert.match(page,/readEmployeeDirectory\(result\.records,readScope\)/);
+ assert.match(page,/requestEpoch\.current\+\+;setter\(value\)/);
+ assert.match(page,/clearEmployeeSelection\(\);setView\('LIST'\)/);
+ assert.match(page,/if\(epoch!==requestEpoch\.current\)return/);
+ assert.match(page,/clearEmployeeList\(\);employeeEditRef\.current=null/);
+ assert.match(page,/actor=\{null\}/);
+});

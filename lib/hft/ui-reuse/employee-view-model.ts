@@ -5,12 +5,40 @@ export type EmployeeScope=Readonly<{legalEntityId:string;siteId:string;warehouse
 export type EmployeeMasterRow=Readonly<{
  recordId:string;version:string;active:boolean;
  legalEntityId:string;siteId:string;fullName:string;department:string;designation:string;
+ /** The exact scope of the verified P3 LIST, distinct from row.warehouse_id. */
+ sourceListScope:EmployeeScope;
 }>;
 export type EmployeeFilter=Readonly<{
  search:string;department:string;designation:string;status:'ALL'|'ACTIVE'|'INACTIVE';
 }>;
 const scopeId=/^[A-Z0-9][A-Z0-9._-]{1,63}$/;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+export function sameEmployeeScope(a:EmployeeScope,b:EmployeeScope):boolean{
+ return a.legalEntityId===b.legalEntityId&&a.siteId===b.siteId&&
+  a.warehouseId===b.warehouseId;
+}
+export type EmployeeEditSelection=Readonly<{
+ sourceListScope:EmployeeScope;listEpoch:number;recordId:string;expectedVersion:string;
+}>;
+/** Client-side stale draft guard only; verified signed P3 scope remains server-authoritative. */
+export function bindEmployeeEditSelection(row:EmployeeMasterRow,
+ currentScope:EmployeeScope,listEpoch:number):EmployeeEditSelection{
+ if(!sameEmployeeScope(row.sourceListScope,currentScope)||
+    row.legalEntityId!==currentScope.legalEntityId||row.siteId!==currentScope.siteId)
+  throw Error('C050_EMPLOYEE_EDIT_SOURCE_SCOPE_MISMATCH');
+ if(!Number.isSafeInteger(listEpoch)||listEpoch<1)
+  throw Error('C050_EMPLOYEE_LIST_EPOCH_INVALID');
+ return Object.freeze({sourceListScope:Object.freeze({...row.sourceListScope}),
+  listEpoch,recordId:row.recordId,expectedVersion:row.version});
+}
+export function assertCurrentEmployeeEdit(selection:EmployeeEditSelection|null,
+ currentScope:EmployeeScope,currentEpoch:number,recordId:string,expectedVersion:string):void{
+ if(!selection||!sameEmployeeScope(selection.sourceListScope,currentScope)||
+    selection.listEpoch!==currentEpoch||selection.recordId!==recordId||
+    selection.expectedVersion!==expectedVersion)
+  throw Error('C050_EMPLOYEE_EDIT_STALE_SELECTION_SCOPE_OR_REVISION');
+}
+
 function object(input:unknown):Record<string,unknown>{
  if(!input||typeof input!=='object'||Array.isArray(input))
   throw Error('C050_EMPLOYEE_INVALID_RECORD');
@@ -41,7 +69,8 @@ export function readEmployeeDirectory(raw:readonly unknown[],scope:EmployeeScope
   ids.add(recordId);
   if(row.legal_entity_id!==scope.legalEntityId||
      row.site_id!==scope.siteId||
-     (row.warehouse_id!==''&&row.warehouse_id!==scope.warehouseId))
+     (row.warehouse_id!==''&&row.warehouse_id!==null&&
+      row.warehouse_id!==scope.warehouseId))
    throw Error('C050_EMPLOYEE_CROSS_SCOPE_DENIED');
   if(row.kind!==undefined&&row.kind!=='EMPLOYEE')throw Error('C050_EMPLOYEE_KIND_INVALID');
   if(row.active!==true&&row.active!==false)throw Error('C050_EMPLOYEE_ACTIVE_INVALID');
@@ -50,6 +79,7 @@ export function readEmployeeDirectory(raw:readonly unknown[],scope:EmployeeScope
   if(Object.keys(values).some(k=>!permitted.has(k)))throw Error('C050_EMPLOYEE_PRIVATE_FIELDS_NOT_ALLOWED');
   return Object.freeze({recordId,version:revision(row.version),active:row.active,
    legalEntityId:scope.legalEntityId,siteId:scope.siteId,
+   sourceListScope:Object.freeze({...scope}),
    fullName:requiredText(values.fullName,'NAME'),
    department:requiredText(values.department,'DEPARTMENT'),
    designation:requiredText(values.designation,'DESIGNATION')});
@@ -75,7 +105,8 @@ export function proposeEmployeeEdit(row:EmployeeMasterRow,scope:EmployeeScope,
  requestId:string,reason:string):EmployeeEditDraft{
  if(!uuid.test(requestId))throw Error('C050_EMPLOYEE_REQUEST_ID_INVALID');
  if(row.legalEntityId!==scope.legalEntityId||row.siteId!==scope.siteId||
-    !scopeId.test(scope.warehouseId))throw Error('C050_EMPLOYEE_CROSS_SCOPE_EDIT');
+    !scopeId.test(scope.warehouseId)||!sameEmployeeScope(row.sourceListScope,scope))
+  throw Error('C050_EMPLOYEE_CROSS_SCOPE_EDIT');
  if(reason!==reason.trim()||reason.length<8||reason.length>300)
   throw Error('C050_EMPLOYEE_REASON_INVALID');
  return Object.freeze({draftState:'PROPOSED_NOT_APPLIED',

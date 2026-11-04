@@ -2,7 +2,8 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {C047_EXISTING_ROUTES,mayDisplayRoute,mayPerformProtectedOperation}
  from '../../lib/hft/ui-reuse/route-registry.ts';
-import {readEmployeeDirectory,filterEmployeeDirectory,proposeEmployeeEdit,toP3EmployeeRequest}
+import {readEmployeeDirectory,filterEmployeeDirectory,proposeEmployeeEdit,toP3EmployeeRequest,
+ bindEmployeeEditSelection,assertCurrentEmployeeEdit,sameEmployeeScope}
  from '../../lib/hft/ui-reuse/employee-view-model.ts';
 import {proposeRouteAccess} from '../../lib/hft/ui-reuse/access-proposal-model.ts';
 import {validateMasterChange} from '../../lib/hft/masters/p3-contract.ts';
@@ -54,7 +55,8 @@ test('P3 Employee LIST normalizer preserves only four approved master values',()
  assert.equal(rows.length,2);
  assert.deepEqual(Object.keys(rows[0]).sort(),
   ['recordId','version','active','legalEntityId','siteId',
-   'fullName','department','designation'].sort());
+   'fullName','department','designation','sourceListScope'].sort());
+ assert.deepEqual(rows[0].sourceListScope,scope);
  assert.equal(rows[0].designation,'Stores Officer');
  assert.equal('email' in rows[0],false);
 });
@@ -134,4 +136,56 @@ test('unknown, duplicate and protected-action permissions fail closed',()=>{
 });
 test('missing verified owner scope denies even a syntactically valid request',()=>{
  assert.throws(()=>draft({actor:{...owner,grantableScopes:undefined}}),/CROSS_SCOPE/);
+});
+
+test('C050-CORRECT warehouse LIST context survives blank or null row warehouse fields',()=>{
+ for(const observedWarehouse of ['',null]){
+  const rows=readEmployeeDirectory([{...sample[0],warehouse_id:observedWarehouse}],scope);
+  const row=rows[0];
+  assert.equal(row.sourceListScope.warehouseId,'WH1');
+  assert.equal(row.sourceListScope.siteId,'SITE1');
+  assert.equal(row.sourceListScope.legalEntityId,'HFT');
+  assert.throws(()=>proposeEmployeeEdit(row,{...scope,warehouseId:'WH2'},
+   requestId,'Correct employee metadata'),/CROSS_SCOPE_EDIT/);
+ }
+});
+test('C050-CORRECT WH1 selection rejects WH2 submit even under same entity/site',()=>{
+ const row=readEmployeeDirectory(sample,scope)[0];
+ const selection=bindEmployeeEditSelection(row,scope,4);
+ assertCurrentEmployeeEdit(selection,scope,4,row.recordId,row.version);
+ assert.throws(()=>assertCurrentEmployeeEdit(selection,
+  {...scope,warehouseId:'WH2'},4,row.recordId,row.version),/STALE_SELECTION/);
+ assert.throws(()=>proposeEmployeeEdit(row,{...scope,warehouseId:'WH2'},
+  requestId,'Correct employee metadata'),/CROSS_SCOPE_EDIT/);
+});
+test('C050-CORRECT selected Employee legal entity and site are immutable',()=>{
+ const row=readEmployeeDirectory(sample,scope)[0];
+ const selection=bindEmployeeEditSelection(row,scope,7);
+ for(const changedScope of [{...scope,legalEntityId:'DDL'},
+  {...scope,siteId:'SITE2'}]){
+  assert.equal(sameEmployeeScope(selection.sourceListScope,changedScope),false);
+  assert.throws(()=>assertCurrentEmployeeEdit(selection,changedScope,7,
+   row.recordId,row.version),/STALE_SELECTION/);
+ }
+});
+test('C050-CORRECT WH1-WH2-WH1 restoration without re-LIST rejects old epoch',()=>{
+ const row=readEmployeeDirectory(sample,scope)[0];
+ const old=bindEmployeeEditSelection(row,scope,9);
+ // Scope values match again, but the original LIST epoch is invalidated.
+ assert.throws(()=>assertCurrentEmployeeEdit(old,scope,11,
+  row.recordId,row.version),/STALE_SELECTION/);
+ assert.throws(()=>assertCurrentEmployeeEdit(null,scope,11,
+  row.recordId,row.version),/STALE_SELECTION/);
+ const refreshed=bindEmployeeEditSelection(row,scope,12);
+ assertCurrentEmployeeEdit(refreshed,scope,12,row.recordId,row.version);
+});
+test('C050-CORRECT typed record ID and revision cannot replace LIST selection',()=>{
+ const row=readEmployeeDirectory(sample,scope)[0];
+ const selection=bindEmployeeEditSelection(row,scope,15);
+ assert.throws(()=>assertCurrentEmployeeEdit(selection,scope,15,
+  'EMP002',row.version),/STALE_SELECTION/);
+ assert.throws(()=>assertCurrentEmployeeEdit(selection,scope,15,
+  row.recordId,'5'),/STALE_SELECTION/);
+ assert.throws(()=>bindEmployeeEditSelection(row,{...scope,warehouseId:'WH2'},15),
+  /SOURCE_SCOPE_MISMATCH/);
 });
