@@ -240,18 +240,16 @@ class SignedHistory(unittest.TestCase):
     self.assertEqual(self.signed_gate(stage),result)
 
  def test_replay_one_snapshot_and_stale_collector_source_fail(self):
-  # A direct live collection cannot be reused as its historical predecessor.
-  last=self.validate('S0')
-  current_id=last['collection_ids'][-1]
-  with self.assertRaisesRegex(runner.Stop,'REPLAY_OR_STAGE'):
-   with patch.object(runner,'psql',
-      side_effect=self.db.sql('S0')):
-    # Force matching current ID on a fully coherent fake collection result.
-    with patch.object(c,'collect',side_effect=ValueError('FORGED_CURRENT')):
-     runner.live_database_phase_state({},
-      'prepare-security',continuity=self.proofs['S0'],
-      authenticated_history=last)
-  # Source mismatch is not an authorized collector upgrade.
+  # An unchanged original signed transport cannot be recycled as today's
+  # collection, even when its catalog is semantically correct.
+  prior=self.validate('S0')
+  original=json.loads(self.artifacts[1]['collection_path'].read_bytes())
+  with patch.object(runner,'psql',return_value=original['transport_jsonl']):
+   with self.assertRaisesRegex(runner.Stop,'REPLAY_OR_STAGE'):
+    runner.live_database_phase_state({},
+     'prepare-security',continuity=self.proofs['S0'],
+     authenticated_history=prior)
+  # An unrelated collector source is not approved by a plausible SHA alone.
   with patch.object(c,'STAGE_PATHS',self.refs),self.assertRaisesRegex(
       ValueError,'COLLECTION_ORIGINAL_IDENTITY'):
    h.validate_history(self.manifests['S0'][0],self.maps['S0'],
@@ -268,8 +266,6 @@ class SignedHistory(unittest.TestCase):
      self.proofs['S0'],self.manifests['S0'][0],self.maps['S0'])
 
  def test_actual_runner_reaches_writer_only_after_real_authenticated_history(self):
-  for stage,phase in fx.PHASES:
-   pass  # test iteration below uses (phase,stage) pairs
   for phase,stage in fx.PHASES:
    with self.subTest(stage=stage):
     with tempfile.TemporaryDirectory() as td:
@@ -365,7 +361,7 @@ class SignedHistory(unittest.TestCase):
    manifest=json.loads(self.manifests['S0'][0].read_bytes())
    filemap=json.loads(self.maps['S0'].read_bytes())
    forged=d/'forged-witness.sig'
-   forged.write_bytes(b'\\x00'*64)
+   forged.write_bytes(bytes(64))
    manifest['records'][0]['witness_signature_sha256']=c.sha(forged.read_bytes())
    filemap['records'][0]['witness_signature']=str(forged)
    m=d/'manifest.json';fm=d/'map.json'
