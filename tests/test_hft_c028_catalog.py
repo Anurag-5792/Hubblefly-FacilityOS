@@ -1,5 +1,5 @@
 """C028-01 exact catalog collector source-only positive/negative tests."""
-import json,tempfile,unittest
+import copy,importlib.util,json,tempfile,unittest
 from pathlib import Path
 from tools import hft_c028_catalog as c
 
@@ -9,7 +9,13 @@ class ExactCatalog(unittest.TestCase):
   rows['schemas']=[{'id':'public'}]
   rows['database_security']=[{'id':'neondb','owner':'neondb_owner','public_connect':False,'public_create':False,'public_temporary':False}]
   rows['provider_roles']=[{'id':'neon_superuser'},{'id':'neondb_owner'}]
-  rows['role_census']=[{'id':name} for name in sorted(set(c.PG18_PREDEFINED_ROLES)|{'neondb_owner','neon_superuser'})]
+  spec=importlib.util.spec_from_file_location('hft_c030_fixture',
+   Path(__file__).with_name('test_hft_c030_phase_transitions.py'))
+  module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+  fixture=module.FakePg18().snapshots['S0']
+  for category in ('role_census','role_membership_census',
+    'provider_memberships','provider_roles'):
+   rows[category]=copy.deepcopy(fixture[category])
   rows['schema_public_grants']=[{'id':'public','public_create':False,'public_usage':True}]
   if post:
    rows['schemas']=[{'id':'hft'},{'id':'public'}]
@@ -49,7 +55,7 @@ class ExactCatalog(unittest.TestCase):
    self.assertIn(required,c.CATEGORIES)
  def test_clean_prebootstrap_catalog(self):
   query,events=self.source(self.fixture(False))
-  self.assertEqual(c.verify_prebootstrap(query),c.sha(c.canonical(self.fixture(False))))
+  self.assertEqual(c.verify_prebootstrap(query),c.portable_stage_hash(self.fixture(False)))
   self.assertEqual(len(events),1)
  def test_rogue_public_function_is_denied_prebootstrap(self):
   data=self.fixture(False)
@@ -59,9 +65,9 @@ class ExactCatalog(unittest.TestCase):
  def test_extra_user_table_denied_after_canonical(self):
   with tempfile.TemporaryDirectory() as tmp:
    f=Path(tmp)/'catalog.sha256';baseline=self.fixture(True)
-   f.write_text(c.sha(c.canonical(baseline))+'\n')
+   f.write_text(c.portable_stage_hash(baseline)+'\n')
    self.assertEqual(c.verify_postcanonical(self.source(baseline)[0],f),
-    c.sha(c.canonical(baseline)))
+    c.portable_stage_hash(baseline))
    changed=self.fixture(True)
    changed['relations'].append({'id':'hft.unapproved_table'})
    with self.assertRaisesRegex(ValueError,'C028_CATALOG_EXTRA_MISSING_OR_ALTERED_CATALOG'):
@@ -69,7 +75,7 @@ class ExactCatalog(unittest.TestCase):
  def test_extra_column_and_sequence_setting_change_denied(self):
   with tempfile.TemporaryDirectory() as tmp:
    pin=Path(tmp)/'catalog.sha256';baseline=self.fixture(True)
-   pin.write_text(c.sha(c.canonical(baseline))+'\n')
+   pin.write_text(c.portable_stage_hash(baseline)+'\n')
    for category,rogue in (
     ('columns',{'id':'hft.stock_entry.rogue_column'}),
     ('sequence_settings',{'id':'hft.rogue_sequence','increment_by':999})):
@@ -84,9 +90,9 @@ class ExactCatalog(unittest.TestCase):
      'increment_by':1,'start_value':1,'cache_size':1}]
    baseline['columns']=[{'id':'hft.stock_entry.id','data_type':'uuid',
      'not_null':True,'default_expression':None}]
-   pin.write_text(c.sha(c.canonical(baseline))+'\n')
+   pin.write_text(c.portable_stage_hash(baseline)+'\n')
    self.assertEqual(c.verify_postcanonical(self.source(baseline)[0],pin),
-     c.sha(c.canonical(baseline)))
+     c.portable_stage_hash(baseline))
    for category,key,value in (('columns','data_type','text'),
      ('columns','not_null',False),('sequence_settings','increment_by',2),
      ('sequence_settings','cache_size',100)):
@@ -98,14 +104,14 @@ class ExactCatalog(unittest.TestCase):
  def test_missing_canonical_column_denied(self):
   with tempfile.TemporaryDirectory() as tmp:
    pin=Path(tmp)/'catalog.sha256';baseline=self.fixture(True)
-   pin.write_text(c.sha(c.canonical(baseline))+'\n')
+   pin.write_text(c.portable_stage_hash(baseline)+'\n')
    altered=self.fixture(True);altered['columns']=[]
    with self.assertRaisesRegex(ValueError,'C028_CATALOG_REQUIRED_COLUMNS_MISSING'):
     c.verify_postcanonical(self.source(altered)[0],pin)
  def test_extra_unapproved_function_denied_after_canonical(self):
   with tempfile.TemporaryDirectory() as tmp:
    f=Path(tmp)/'catalog.sha256';baseline=self.fixture(True)
-   f.write_text(c.sha(c.canonical(baseline))+'\n')
+   f.write_text(c.portable_stage_hash(baseline)+'\n')
    changed=self.fixture(True)
    changed['functions'].append({'id':'hft.rogue_writer()'})
    with self.assertRaisesRegex(ValueError,'C028_CATALOG_EXTRA_MISSING_OR_ALTERED_CATALOG'):
@@ -113,7 +119,7 @@ class ExactCatalog(unittest.TestCase):
  def test_missing_canonical_function_trigger_constraint_denied(self):
   with tempfile.TemporaryDirectory() as tmp:
    f=Path(tmp)/'catalog.sha256';baseline=self.fixture(True)
-   f.write_text(c.sha(c.canonical(baseline))+'\n')
+   f.write_text(c.portable_stage_hash(baseline)+'\n')
    for category in ('functions','triggers','constraints'):
     with self.subTest(category=category):
      changed=self.fixture(True);changed[category]=[]
@@ -124,7 +130,7 @@ class ExactCatalog(unittest.TestCase):
    f=Path(tmp)/'catalog.sha256';baseline=self.fixture(True)
    baseline['effective_grants']=[{'id':'hft_staging_app_runtime:hft.stock_account',
      'can_insert':False}]
-   f.write_text(c.sha(c.canonical(baseline))+'\n')
+   f.write_text(c.portable_stage_hash(baseline)+'\n')
    changed=self.fixture(True)
    changed['effective_grants']=[{'id':'hft_staging_app_runtime:hft.stock_account',
      'can_insert':True}]
