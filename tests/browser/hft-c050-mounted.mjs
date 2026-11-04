@@ -235,14 +235,32 @@ async function testMountedWorkflow(){
 }
 try{
  tmp=await mkdtemp(join(tmpdir(),'hft-c050-browser-'));
- server=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-p',String(PORT)],{
-  cwd:ROOT,detached:true,stdio:'ignore',
-  env:{...process.env,NEXT_TELEMETRY_DISABLED:'1',
-   HFT_LIVE_POSTING_ENABLED:'false',HFT_ENABLE_PREVIEW_NEON_DISCOVERY:'false'}});
- await wait(async()=>{
-  const result=await fetch(URL_ROOT+'/stores/masters');
-  return result.status===200;
- },'CI_LOCAL_NEXT_SERVER',30000);
+ // Do NOT start Next in production mode. The accepted HFT security
+ // middleware intentionally returns 503 for all production-mode requests.
+ // Run an isolated, in-memory, nonproduction dev process, and intercept the
+ // only P3 fetch before any app code can send it to the backend.
+ let serverTail='';
+ server=spawn(process.execPath,['node_modules/next/dist/bin/next','dev','-p',String(PORT)],{
+  cwd:ROOT,detached:true,stdio:['ignore','pipe','pipe'],
+  env:{...process.env,NODE_ENV:'development',HFT_ENVIRONMENT:'test',
+   HFT_AUTH_SOURCE:'verified',HFT_OPERATIONS_SOURCE:'database',
+   NEXT_TELEMETRY_DISABLED:'1',HFT_LIVE_POSTING_ENABLED:'false',
+   HFT_ENABLE_PREVIEW_NEON_DISCOVERY:'false'}});
+ for(const stream of [server.stdout,server.stderr]){
+  stream.on('data',chunk=>{serverTail=(serverTail+String(chunk)).slice(-3000);});
+ }
+ let lastStatus='';
+ try{
+  await wait(async()=>{
+   if(server.exitCode!==null)throw Error('NEXT_DEV_EXITED '+server.exitCode);
+   const result=await fetch(URL_ROOT+'/stores/masters');
+   lastStatus=String(result.status);
+   return result.status===200;
+  },'CI_LOCAL_ISOLATED_NEXT_DEV',75000);
+ }catch(error){
+  throw Error('C050_BROWSER_NEXT_DEV_UNAVAILABLE: '+String(error)+
+   ';status='+lastStatus+';diagnostic='+serverTail);
+ }
  browser=spawn(findChrome(),['--headless=new','--no-sandbox',
   '--disable-dev-shm-usage','--disable-gpu','--no-first-run',
   '--no-default-browser-check','--remote-allow-origins=*',
