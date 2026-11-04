@@ -229,6 +229,149 @@ class SignedHistory(unittest.TestCase):
     PHASES[stage],self.auth(stage),proof or self.proofs[stage],
     self.manifests[stage][0],self.maps[stage])
 
+ def signed_baseline_variant(self,folder,change_artifact=None,
+    change_witness=None):
+  """Use actual test-only Ed25519 keys; NEVER bypass signature verification."""
+  d=Path(folder)
+  collection=json.loads(self.artifacts[0]['collection_path'].read_bytes())
+  if change_artifact:change_artifact(collection)
+  cp=d/'collection.json';csha=save_json(cp,collection)
+  csig=self.sign('collector',cp,d/'collector.sig')
+  witness=json.loads(self.artifacts[0]['witness_path'].read_bytes())
+  witness['collection_sha256']=csha
+  witness['collection_id']=collection['collection_id']
+  witness['collector_signature_sha256']=c.sha(csig.read_bytes())
+  if change_witness:change_witness(witness)
+  wp=d/'witness.json';wsha=save_json(wp,witness)
+  wsig=self.sign('witness',wp,d/'witness.sig')
+  manifest=json.loads(self.manifests['S0'][0].read_bytes())
+  manifest['root_collection_sha256']=csha
+  record=manifest['records'][0]
+  record['collection_sha256']=csha
+  record['collector_signature_sha256']=c.sha(csig.read_bytes())
+  record['witness_sha256']=wsha
+  record['witness_signature_sha256']=c.sha(wsig.read_bytes())
+  filemap=json.loads(self.maps['S0'].read_bytes())
+  filemap['records'][0].update({
+   'collection':str(cp),'collector_signature':str(csig),
+   'witness':str(wp),'witness_signature':str(wsig)})
+  mp=d/'manifest.json';mapath=d/'file-map.json'
+  msha=save_json(mp,manifest);save_json(mapath,filemap)
+  # Verify the modified artifacts truly are signed with the synthetic
+  # enrolled keys so negative tests cannot accidentally pass on bad hashes.
+  h.verify_signature(self.trust['collector']['record']['public_key_pem'],
+   cp.read_bytes(),csig.read_bytes())
+  h.verify_signature(self.trust['witness']['record']['public_key_pem'],
+   wp.read_bytes(),wsig.read_bytes())
+  return mp,msha,mapath,csha
+
+ def test_authenticated_witness_operator_and_custodian_must_match_gate_a(self):
+  for field in ('operator','evidence_custodian','independent_verifier'):
+   with self.subTest(field=field):
+    auth=self.auth('S1')
+    auth[field]='OTHER-CORPORATE-IDENTITY'
+    with patch.object(c,'STAGE_PATHS',self.refs),patch.object(
+      runner,'pin',side_effect=self.pin):
+     with self.assertRaisesRegex(runner.Stop,
+      'HISTORICAL_PREDECESSOR_NOT_AUTHENTICATED'):
+      runner.authenticated_history_gate(
+       'prepare-migration-owner',auth,self.proofs['S1'],
+       self.manifests['S1'][0],self.maps['S1'])
+
+ def test_authentically_signed_wrong_target_and_wrong_custody_rejected(self):
+  with tempfile.TemporaryDirectory() as t:
+   mp,ms,fmap,root=self.signed_baseline_variant(t,
+    change_artifact=lambda x:x.update(branch_id='br-other-target'))
+   with self.assertRaisesRegex(ValueError,'COLLECTION_SCOPE_OR_STAGE'):
+    self.validate('S0',manifest_path=mp,manifest_sha=ms,
+     file_map_path=fmap,baseline_sha=root)
+  with tempfile.TemporaryDirectory() as t:
+   mp,ms,fmap,root=self.signed_baseline_variant(t,
+    change_witness=lambda x:x.update(custody_status='UNPROTECTED'))
+   with self.assertRaisesRegex(ValueError,'WITNESS_INDEPENDENCE_OR_SCOPE'):
+    self.validate('S0',manifest_path=mp,manifest_sha=ms,
+     file_map_path=fmap,baseline_sha=root)
+  with tempfile.TemporaryDirectory() as t:
+   mp,ms,fmap,root=self.signed_baseline_variant(t,
+    change_witness=lambda x:x.update(branch_id='br-wrong-witness-target'))
+   with self.assertRaisesRegex(ValueError,'WITNESS_INDEPENDENCE_OR_SCOPE'):
+    self.validate('S0',manifest_path=mp,manifest_sha=ms,
+     file_map_path=fmap,baseline_sha=root)
+
+ def test_signed_future_collection_and_witness_cannot_backdate_evidence(self):
+  with tempfile.TemporaryDirectory() as t:
+   future=(self.now+dt.timedelta(hours=1)).isoformat().replace('+00:00','Z')
+   mp,ms,fmap,root=self.signed_baseline_variant(t,
+    change_artifact=lambda x:x.update(captured_at_utc=future))
+   with self.assertRaisesRegex(ValueError,'COLLECTION_IN_FUTURE'):
+    self.validate('S0',manifest_path=mp,manifest_sha=ms,
+     file_map_path=fmap,baseline_sha=root)
+  with tempfile.TemporaryDirectory() as t:
+   future=(self.now+dt.timedelta(hours=1)).isoformat().replace('+00:00','Z')
+   mp,ms,fmap,root=self.signed_baseline_variant(t,
+    change_witness=lambda x:x.update(witnessed_at_utc=future))
+   with self.assertRaisesRegex(ValueError,'WITNESS_TIME_INVALID'):
+    self.validate('S0',manifest_path=mp,manifest_sha=ms,
+     file_map_path=fmap,baseline_sha=root)
+
+ def test_valid_signatures_cannot_make_changed_original_privilege_graph_approved(self):
+  with tempfile.TemporaryDirectory() as t:
+   d=Path(t)
+   existing=json.loads(self.artifacts[0]['collection_path'].read_bytes())
+   transport=[json.loads(line) for line in
+    existing['transport_jsonl'].splitlines()]
+   graph=next(packet for packet in transport
+    if packet['kind']=='role_membership_census')
+   roles=next(packet for packet in transport
+    if packet['kind']=='role_census')['data']
+   graph['data'].append(fx.census_grant('untracked_login',
+    'pg_write_all_data','neondb_owner',roles))
+   graph['data'].sort(key=lambda row:row['id'])
+   original='\n'.join(json.dumps(packet,sort_keys=True,
+    separators=(',',':')) for packet in transport)
+   proof={}
+   observed,phase,revisions=c.collect(
+    lambda sql:original,include_phase=True,
+    expected_identity=(runner.DB,runner.OWNER,runner.PGNUM),
+    evidence_out=proof,branch_id=runner.BRANCH)
+   new=h.build_collection('S0_BASELINE',self.target,
+    observed,phase,revisions,
+    {key:proof[key] for key in h.ENVELOPE_FIELDS},
+    existing['captured_at_utc'],None,transport_jsonl=original)
+   def change(obj):
+    obj.clear();obj.update(new)
+   mp,ms,fmap,root=self.signed_baseline_variant(d,change_artifact=change)
+   with self.assertRaisesRegex(ValueError,'COLLECTION_CATALOG_NOT_APPROVED'):
+    self.validate('S0',manifest_path=mp,manifest_sha=ms,
+     file_map_path=fmap,baseline_sha=root)
+   self.assertEqual(len(runner.MIGS),6)
+
+ def test_real_runner_missing_history_fails_before_postgresql_query(self):
+  with tempfile.TemporaryDirectory() as t:
+   d=Path(t)
+   role=d/'roles.json';save_json(role,self.proofs['S0'])
+   for path in ('recovery.json','auth.json'):
+    (d/path).write_text('{"test":true}')
+   argv=['c039-test','prepare-security','--journal',str(d/'journal.jsonl'),
+    '--role-continuity-evidence',str(role),
+    '--historical-manifest',str(self.manifests['S0'][0]),
+    '--historical-file-map',str(self.maps['S0']),
+    '--recovery-evidence',str(d/'recovery.json'),
+    '--authorization-artifact',str(d/'auth.json')]
+   with contextlib.ExitStack() as stack:
+    stack.enter_context(patch.object(sys,'argv',argv))
+    stack.enter_context(patch.object(runner,'clean_worktree'))
+    stack.enter_context(patch.object(runner,'control_plane_live',
+     return_value={'captured_at_utc':'TEST'}))
+    stack.enter_context(patch.object(runner,'auth_artifact',
+     return_value=self.auth('S0')))
+    stack.enter_context(patch.object(runner,'pin',return_value='HOLD'))
+    psql=stack.enter_context(patch.object(runner,'psql',
+     side_effect=AssertionError('NO_DATABASE_SQL_ALLOWED')))
+    with self.assertRaisesRegex(runner.Stop,'HISTORICAL_PREDECESSOR_NOT_AUTHENTICATED'):
+     runner.main()
+    psql.assert_not_called()
+
  def test_valid_corporate_pinned_ed25519_chain_s0_s5(self):
   for stage in c.STAGES:
    with self.subTest(stage=stage):
