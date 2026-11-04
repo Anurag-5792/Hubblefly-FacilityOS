@@ -4,6 +4,7 @@ No PostgreSQL/Neon connection is made. The transport emulates psql framing
 and a frozen repeatable-read snapshot, including deliberate protocol faults.
 """
 import copy
+import importlib.util
 import json
 import tempfile
 import unittest
@@ -14,27 +15,27 @@ from tools import hft_c028_catalog as catalog
 from tools import hft_neon_staging_bootstrap as runner
 
 
+def stage_fixture(stage):
+ spec=importlib.util.spec_from_file_location('hft_c030_fixture',
+  Path(__file__).with_name('test_hft_c030_phase_transitions.py'))
+ module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+ return module.FakePg18().snapshots[stage]
+
+def s0_continuity(rows):
+ return {'schema':catalog.ROLE_CONTINUITY_SCHEMA,'stage':'S0',
+  'project_id':runner.PROJECT,'branch_id':runner.BRANCH,'database':runner.DB,
+  'anchor_stage':'S0_BASELINE','previous_collection_sha256':'a'*64,
+  'witness_evidence_sha256':'b'*64,
+  'collector_source_sha256':catalog.sha(Path(catalog.__file__).read_bytes()),
+  'prior_role_oids':{x['id']:x['role_oid'] for x in rows['role_census']}}
+
 class SyntheticPg18:
  def __init__(self):
   self.calls=0
-  self.rows={key:[] for key in catalog.CATEGORIES}
-  self.rows['schemas']=[{'id':'public'}]
-  self.rows['database_security']=[{'id':'neondb','owner':'neondb_owner',
+  self.rows=copy.deepcopy(stage_fixture('S0'))
+  self.rows['database_security'][0].update({
    'acl':'{=Tc/neondb_owner}', 'public_connect':True,
-   'public_create':False,'public_temporary':True}]
-  self.rows['provider_roles']=[{'id':'neon_superuser','rolsuper':False},
-   {'id':'neondb_owner','rolsuper':False}]
-  self.rows['role_census']=[{'id':name} for name in
-   sorted(set(catalog.PG18_PREDEFINED_ROLES)|{'neondb_owner','neon_superuser'})]
-  self.rows['role_membership_census']=[{'id':'member=901;role=902;grantor=902',
-   'member':'neondb_owner','granted_role':'neon_superuser',
-   'grantor':'neon_superuser','member_oid':'901','granted_role_oid':'902',
-   'grantor_oid':'902','admin_option':False,'inherit_option':True,
-   'set_option':False}]
-  self.rows['provider_memberships']=[{'id':'neondb_owner->neon_superuser',
-   'admin_option':False,'inherit_option':True,'set_option':False}]
-  self.rows['schema_public_grants']=[{'id':'public','owner':'neondb_owner',
-   'public_create':False,'public_usage':True}]
+   'public_create':False,'public_temporary':True})
   self.fault=None
 
  def execute(self,sql):
@@ -79,16 +80,20 @@ class C032SnapshotProtocol(unittest.TestCase):
    paths={}
    for i,stage in enumerate(catalog.STAGES):
     path=Path(t)/(stage+'.sha256')
-    value=catalog.sha(catalog.canonical(self.pg.rows)) if stage=='S0' else ('%064x'%(i+1))
+    value=catalog.portable_stage_hash(self.pg.rows) if stage=='S0' else ('%064x'%(i+1))
     path.write_text(value+'\n')
     paths[stage]=path
-   self.assertEqual(catalog.verify_stage(self.pg.execute,'S0',paths),
-    catalog.sha(catalog.canonical(self.pg.rows)))
+   self.assertEqual(catalog.verify_stage(self.pg.execute,'S0',paths,
+     continuity=s0_continuity(self.pg.rows),
+     context={'project_id':runner.PROJECT,'branch_id':runner.BRANCH,'database':runner.DB}),
+    catalog.portable_stage_hash(self.pg.rows))
    for key in ('public_create','public_connect','public_temporary'):
     previous=self.pg.rows['database_security'][0][key]
     self.pg.rows['database_security'][0][key]=not previous
     with self.subTest(key=key),self.assertRaisesRegex(ValueError,'EXTRA_MISSING_OR_ALTERED'):
-     catalog.verify_stage(self.pg.execute,'S0',paths)
+     catalog.verify_stage(self.pg.execute,'S0',paths,
+     continuity=s0_continuity(self.pg.rows),
+     context={'project_id':runner.PROJECT,'branch_id':runner.BRANCH,'database':runner.DB})
     self.pg.rows['database_security'][0][key]=previous
 
  def test_invalid_or_interrupted_collection_is_rejected(self):
@@ -122,27 +127,7 @@ class C032SnapshotProtocol(unittest.TestCase):
   self.assertEqual(self.pg.calls,1)
 
  def test_post_security_public_and_provider_elevation_denied(self):
-  roles,members=catalog.source_role_contract()
-  rows=copy.deepcopy(self.pg.rows)
-  rows['database_security'][0].update(public_connect=False,public_temporary=False)
-  rows['roles']=[{'id':x,'rolsuper':False,'rolcreatedb':False,
-    'rolcreaterole':False,'rolreplication':False,'rolbypassrls':False}
-    for x in sorted(roles)]
-  rows['role_census'].extend({'id':name} for name in sorted(roles))
-  for i,name in enumerate(sorted(members)):
-   member,parent=name.split('->')
-   rows['role_membership_census'].append({
-    'id':f'member={910+i};role={920+i};grantor=902',
-    'member':member,'granted_role':parent,'grantor':'neon_superuser',
-    'member_oid':str(910+i),'granted_role_oid':str(920+i),
-    'grantor_oid':'902','admin_option':False,'inherit_option':True,
-    'set_option':False})
-  rows['role_census'].sort(key=lambda x:x['id'])
-  rows['role_membership_census'].sort(key=lambda x:x['id'])
-  rows['memberships']=[{'id':x,'admin_option':False,
-    'inherit_option':True,'set_option':False} for x in sorted(members)]
-  rows['database_grants']=[{'id':'hft_staging_migration_owner:neondb'}]
-  rows['schema_grants']=[{'id':'hft_staging_migration_owner:public'}]
+  rows=copy.deepcopy(stage_fixture('S1'))
   catalog.structural_stage_checks(rows,'S1')
   for kind,mutation in (
    ('database_security',{'public_connect':True}),
