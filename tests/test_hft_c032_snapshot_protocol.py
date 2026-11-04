@@ -24,6 +24,13 @@ class SyntheticPg18:
    'public_create':False,'public_temporary':True}]
   self.rows['provider_roles']=[{'id':'neon_superuser','rolsuper':False},
    {'id':'neondb_owner','rolsuper':False}]
+  self.rows['role_census']=[{'id':name} for name in
+   sorted(set(catalog.PG18_PREDEFINED_ROLES)|{'neondb_owner','neon_superuser'})]
+  self.rows['role_membership_census']=[{'id':'member=901;role=902;grantor=902',
+   'member':'neondb_owner','granted_role':'neon_superuser',
+   'grantor':'neon_superuser','member_oid':'901','granted_role_oid':'902',
+   'grantor_oid':'902','admin_option':False,'inherit_option':True,
+   'set_option':False}]
   self.rows['provider_memberships']=[{'id':'neondb_owner->neon_superuser',
    'admin_option':False,'inherit_option':True,'set_option':False}]
   self.rows['schema_public_grants']=[{'id':'public','owner':'neondb_owner',
@@ -121,6 +128,17 @@ class C032SnapshotProtocol(unittest.TestCase):
   rows['roles']=[{'id':x,'rolsuper':False,'rolcreatedb':False,
     'rolcreaterole':False,'rolreplication':False,'rolbypassrls':False}
     for x in sorted(roles)]
+  rows['role_census'].extend({'id':name} for name in sorted(roles))
+  for i,name in enumerate(sorted(members)):
+   member,parent=name.split('->')
+   rows['role_membership_census'].append({
+    'id':f'member={910+i};role={920+i};grantor=902',
+    'member':member,'granted_role':parent,'grantor':'neon_superuser',
+    'member_oid':str(910+i),'granted_role_oid':str(920+i),
+    'grantor_oid':'902','admin_option':False,'inherit_option':True,
+    'set_option':False})
+  rows['role_census'].sort(key=lambda x:x['id'])
+  rows['role_membership_census'].sort(key=lambda x:x['id'])
   rows['memberships']=[{'id':x,'admin_option':False,
     'inherit_option':True,'set_option':False} for x in sorted(members)]
   rows['database_grants']=[{'id':'hft_staging_migration_owner:neondb'}]
