@@ -13,6 +13,34 @@ from tools import hft_neon_staging_bootstrap as runner
 PHASES=(('prepare-security','S0'),('prepare-migration-owner','S1'),
  ('migrate','S2'),('finalize-owner','S3'),('finalize-dba','S4'),
  ('verify-final-dba','S5'))
+# Synthetic catalog-wide baseline; OIDs are fixture identifiers only.
+# Real grantor and OID values must come from the independently witnessed PG18
+# stage references, not from these synthetic examples.
+def census_roles(*names):
+ return [{'id':name,'role_oid':str(10000+i),
+  'rolcanlogin':name in ('neondb_owner','hft_staging_migration_owner',
+   'hft_staging_app_runtime','hft_staging_audit_verify'),
+  'rolsuper':False,'rolinherit':True,'rolcreatedb':False,
+  'rolcreaterole':False,'rolreplication':False,'rolbypassrls':False,
+  'rolconnlimit':-1,'expires':None,'settings':None}
+  for i,name in enumerate(sorted(set(names)))]
+
+def census_grant(member,granted,grantor,roles,admin=False,inherit=True,set_role=False):
+ by_name={r['id']:r for r in roles}
+ m,p,g=(by_name[n] for n in (member,granted,grantor))
+ return {'id':('member='+m['role_oid']+';role='+p['role_oid']+
+   ';grantor='+g['role_oid']),
+  'member':member,'granted_role':granted,'grantor':grantor,
+  'member_oid':m['role_oid'],'granted_role_oid':p['role_oid'],
+  'grantor_oid':g['role_oid'],'admin_option':admin,
+  'inherit_option':inherit,'set_option':set_role,
+  **{prefix+field:value for prefix,r in (('member_',m),('granted_',p))
+     for field,value in (
+      ('can_login',r['rolcanlogin']),('inherits',r['rolinherit']),
+      ('superuser',r['rolsuper']),('createdb',r['rolcreatedb']),
+      ('createrole',r['rolcreaterole']),('replication',r['rolreplication']),
+      ('bypassrls',r['rolbypassrls']))}}
+
 class FakePg18:
  def __init__(self):
   self.roles,self.members=c.source_role_contract()
@@ -24,6 +52,23 @@ class FakePg18:
    rows['database_security']=[{'id':'neondb','owner':'neondb_owner','public_connect':False,'public_create':False,'public_temporary':False,'acl':'provider-qualified-placeholder'}]
    rows['provider_roles']=[{'id':'neon_superuser','rolsuper':False},{'id':'neondb_owner','rolsuper':False}]
    rows['schema_public_grants']=[{'id':'public','public_create':False,'public_usage':True}]
+   all_names=(set(c.PG18_PREDEFINED_ROLES)|
+    {'neondb_owner','neon_superuser'}|
+    (self.roles if stage!='S0' else set()))
+   rows['role_census']=census_roles(*all_names)
+   baseline_edges=[
+    ('neondb_owner','neon_superuser','neon_superuser'),
+    ('pg_monitor','pg_read_all_settings','neon_superuser'),
+    ('pg_monitor','pg_read_all_stats','neon_superuser'),
+    ('pg_monitor','pg_stat_scan_tables','neon_superuser')]
+   rows['provider_memberships']=[{'id':'neondb_owner->neon_superuser',
+    'admin_option':False,'inherit_option':True,'set_option':False}]
+   if stage!='S0':
+    baseline_edges.extend((member,parent,'neondb_owner') for member,parent in
+     (x.split('->') for x in sorted(self.members)))
+   rows['role_membership_census']=[
+    census_grant(member,parent,grantor,rows['role_census'])
+    for member,parent,grantor in baseline_edges]
    if stage!='S0':
     rows['roles']=[{'id':x,'rolsuper':False,'rolcreatedb':False,
       'rolcreaterole':False,'rolreplication':False,'rolbypassrls':False}
