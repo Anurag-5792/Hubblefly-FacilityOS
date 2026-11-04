@@ -31,6 +31,7 @@ export function mayDisplayRoute(principal:UiPrincipal|null,path:string):boolean{
  return principal.systemRoles.includes('OWNER_SUPERADMIN')||
   principal.viewPermissions.includes(route.viewPermission);
 }
-export function mayPerformProtectedOperation(_principal:UiPrincipal,_operation:string):false{
+export function mayPerformProtectedOperation(principal:UiPrincipal,operation:string):false{
+ void principal;void operation;
  return false;
 }

@@ -88,6 +88,8 @@ export function proposeEmployeeEdit(row:EmployeeMasterRow,scope:EmployeeScope,
 }
 /** Strip UI-only state before invoking the existing strict P3 API. */
 export function toP3EmployeeRequest(draft:EmployeeEditDraft){
- const {draftState:_state,...change}=draft;
+ const {draftState,...change}=draft;
+ if(draftState!=='PROPOSED_NOT_APPLIED')
+  throw Error('C050_EMPLOYEE_UNAPPROVED_DRAFT_STATE');
  return {intent:'SUBMIT' as const,change};
 }

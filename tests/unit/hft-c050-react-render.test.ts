@@ -22,7 +22,7 @@ function loadComponent(filename:string,exportName:string):ComponentType<Entry>{
    target:ts.ScriptTarget.ES2022,esModuleInterop:true}});
  assert.equal(generated.diagnostics?.length??0,0);
  const css=new Proxy({}, {get(_target,prop){return typeof prop==='string'?prop:undefined;}});
- const module={exports:{} as Record<string,unknown>};
+ const compiledModule={exports:{} as Record<string,unknown>};
  function localRequire(name:string):unknown{
   if(name.endsWith('.module.css'))return {__esModule:true,default:css};
   if(name.startsWith('.')&&name.endsWith('.ts'))
@@ -31,8 +31,8 @@ function loadComponent(filename:string,exportName:string):ComponentType<Entry>{
  }
  const execute=new Function('require','module','exports',generated.outputText) as
   (req:(name:string)=>unknown,mod:typeof module,exp:Record<string,unknown>)=>void;
- execute(localRequire,module,module.exports);
- const component=module.exports[exportName];
+ execute(localRequire,compiledModule,compiledModule.exports);
+ const component=compiledModule.exports[exportName];
  assert.equal(typeof component,'function');
  return component as ComponentType<Entry>;
 }
