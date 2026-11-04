@@ -1,5 +1,6 @@
 """Recovery V2 source tests: synthetic provider records, subprocess receipts and real test Ed25519 signatures."""
 import datetime as dt
+import copy
 import json
 import subprocess
 import tempfile
@@ -36,8 +37,8 @@ class RecoveryV2Contract(unittest.TestCase):
    'id':'br-v2-preserve-abc123','name':'hft-prechange-preserve',
    'project_id':m.PROJECT,'parent_id':m.STAGING,'parent_lsn':lsn,
    'parent_timestamp':self.ts(-30),'created_at':self.ts(-30),
-   'default':False,'primary':False,'expires_at':self.ts(2880),
-   'ttl_interval_seconds':172800,'current_state':'ready'}
+   'default':False,'primary':False,'expires_at':None,
+   'ttl_interval_seconds':None,'current_state':'ready'}
   self.provider={'branch':preservation,'endpoints':[],'verified_at':self.ts(-2)}
   self.e={
    'schema':m.SCHEMA,'project_id':m.PROJECT,'source_branch_id':m.STAGING,
@@ -48,8 +49,8 @@ class RecoveryV2Contract(unittest.TestCase):
     'parent_timestamp':preservation['parent_timestamp'],
     'created_at':preservation['created_at'],'is_default':False,
     'is_primary':False,'endpoint_count':0,
-    'retention':{'mode':'FINITE','expires_at':preservation['expires_at'],
-     'ttl_interval_seconds':172800,'provider_verified_at':self.ts(-2)},
+    'retention':{'mode':'NO_SCHEDULED_EXPIRATION','expires_at':None,
+     'ttl_interval_seconds':None,'provider_verified_at':self.ts(-2)},
     'provider_record_sha256':m.sha(m.normalized(
      m.preservation_provider_projection(preservation,[])))},
    'dump':{'sha256':dump_hash,'size_bytes':len(dump),'format':'custom',
@@ -181,6 +182,16 @@ class RecoveryV2Contract(unittest.TestCase):
   self.e['independent_witness']={'witness_id':trust['witness_id'],'name':trust['name'],
    'operator_id':witness['operator_id'],'witness_file_sha256':w_sha,
    'signature_sha256':m.sha(signature.read_bytes()),'trust_record_sha256':self.trust_sha}
+ def rebind_preservation(self):
+  """Test-only canonical hash of raw provider projection, NOT a receipt."""
+  mode,exp,ttl=m.provider_retention_observation(
+   self.provider['branch'],'PRESERVATION')
+  self.e['preservation']['retention'].update(
+   {'mode':mode,'expires_at':exp,'ttl_interval_seconds':ttl})
+  self.e['preservation']['provider_record_sha256']=m.sha(m.normalized(
+   m.preservation_provider_projection(self.provider['branch'],
+    self.provider['endpoints'])))
+
  def verify(self):
   return m.validate_v2(self.e,self.provider,self.files,now=self.now,
    targets=self.targets,trust_sha256=self.trust_sha,
@@ -200,16 +211,16 @@ class RecoveryV2Contract(unittest.TestCase):
   self.denial('SOURCE_PRESERVATION_LSN_MISMATCH')
  def test_finite_expiry_not_covering_recovery(self):
   self.provider['branch']['expires_at']=self.ts(10)
-  self.e['preservation']['retention']['expires_at']=self.ts(10)
-  self.e['preservation']['provider_record_sha256']=m.sha(m.normalized(
-   m.preservation_provider_projection(self.provider['branch'],[])))
-  self.denial('PRESERVATION_EXPIRES_BEFORE_RECOVERY_WINDOW')
+  self.provider['branch']['ttl_interval_seconds']=3600
+  self.rebind_preservation()
+  self.denial('PRESERVATION_PARENT_SCHEDULED_EXPIRATION_PROHIBITED')
  def test_false_indefinite_claim(self):
   self.e['preservation']['retention']['mode']='INDEFINITE'
   self.denial('UNSUPPORTED_INDEFINITE_OR_UNVERIFIED_RETENTION')
  def test_missing_ttl(self):
   self.provider['branch']['ttl_interval_seconds']=None
-  self.denial('PRESERVATION_PROVIDER_HASH_DRIFT')
+  self.provider['branch']['expires_at']=self.ts(500)
+  self.denial('PRESERVATION_PROVIDER_RETENTION_PAIR_CONTRADICTION')
  def test_dump_tampered(self):
   Path(self.files['dump']).write_bytes(b'PGDMP altered')
   self.denial('CUSTOM_DUMP_LENGTH_INVALID')
@@ -236,7 +247,7 @@ class RecoveryV2Contract(unittest.TestCase):
   self.denial('RESTORE_BRANCH_EXPIRES_BEFORE_RECOVERY_WINDOW')
  def test_restore_ttl_without_expiration(self):
   self.targets['restore_b_branch']['expires_at']=None
-  self.denial('RESTORE_TTL_WITHOUT_EXPIRY')
+  self.denial('RESTORE_PROVIDER_RETENTION_PAIR_CONTRADICTION')
  def test_recovery_a_actual_production_id(self):
   self.targets['restore_a_branch']['id']=m.PRODUCTION_ID
   self.denial('RESTORE_PRODUCTION_STAGING_OR_DEFAULT_TARGET')
