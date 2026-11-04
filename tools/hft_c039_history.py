@@ -111,6 +111,8 @@ def trust_records(filemap,manifest,collector_pin,witness_pin,now):
  if (utc(collector['verified_at'])>now or
      utc(witness['verified_at'])>now):
   stop('TRUST_VERIFIED_IN_FUTURE')
+ if collector['public_key_pem']==witness['public_key_pem']:
+  stop('COLLECTOR_WITNESS_KEY_NOT_INDEPENDENT')
  for trust in (collector,witness):
   if not isinstance(trust['public_key_pem'],str) or (
       '-----BEGIN PUBLIC KEY-----' not in trust['public_key_pem']):
@@ -318,6 +320,9 @@ def validate_history(manifest_path,file_map_path,expected_manifest_sha256,
    stop('HISTORY_REPLAY_OR_CHAIN_BREAK')
   captured,roles=verify_collection(artifact,stage,target,refs,
    approved_collector_source_sha256,now)
+  if (captured<utc(collector['verified_at']) or
+      captured<utc(witness['verified_at'])):
+   stop('HISTORY_CAPTURE_PRECEDES_CORPORATE_ENROLLMENT')
   if previous_capture is not None and (
       captured<=previous_capture or captured<=previous_witness):
    stop('HISTORY_CAPTURE_CHRONOLOGY')
