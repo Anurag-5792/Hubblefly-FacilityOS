@@ -246,7 +246,9 @@ def verify_collection(obj,stage,target,refs,collector_source,now):
 def validate_history(manifest_path,file_map_path,expected_manifest_sha256,
   current_stage,target,reference_paths,approved_collector_source_sha256,
   collector_trust_pin,witness_trust_pin,gate_not_before_utc,
-  now=None,approved_baseline_sha256=None):
+  now=None,approved_baseline_sha256=None,
+  approved_operator_id=None,approved_custodian_id=None,
+  approved_witness_id=None):
  """Verify every authentic predecessor back to a separately pinned S0 baseline.
 
  No trust enrollment, signatures, collection or approval are created here.
@@ -254,6 +256,12 @@ def validate_history(manifest_path,file_map_path,expected_manifest_sha256,
  """
  now=now or dt.datetime.now(dt.timezone.utc)
  if now.tzinfo is None:stop('CLOCK_NOT_UTC')
+ if not all(isinstance(value,str) and value for value in (
+      approved_operator_id,approved_custodian_id,approved_witness_id)):
+  stop('GATE_A_HUMAN_CUSTODY_IDENTITIES_REQUIRED')
+ if len({approved_operator_id,approved_custodian_id,
+      approved_witness_id})!=3:
+  stop('GATE_A_HUMAN_INDEPENDENCE_REQUIRED')
  if not isinstance(expected_manifest_sha256,str) or not HEX.fullmatch(
      expected_manifest_sha256):stop('MANIFEST_NOT_APPROVED')
  manifest=canonical_json_file(manifest_path,expected_manifest_sha256)
@@ -342,6 +350,9 @@ def validate_history(manifest_path,file_map_path,expected_manifest_sha256,
       w['collector_id']!=collector['collector_id'] or
       w['collector_signature_sha256']!=record['collector_signature_sha256'] or
       w['witness_id']!=witness['witness_id'] or
+      w['witness_id']!=approved_witness_id or
+      w['operator_id']!=approved_operator_id or
+      w['custodian_id']!=approved_custodian_id or
       w['custody_status']!='INDEPENDENT_PROTECTED' or
       not all(isinstance(w.get(k),str) and w[k] for k in
        ('operator_id','custodian_id')) or
