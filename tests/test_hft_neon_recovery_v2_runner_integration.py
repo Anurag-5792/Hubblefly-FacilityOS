@@ -134,6 +134,27 @@ class RunnerEnforcement(unittest.TestCase):
  def invoke(self,phase,post=False,only_recovery=False,catalog_failure=None):
   self.materialize()
   queried=[]
+  # Test-only target-local ancestry, never a witnessed approval.
+  spec=importlib.util.spec_from_file_location('hft_c030_continuity',
+   Path(__file__).with_name('test_hft_c030_phase_transitions.py'))
+  module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+  source=module.FakePg18()
+  stage=dict(module.PHASES).get(phase,'S0')
+  idx=int(stage[1:])
+  before='S0' if idx==0 else 'S'+str(idx-1)
+  oid_proof={'schema':runner.c028_catalog.ROLE_CONTINUITY_SCHEMA,
+   'stage':stage,'project_id':runner.PROJECT,
+   'branch_id':runner.BRANCH,'database':runner.DB,
+   'anchor_stage':'S0_BASELINE' if idx==0 else before,
+   'previous_collection_sha256':'a'*64,
+   'witness_evidence_sha256':'b'*64,
+   'collector_source_sha256':runner.c028_catalog.sha(
+    (runner.ROOT/'tools/hft_c028_catalog.py').read_bytes()),
+   'prior_role_oids':{r['id']:r['role_oid']
+    for r in source.snapshots[before]['role_census']}}
+  continuity_file=self.dir/'role-continuity.synthetic.json'
+  continuity_file.write_text(json.dumps(oid_proof))
+
   def sql(q,env):
    queried.append(q)
    return self.read_sql(q,post)
@@ -162,7 +183,8 @@ class RunnerEnforcement(unittest.TestCase):
    stack.enter_context(patch.object(runner,'journal'))
    stack.enter_context(patch.object(runner,'empty'))
    stack.enter_context(patch.object(runner,'ledger'))
-   argv=['runner',phase,'--recovery-evidence',str(self.manifest),
+   argv=['runner',phase,'--role-continuity-evidence',str(continuity_file),
+    '--recovery-evidence',str(self.manifest),
     '--snapshot-detail-readback',str(self.mapping),'--journal',str(self.journal)]
    if not only_recovery:argv.extend(['--authorization-artifact',str(self.auth_file)])
    stack.enter_context(patch('sys.argv',argv))
