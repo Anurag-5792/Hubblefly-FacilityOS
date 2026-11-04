@@ -67,7 +67,7 @@ test('Employee directory filters by text, department, designation and active sta
  assert.deepEqual(filterEmployeeDirectory(rows,{...f,status:'ACTIVE'}).map(r=>r.recordId),['EMP001']);
 });
 test('out-of-scope employee row aborts entire list',()=>{
- assert.throws(()=>readEmployeeDirectory([...sample,{...sample[0],legal_entity_id:'DDL'}],scope),
+ assert.throws(()=>readEmployeeDirectory([...sample,{...sample[0],record_id:'EMP003',legal_entity_id:'DDL'}],scope),
  /CROSS_SCOPE/);
 });
 test('employee site mismatch and private HR field injection denied',()=>{

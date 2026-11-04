@@ -65,7 +65,7 @@ test('C050 Employee directory never renders unverified or cross-scope data',()=>
    ...input,requestedScope:scope,mayRequestEdit:true,onRequestEdit:()=>{}}));
   assert.doesNotMatch(output,/Employee One/);
   assert.match(output,/READ UNAVAILABLE/);
-  assert.match(output,/disabled/);
+  assert.doesNotMatch(output,/<button/);
  }
 });
 test('C050 OWNER UI renders blocked while IAM role and scope are unqualified',()=>{
