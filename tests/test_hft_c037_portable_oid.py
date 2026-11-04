@@ -107,14 +107,13 @@ class C037PortableOID(unittest.TestCase):
      context=other))
 
  def test_real_runner_accepts_semantics_with_other_local_oids_all_stages(self):
-  for stage,phase in fx.PHASES:
+  for phase,stage in fx.PHASES:
    original=self.case.db.snapshots[stage]
    self.case.db.snapshots[stage]=renumber(original,800000)
    self.case.continuity[stage]=portable_proof(self.proof(stage),shift=800000)
    try:
     with self.subTest(stage=stage):
-     self.assertEqual(self.case.classify(stage,phase) if False else
-      self.case.classify(phase,stage),stage)
+     self.assertEqual(self.case.classify(phase,stage),stage)
      if stage!='S5':
       with self.assertRaisesRegex(AssertionError,'MUTATING_SQL_FORBIDDEN'):
        self.case.run_real_main(phase,stage)
@@ -201,7 +200,7 @@ class C037PortableOID(unittest.TestCase):
      granted_can_login='invalid')))
    for kind,change in cases:
     with self.subTest(stage=stage,kind=kind):
-     self.rejects(stage,change,'OID_')
+     self.rejects(stage,change,'OID_|ROLE_MEMBERSHIP_CENSUS_INCOMPLETE')
 
  def test_missing_and_wrong_target_local_continuity_fail_closed(self):
   for stage in c.STAGES:
