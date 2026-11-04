@@ -25,7 +25,7 @@ CATEGORIES=('schemas','relations','columns','sequence_settings','functions','tri
  'indexes','policies','extensions','roles','memberships','effective_grants',
  'function_grants','sequence_grants','schema_grants','database_grants',
  'types','rules','event_triggers','publications','operators','collations',
- 'default_privileges')
+ 'default_privileges','database_security','provider_roles','provider_memberships','schema_public_grants')
 BASIC="n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema'"
 SQL={
  'schemas':"""SELECT n.nspname AS id,pg_get_userbyid(n.nspowner) AS owner,n.nspacl::text AS acl
@@ -174,6 +174,37 @@ SQL.update({
  LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace
  WHERE r.rolname LIKE 'hft_%'"""
 })
+# Provider-wide security evidence is collected even before any hft_* role exists.
+# The exact approved reference pins the independently qualified provider baseline.
+SQL.update({
+ 'database_security':"""SELECT d.datname AS id,pg_get_userbyid(d.datdba) AS owner,
+ d.datacl::text AS acl,
+ EXISTS(SELECT 1 FROM aclexplode(COALESCE(d.datacl,acldefault('d',d.datdba))) a
+   WHERE a.grantee=0 AND a.privilege_type='CONNECT') AS public_connect,
+ EXISTS(SELECT 1 FROM aclexplode(COALESCE(d.datacl,acldefault('d',d.datdba))) a
+   WHERE a.grantee=0 AND a.privilege_type='CREATE') AS public_create,
+ EXISTS(SELECT 1 FROM aclexplode(COALESCE(d.datacl,acldefault('d',d.datdba))) a
+   WHERE a.grantee=0 AND a.privilege_type='TEMPORARY') AS public_temporary
+ FROM pg_database d WHERE d.datname=current_database()""",
+ 'provider_roles':"""SELECT r.rolname AS id,r.rolcanlogin,r.rolsuper,r.rolcreatedb,
+ r.rolcreaterole,r.rolreplication,r.rolbypassrls,r.rolinherit,
+ r.rolvaliduntil::text AS expires
+ FROM pg_roles r WHERE r.rolname='neondb_owner' OR r.rolname LIKE 'neon_%'""",
+ 'provider_memberships':"""SELECT member.rolname||'->'||role.rolname AS id,
+ am.admin_option,am.inherit_option,am.set_option
+ FROM pg_auth_members am JOIN pg_roles member ON member.oid=am.member
+ JOIN pg_roles role ON role.oid=am.roleid
+ WHERE member.rolname='neondb_owner' OR role.rolname='neondb_owner'
+ OR member.rolname LIKE 'neon_%' OR role.rolname LIKE 'neon_%'
+ OR member.rolname LIKE 'hft_%' OR role.rolname LIKE 'hft_%'""",
+ 'schema_public_grants':"""SELECT n.nspname AS id,n.nspacl::text AS acl,
+ pg_get_userbyid(n.nspowner) AS owner,
+ EXISTS(SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a
+   WHERE a.grantee=0 AND a.privilege_type='CREATE') AS public_create,
+ EXISTS(SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a
+   WHERE a.grantee=0 AND a.privilege_type='USAGE') AS public_usage
+ FROM pg_namespace n WHERE """+BASIC
+})
 def fail(code): raise ValueError('C028_CATALOG_'+code)
 def sha(raw):return hashlib.sha256(raw).hexdigest()
 def canonical(obj):return (json.dumps(obj,sort_keys=True,separators=(',',':'),ensure_ascii=False)+'\n').encode()
@@ -185,20 +216,110 @@ def check_manifest():
   p=ROOT/'db/migrations'/item['file']
   if p.is_symlink() or sha(p.read_bytes())!=expected:fail('MIGRATION_SOURCE_CHANGED')
  if len(obj['migrations'])!=6:fail('MIGRATION_COUNT_CHANGED')
-def collect(query):
- """The caller must execute SELECT in an independently verified READ ONLY session."""
+# One psql process, one backend, one REPEATABLE READ READ ONLY snapshot.
+# Each record carries backend and snapshot identity; a missing/duplicate record
+# or a changed identity aborts before any phase can authorize mutation.
+PHASE_SQL="""SELECT json_build_object(
+ 'schema_exists',to_regnamespace('hft') IS NOT NULL,
+ 'ledger_exists',to_regclass('hft.schema_revision') IS NOT NULL,
+ 'non_system_user_objects',(SELECT count(*) FROM pg_class c
+ JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+ AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp_%'
+ AND c.relkind IN ('r','p','v','m','f','S')),
+ 'migration_role_exists',EXISTS(SELECT 1 FROM pg_roles WHERE rolname='hft_staging_migration_owner'),
+ 'creator_default_restricted',EXISTS(SELECT 1 FROM pg_default_acl d
+ WHERE d.defaclrole=(SELECT oid FROM pg_roles WHERE rolname='hft_staging_migration_owner')
+ AND d.defaclnamespace=0 AND d.defaclobjtype='f'
+ AND NOT EXISTS(SELECT 1 FROM aclexplode(d.defaclacl) x
+ WHERE x.grantee=0 AND x.privilege_type='EXECUTE')),
+ 'schema_owner',(SELECT pg_get_userbyid(n.nspowner) FROM pg_namespace n WHERE n.nspname='hft'),
+ 'required_catalog_present',(to_regclass('hft.schema_revision') IS NOT NULL
+ AND to_regclass('hft.stock_account') IS NOT NULL
+ AND to_regclass('hft.stock_entry') IS NOT NULL
+ AND to_regclass('hft.stock_command') IS NOT NULL
+ AND to_regclass('hft.stock_command_seal') IS NOT NULL))"""
+REVISION_SQL="""SELECT COALESCE(json_agg(json_build_object(
+ 'version',version,'sha256',sha256) ORDER BY version),'[]'::json)
+ FROM hft.schema_revision"""
+def snapshot_statement(include_phase=False):
+ def record(kind,body):
+  return ("SELECT json_build_object('kind','"+kind+"','pid',pg_backend_pid(),"
+   "'snapshot',pg_current_snapshot()::text,'database',current_database(),"
+   "'db_user',current_user,'session_user',session_user,"
+   "'version',current_setting('server_version_num'),"
+   "'isolation',current_setting('transaction_isolation'),"
+   "'read_only',current_setting('transaction_read_only'),"
+   "'data',("+body+"))::text;\n")
+ out="BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\n"
+ if include_phase:
+  out+="SELECT (to_regclass('hft.schema_revision') IS NOT NULL)::int AS hft_has_revision \\gset\n"
+  out+=record('phase',PHASE_SQL)
+  out+="\\if :hft_has_revision\n"+record('revision',REVISION_SQL)+"\\endif\n"
+ for kind in CATEGORIES:
+  out+=record(kind,"SELECT COALESCE(json_agg(row_to_json(x) ORDER BY x.id),'[]'::json) FROM ("+SQL[kind]+") x")
+ return out+"ROLLBACK;\n"
+def collect(query,include_phase=False,expected_identity=None):
  check_manifest()
+ try:
+  raw=query(snapshot_statement(include_phase))
+  packets=[json.loads(line) for line in raw.splitlines()]
+ except (ValueError,TypeError,KeyError,AttributeError):
+  fail('SNAPSHOT_RESPONSE_INVALID')
+ expected=set(CATEGORIES)|({'phase'} if include_phase else set())
+ if include_phase:
+  # Revision is present only in stages where the ledger exists.
+  expected.add('revision')
+ if not packets or not all(isinstance(x,dict) for x in packets):
+  fail('SNAPSHOT_RESPONSE_INVALID')
+ kinds=[x.get('kind') for x in packets]
+ if len(kinds)!=len(set(kinds)) or set(kinds) not in (
+   [set(CATEGORIES)] if not include_phase else
+   [expected,expected-{'revision'}]):
+  fail('SNAPSHOT_RESULT_COUNT')
+ identity=None
+ data={}
+ for packet in packets:
+  if set(packet)!={'kind','pid','snapshot','database','db_user','session_user',
+    'version','isolation','read_only','data'}:
+   fail('SNAPSHOT_PACKET_SHAPE')
+  signature=tuple(packet[k] for k in ('pid','snapshot','database','db_user',
+    'session_user','version','isolation','read_only'))
+  if (not isinstance(packet['pid'],int) or packet['pid']<=0 or
+      not isinstance(packet['snapshot'],str) or not packet['snapshot'] or
+      packet['isolation']!='repeatable read' or packet['read_only']!='on' or
+      packet['db_user']!=packet['session_user']):
+   fail('SNAPSHOT_IDENTITY_INVALID')
+  if identity is None:identity=signature
+  elif signature!=identity:fail('SNAPSHOT_MIXED_SESSION_OR_STATE')
+  if expected_identity is not None and (packet['database'],
+       packet['db_user'],packet['version'])!=tuple(expected_identity):
+   fail('SNAPSHOT_DATABASE_IDENTITY')
+  data[packet['kind']]=packet['data']
  output={}
  for category in CATEGORIES:
-  sql="BEGIN READ ONLY;\nSELECT COALESCE(json_agg(row_to_json(x) ORDER BY x.id),'[]'::json)::text FROM ("+SQL[category]+") x;\nROLLBACK;"
-  try:
-   rows=json.loads(query(sql))
-  except (ValueError,TypeError,KeyError):fail('QUERY_RESPONSE_INVALID')
-  if not isinstance(rows,list) or not all(isinstance(x,dict) and isinstance(x.get('id'),str) for x in rows):
+  rows=data[category]
+  if not isinstance(rows,list) or not all(isinstance(x,dict) and
+       isinstance(x.get('id'),str) for x in rows):
    fail('ROWSET_INVALID')
   ids=[x['id'] for x in rows]
   if ids!=sorted(set(ids)):fail('ROWSET_NONCANONICAL_OR_DUPLICATE')
   output[category]=rows
+ if include_phase:
+  info=data['phase']
+  if not isinstance(info,dict) or set(info)!={
+    'schema_exists','ledger_exists','non_system_user_objects',
+    'migration_role_exists','creator_default_restricted','schema_owner',
+    'required_catalog_present'}:
+   fail('PHASE_SNAPSHOT_SHAPE')
+  if info['ledger_exists'] is not ('revision' in data):
+   fail('SNAPSHOT_REVISION_PRESENCE')
+  revisions=data.get('revision')
+  if revisions is not None and (not isinstance(revisions,list) or
+      not all(isinstance(x,dict) and set(x)=={'version','sha256'}
+              for x in revisions)):
+   fail('SNAPSHOT_REVISION_INVALID')
+  return output,info,revisions
  return output
 # C030 phase references: each comes from independently witnessed PG18.6
 # application of the EXACT protected SQL transitions. No inferred hash is GO.
@@ -259,6 +380,17 @@ def stage_reference_bundle(paths=None):
                            for p in TRANSITION_SOURCES}}))
 
 def structural_stage_checks(observed,stage):
+ security=observed['database_security']
+ if len(security)!=1 or security[0]['id']!='neondb' or security[0].get('owner')!='neondb_owner':
+  fail('DATABASE_OWNER_OR_IDENTITY')
+ if not {'neondb_owner','neon_superuser'}.issubset({r['id'] for r in observed['provider_roles']}):
+  fail('PROVIDER_SECURITY_IDENTITY_MISSING')
+ if stage!='S0' and any(security[0].get(p) is not False for p in ('public_connect','public_create','public_temporary')):
+  fail('PUBLIC_DATABASE_PRIVILEGE')
+ if stage!='S0' and any(row.get('public_create') is not False for row in observed['schema_public_grants']):
+  fail('PUBLIC_SCHEMA_CREATE')
+ if stage!='S0' and any(row['id'].startswith('hft_') and not (row['id'] in source_role_contract()[1]) for row in observed['provider_memberships'] if '->' in row['id'] and row['id'].split('->')[0].startswith('hft_')):
+  fail('UNAPPROVED_PROVIDER_MEMBERSHIP')
  if [x['id'] for x in observed['schemas']] not in (['public'],['hft','public']):
   fail('STAGE_UNAPPROVED_SCHEMAS')
  roles,members=source_role_contract()
@@ -305,10 +437,10 @@ def structural_stage_checks(observed,stage):
    'constraints','indexes'):
    if not observed[category]:fail('REQUIRED_'+category.upper()+'_MISSING')
 
-def verify_stage(query,stage,reference_paths=None):
+def verify_stage(query,stage,reference_paths=None,observed=None):
  if stage not in STAGES:fail('STAGE_NOT_DECLARED')
  refs=approved_stage_references(reference_paths)
- observed=collect(query)  # real, unmocked 24-category reader
+ observed=collect(query) if observed is None else observed  # complete immutable snapshot
  structural_stage_checks(observed,stage)
  actual=sha(canonical(observed))
  if actual!=refs[stage]:fail('STAGE_'+stage+'_EXTRA_MISSING_OR_ALTERED_CATALOG')
