@@ -51,7 +51,7 @@ def reachable(rows,start,target):
   if member==target:return True
   if member in reached:continue
   reached.add(member)
-  pending.extend(edges.get(member,())-reached)
+  pending.extend(edges.get(member,set())-reached)
  return False
 
 
