@@ -243,7 +243,7 @@ class SignedHistory(unittest.TestCase):
   # An unchanged original signed transport cannot be recycled as today's
   # collection, even when its catalog is semantically correct.
   prior=self.validate('S0')
-  original=json.loads(self.artifacts[1]['collection_path'].read_bytes())
+  original=json.loads(self.artifacts[0]['collection_path'].read_bytes())
   with patch.object(runner,'psql',return_value=original['transport_jsonl']):
    with self.assertRaisesRegex(runner.Stop,'REPLAY_OR_STAGE'):
     runner.live_database_phase_state({},
@@ -384,8 +384,11 @@ class SignedHistory(unittest.TestCase):
    manifest['records'][1]=copy.deepcopy(manifest['records'][0])
    manifest['records'][1]['stage']='S0'
    p=d/'replayed.json';digest=save_json(p,manifest)
+   files=json.loads(self.maps['S1'].read_bytes())
+   files['records'][1]['collection']=files['records'][0]['collection']
+   locations=d/'replay-path.json';save_json(locations,files)
    with self.assertRaisesRegex(ValueError,'HISTORY_REPLAY_OR_CHAIN_BREAK|HISTORY_ORDER_INVALID'):
-    self.validate('S1',manifest_path=p,manifest_sha=digest)
+    self.validate('S1',manifest_path=p,manifest_sha=digest,file_map_path=locations)
 
  def test_continuity_fake_prior_map_and_stage_mismatch_rejected(self):
   fake=copy.deepcopy(self.proofs['S2'])
