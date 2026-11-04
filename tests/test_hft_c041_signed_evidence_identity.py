@@ -241,6 +241,48 @@ class C041EvidenceIdentity(unittest.TestCase):
     self.fx.validate('S0',manifest_path=mp,manifest_sha=ms,
      file_map_path=fmap,witness_pin=pin)
 
+ def test_equivalent_key_collision_blocks_actual_runner_before_sql(self):
+  collector=self.fx.trust['collector']['record']['public_key_pem']
+  body=''.join(line for line in collector.splitlines()
+   if not line.startswith('-----'))
+  rewrapped=('-----BEGIN PUBLIC KEY-----\n'+
+   '\n'.join(body[i:i+18] for i in range(0,len(body),18))+
+   '\n-----END PUBLIC KEY-----\n')
+  with tempfile.TemporaryDirectory(prefix='c041-same-key-main-') as t:
+   d=Path(t)
+   mp,ms,fmap,pin=self.key_variant(t,'witness',rewrapped)
+   proof=d/'role-proof.json'
+   fixture_module.save_json(proof,self.fx.proofs['S0'])
+   for name in ('auth.json','recovery.json','filemap.json'):
+    (d/name).write_text('{"synthetic":true}')
+   auth=self.fx.auth('S0')
+   auth['historical_manifest_sha256']=ms
+   argv=['c041-test-runner','prepare-security',
+    '--journal',str(d/'journal.jsonl'),
+    '--role-continuity-evidence',str(proof),
+    '--historical-manifest',str(mp),
+    '--historical-file-map',str(fmap),
+    '--authorization-artifact',str(d/'auth.json'),
+    '--recovery-evidence',str(d/'recovery.json'),
+    '--snapshot-detail-readback',str(d/'filemap.json')]
+   def pinned(path,label):
+    if path==runner.RECOVERY_WITNESS_PIN:return pin
+    return self.fx.pin(path,label)
+   with contextlib.ExitStack() as stack:
+    stack.enter_context(patch.object(sys,'argv',argv))
+    stack.enter_context(patch.object(catalog,'STAGE_PATHS',self.fx.refs))
+    stack.enter_context(patch.object(runner,'pin',side_effect=pinned))
+    stack.enter_context(patch.object(runner,'clean_worktree'))
+    stack.enter_context(patch.object(runner,'control_plane_live',
+     return_value={'captured_at_utc':'SYNTHETIC_TEST'}))
+    stack.enter_context(patch.object(runner,'auth_artifact',return_value=auth))
+    db=stack.enter_context(patch.object(runner,'psql',
+     side_effect=AssertionError('UNAUTHORIZED_POSTGRESQL_SQL')))
+    with self.assertRaisesRegex(runner.Stop,
+     'HISTORICAL_PREDECESSOR_NOT_AUTHENTICATED'):
+     runner.main()
+    db.assert_not_called()
+
  def test_incorrect_ed25519_signature_rejected_after_key_parsing(self):
   with tempfile.TemporaryDirectory() as t:
    d=Path(t)
