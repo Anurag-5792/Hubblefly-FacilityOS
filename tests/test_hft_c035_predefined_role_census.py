@@ -135,7 +135,8 @@ class C035PredefinedRoleCensus(unittest.TestCase):
    return transport(q,e)
   with self.case.approved(),patch.object(runner,'psql',side_effect=respond):
    self.assertEqual(runner.live_database_phase_state(
-    {'PGUSER':runner.OWNER},'finalize-owner'),'S3')
+    {'PGUSER':runner.OWNER},'finalize-owner',
+     continuity=self.case.continuity['S3']),'S3')
   self.assertEqual(len(calls),1)
 
  def test_untracked_login_direct_predefined_grants_denied_at_every_stage(self):
