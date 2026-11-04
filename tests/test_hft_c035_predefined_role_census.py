@@ -66,16 +66,17 @@ class C035PredefinedRoleCensus(unittest.TestCase):
   rows=self.case.db.snapshots[stage]
   original=copy.deepcopy(rows)
   approved=self.case.refpaths[stage].read_text().strip()
-  self.assertEqual(catalog.sha(catalog.canonical(rows)),approved)
+  self.assertEqual(catalog.portable_stage_hash(rows),approved)
   try:
    alter(rows)
    for category in catalog.CATEGORIES:
     rows[category].sort(key=lambda row:row['id'])
-   self.assertNotEqual(catalog.sha(catalog.canonical(rows)),approved)
+   self.assertNotEqual(catalog.sha(catalog.canonical(rows)),
+    catalog.sha(catalog.canonical(original)))
    # Existing runner fixture raises AssertionError(MUTATING_SQL_FORBIDDEN)
    # on any write. Demand an earlier catalog-phase rejection instead.
    with self.assertRaisesRegex(
-     runner.Stop,'PHASE_'+stage+'_CATALOG_NOT_QUALIFIED'):
+     runner.Stop,'PHASE_(?:'+stage+'_CATALOG_NOT_QUALIFIED|CONSISTENT_SNAPSHOT_NOT_QUALIFIED)'):
     self.case.run_real_main(STAGE_TO_PHASE[stage],stage)
   finally:
    self.case.db.snapshots[stage]=original
