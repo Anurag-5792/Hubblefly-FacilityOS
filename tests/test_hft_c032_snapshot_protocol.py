@@ -107,7 +107,7 @@ class C032SnapshotProtocol(unittest.TestCase):
   self.pg.fault=None
 
  def test_runner_phase_snapshot_failure_before_mutation(self):
-  with patch.object(runner,'psql',side_effect=self.pg.execute):
+  with patch.object(runner,'psql',side_effect=lambda q,e:self.pg.execute(q)):
    # A fixture without phase/revision packets must be rejected, rather than
    # accidentally treating catalog-only packets as a trusted phase snapshot.
    with self.assertRaises(runner.Stop):
