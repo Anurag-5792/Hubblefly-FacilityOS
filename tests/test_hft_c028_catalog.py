@@ -34,7 +34,7 @@ class ExactCatalog(unittest.TestCase):
       'db_user':'neondb_owner','session_user':'neondb_owner','version':'180006',
       'isolation':'repeatable read','read_only':'on','data':rows[kind]}
     frames.append(json.dumps(frame,separators=(',',':')))
-   return '\\n'.join(frames)
+   return '\n'.join(frames)
   return call,events
  def test_complete_canonical_queries_include_all_protected_categories(self):
   c.check_manifest()
