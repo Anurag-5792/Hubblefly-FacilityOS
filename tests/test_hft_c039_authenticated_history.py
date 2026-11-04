@@ -200,7 +200,10 @@ class SignedHistory(unittest.TestCase):
     witness_pin or self.trust['witness']['digest'],
     gate_start or self.gate_start.isoformat().replace('+00:00','Z'),
     now=now or self.now,
-    approved_baseline_sha256=baseline_sha or self.artifacts[0]['collection_sha256'])
+    approved_baseline_sha256=baseline_sha or self.artifacts[0]['collection_sha256'],
+    approved_operator_id='TEST_OPERATOR_HUMAN',
+    approved_custodian_id='TEST_INDEPENDENT_CUSTODIAN_HUMAN',
+    approved_witness_id=self.trust['witness']['record']['witness_id'])
 
  def auth(self,stage):
   return {'historical_manifest_sha256':self.manifests[stage][1],
@@ -208,8 +211,9 @@ class SignedHistory(unittest.TestCase):
    'catalog_collector_sha256':c.sha(Path(c.__file__).read_bytes()),
    'not_before_utc':self.gate_start.isoformat().replace('+00:00','Z'),
    'authorization_id':'SYNTHETIC_GATE_A_NOT_REAL',
-   'operator':'Test Operator','evidence_custodian':'Test Custodian',
-   'independent_verifier':'Different Human'}
+   'operator':'TEST_OPERATOR_HUMAN',
+   'evidence_custodian':'TEST_INDEPENDENT_CUSTODIAN_HUMAN',
+   'independent_verifier':self.trust['witness']['record']['witness_id']}
 
  def pin(self,path,label):
   if path==runner.RECOVERY_COLLECTOR_PIN:
@@ -256,7 +260,10 @@ class SignedHistory(unittest.TestCase):
     self.manifests['S0'][1],'S0',self.target,self.refs,'0'*64,
     self.trust['collector']['digest'],self.trust['witness']['digest'],
     self.auth('S0')['not_before_utc'],
-    now=self.now,approved_baseline_sha256=self.artifacts[0]['collection_sha256'])
+    now=self.now,approved_baseline_sha256=self.artifacts[0]['collection_sha256'],
+    approved_operator_id='TEST_OPERATOR_HUMAN',
+    approved_custodian_id='TEST_INDEPENDENT_CUSTODIAN_HUMAN',
+    approved_witness_id=self.trust['witness']['record']['witness_id'])
 
  def test_runner_blocks_missing_corporate_trust_before_sql(self):
   with patch.object(runner,'pin',return_value='HOLD'),patch.object(
