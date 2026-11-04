@@ -54,8 +54,8 @@ test('OPS-A payload binds product version, location and serial/batch without alt
   {siteId:'SITE2'},
   {sourceDocumentId:'GRN2'},
   {sourceActionKey:'RECEIPT2'},
-  {approvalRevision:2},
-  {policyGeneration:6},
+  {approvalRevision:'2'},
+  {policyGeneration:'6'},
   {quantityMicro:'2000001'},
  ]){
   const varied={...first,...change} as OpsAPayload;
