@@ -25,7 +25,18 @@ CATEGORIES=('schemas','relations','columns','sequence_settings','functions','tri
  'indexes','policies','extensions','roles','memberships','effective_grants',
  'function_grants','sequence_grants','schema_grants','database_grants',
  'types','rules','event_triggers','publications','operators','collations',
- 'default_privileges','database_security','provider_roles','provider_memberships','schema_public_grants')
+ 'default_privileges','database_security','provider_roles','provider_memberships','schema_public_grants',
+ 'role_census','role_membership_census')
+# PostgreSQL 18 predefined privilege-bearing roles; the SQL census below is
+# intentionally NOT limited to this set. The required set catches incompatible
+# server versions, while independently qualified references govern all grants.
+PG18_PREDEFINED_ROLES=frozenset((
+ 'pg_checkpoint','pg_create_subscription','pg_database_owner','pg_maintain',
+ 'pg_monitor','pg_read_all_settings','pg_read_all_stats','pg_stat_scan_tables',
+ 'pg_read_all_data','pg_write_all_data','pg_read_server_files',
+ 'pg_write_server_files','pg_execute_server_program',
+ 'pg_signal_autovacuum_worker','pg_signal_backend','pg_use_reserved_connections'
+))
 BASIC="n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema'"
 SQL={
  'schemas':"""SELECT n.nspname AS id,pg_get_userbyid(n.nspowner) AS owner,n.nspacl::text AS acl
@@ -207,6 +218,43 @@ SQL.update({
    WHERE a.grantee=0 AND a.privilege_type='USAGE') AS public_usage
  FROM pg_namespace n WHERE """+BASIC
 })
+# C035: database-wide role and grant graph. No role-prefix, privilege-flag,
+# LOGIN or graph-depth filter. pg_database_owner's owner-based implicit
+# membership is not a row in pg_auth_members; database_security captures its
+# current database owner separately. Capture actual grants only.
+SQL.update({
+ 'role_census':"""SELECT r.rolname AS id,r.oid::text AS role_oid,
+ r.rolcanlogin,r.rolsuper,r.rolinherit,r.rolcreatedb,r.rolcreaterole,
+ r.rolreplication,r.rolbypassrls,r.rolconnlimit,
+ r.rolvaliduntil::text AS expires,r.rolconfig::text AS settings
+ FROM pg_catalog.pg_roles r""",
+ 'role_membership_census':"""SELECT
+ 'member='||am.member::text||';role='||am.roleid::text||
+ ';grantor='||am.grantor::text AS id,
+ member.rolname AS member,granted.rolname AS granted_role,
+ grantor.rolname AS grantor,
+ am.member::text AS member_oid,am.roleid::text AS granted_role_oid,
+ am.grantor::text AS grantor_oid,
+ am.admin_option,am.inherit_option,am.set_option,
+ member.rolcanlogin AS member_can_login,
+ member.rolinherit AS member_inherits,
+ member.rolsuper AS member_superuser,
+ member.rolcreatedb AS member_createdb,
+ member.rolcreaterole AS member_createrole,
+ member.rolreplication AS member_replication,
+ member.rolbypassrls AS member_bypassrls,
+ granted.rolcanlogin AS granted_can_login,
+ granted.rolinherit AS granted_inherits,
+ granted.rolsuper AS granted_superuser,
+ granted.rolcreatedb AS granted_createdb,
+ granted.rolcreaterole AS granted_createrole,
+ granted.rolreplication AS granted_replication,
+ granted.rolbypassrls AS granted_bypassrls
+ FROM pg_catalog.pg_auth_members am
+ LEFT JOIN pg_catalog.pg_roles member ON member.oid=am.member
+ LEFT JOIN pg_catalog.pg_roles granted ON granted.oid=am.roleid
+ LEFT JOIN pg_catalog.pg_roles grantor ON grantor.oid=am.grantor"""
+})
 def fail(code): raise ValueError('C028_CATALOG_'+code)
 def sha(raw):return hashlib.sha256(raw).hexdigest()
 def canonical(obj):return (json.dumps(obj,sort_keys=True,separators=(',',':'),ensure_ascii=False)+'\n').encode()
@@ -381,7 +429,46 @@ def stage_reference_bundle(paths=None):
   'transition_sql_sha256':{p.name:sha(p.read_bytes())
                            for p in TRANSITION_SOURCES}}))
 
+def verify_role_membership_census(observed):
+ """Check graph identity; exact approved fingerprints authorize provider paths.
+
+ A complete pg_auth_members scan captures every explicit direct grant. Every
+ transitive path necessarily consists of those captured edges. Never create a
+ synthetic pg_database_owner edge: its sole membership is database-specific
+ and implicit, already bound to the database owner in database_security.
+ """
+ roles={row['id']:row for row in observed['role_census']}
+ if not PG18_PREDEFINED_ROLES.issubset(roles):
+  fail('PG18_PREDEFINED_ROLE_MISSING')
+ if not {'neondb_owner','neon_superuser'}.issubset(roles):
+  fail('PROVIDER_ROLE_CENSUS_MISSING')
+ if not {row['id'] for row in observed['provider_roles']}.issubset(roles):
+  fail('PROVIDER_ROLE_CENSUS_INCOMPLETE')
+ if not {row['id'] for row in observed['roles']}.issubset(roles):
+  fail('HFT_ROLE_CENSUS_INCOMPLETE')
+ # Every membership has a named endpoint and real grantor in the same
+ # transaction's unfiltered pg_roles view. No blanket deny of Neon grants.
+ edges=set()
+ for grant in observed['role_membership_census']:
+  if (not all(isinstance(grant.get(k),str) and grant[k] for k in
+      ('member','granted_role','grantor','member_oid',
+       'granted_role_oid','grantor_oid')) or
+      any(type(grant.get(k)) is not bool for k in
+       ('admin_option','inherit_option','set_option'))):
+   fail('ROLE_MEMBERSHIP_CENSUS_INCOMPLETE')
+  if any(grant[k] not in roles for k in ('member','granted_role','grantor')):
+   fail('ROLE_MEMBERSHIP_IDENTITY_MISSING')
+  if 'pg_database_owner' in (grant['member'],grant['granted_role']):
+   fail('DATABASE_OWNER_IMPLICIT_MEMBERSHIP')
+  edges.add((grant['member'],grant['granted_role']))
+ # The older scoped grant categories must be subsets of the complete graph.
+ for row in observed['memberships']+observed['provider_memberships']:
+  pair=row['id'].split('->',1)
+  if len(pair)!=2 or tuple(pair) not in edges:
+   fail('ROLE_MEMBERSHIP_CENSUS_MISSING_SCOPED_GRANT')
+
 def structural_stage_checks(observed,stage):
+ verify_role_membership_census(observed)
  security=observed['database_security']
  if len(security)!=1 or security[0]['id']!='neondb' or security[0].get('owner')!='neondb_owner':
   fail('DATABASE_OWNER_OR_IDENTITY')
