@@ -6,7 +6,7 @@
  * protected PostgreSQL read transaction. This module DOES NOT attest that source.
  */
 import {createHash} from 'node:crypto';
-import {parseQuantity,formatSignedQuantity} from '../domain/quantity.ts';
+import {parseQuantity} from '../domain/quantity.ts';
 import {lengthPrefixedUtf8} from '../security/posting-invocation-proof.ts';
 
 export const OPS_A_EVIDENCE_V1='HFT-R1-OPS-A-VERSION-LEDGER-EVIDENCE-V1' as const;
@@ -334,7 +334,8 @@ export function verifyVersionedLedgerReadback(proof:VersionedLedgerReadback):Rea
    }else if(c.kind==='RETURN'){
     if(holder!=='CUSTODY:'+c.employeeId)
      throw Error('OPS_A_SERIAL_CUSTODY_MISMATCH');
-    serialCustody.set(key,{version:c.productVersion,state:c.inspectedCondition});
+    serialCustody.set(key,{version:c.productVersion,
+     state:c.inspectedCondition==='GOOD'?'AVAILABLE':c.inspectedCondition});
    }else if(c.kind==='TRANSFER'){
     if(holder!=='AVAILABLE')throw Error('OPS_A_SERIAL_TRANSFER_NOT_AVAILABLE');
    }

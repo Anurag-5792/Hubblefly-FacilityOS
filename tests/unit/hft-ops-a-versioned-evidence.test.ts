@@ -25,7 +25,7 @@ function account(id:string,leaf:string,kind:StockAccountIdentity['kind']='AVAILA
 }
 let line=0;
 function movement(commandId:string,accountRow:VersionedStockAccountRow|null,
- amount:string, before:number,kind='AVAILABLE'):VersionedLedgerEntry{
+ amount:string, before:number):VersionedLedgerEntry{
  return {entryId:'E'+String(++line),commandId,accountId:accountRow?.accountId??null,
   account:accountRow?.identity??null,
   bucket:accountRow?.identity.kind??'EXTERNAL',
@@ -309,9 +309,45 @@ test('OPS-A duplicate serial across versions requires the same global registry i
    {...b,persistedQuantity:'1',persistedVersion:1}]};
  assert.throws(()=>verifyVersionedLedgerReadback(rb),/SERIAL_VERSION_REASSIGNMENT/);
 });
+test('OPS-A serial GOOD inspected RETURN restores availability for subsequent approved ISSUE',()=>{
+ line=0;
+ const sr:VersionScope={...scope,controlType:'SERIAL',serialNo:'SER-ONE'};
+ const a=account('ACC-SER-AVAIL','BIN1','AVAILABLE','',sr);
+ const firstCustody=account('ACC-SER-CUST1','BIN1','CUSTODY','EMP1',sr);
+ const nextCustody=account('ACC-SER-CUST2','BIN1','CUSTODY','EMP2',sr);
+ const receive=command('RECEIVE','SR-RECEIPT','1',{...sr,
+  destinationLeafId:'BIN1',inspectionEvidenceId:'QC-RECV1'});
+ const issue=command('ISSUE','SR-ISSUE1','1',{...sr,
+  sourceLeafId:'BIN1',employeeId:'EMP1',fragmentId:'FRAG-1',
+  expectedSourceAccountVersion:1,expectedDestinationAccountVersion:0});
+ const ret=command('RETURN','SR-RETURN1','1',{...sr,sourceLeafId:'BIN1',
+  destinationLeafId:'BIN1',employeeId:'EMP1',originalIssueId:'SR-ISSUE1',
+  fragmentId:'FRAG-RET',inspectionEvidenceId:'QC-RETURN1',
+  expectedSourceAccountVersion:1,expectedDestinationAccountVersion:2});
+ const again=command('ISSUE','SR-ISSUE2','1',{...sr,sourceLeafId:'BIN1',
+  employeeId:'EMP2',fragmentId:'FRAG-2',
+  expectedSourceAccountVersion:3,expectedDestinationAccountVersion:0});
+ const history=[
+  sealed(receive,[movement('SR-RECEIPT',null,'-1',0),
+   movement('SR-RECEIPT',a,'1',0)]),
+  sealed(issue,[movement('SR-ISSUE1',a,'-1',1),
+   movement('SR-ISSUE1',firstCustody,'1',0)]),
+  sealed(ret,[movement('SR-RETURN1',firstCustody,'-1',1),
+   movement('SR-RETURN1',a,'1',2)]),
+  sealed(again,[movement('SR-ISSUE2',a,'-1',3),
+   movement('SR-ISSUE2',nextCustody,'1',0)]),
+ ];
+ const p:VersionedLedgerReadback={schema:OPS_A_READBACK_V1,
+  legalEntityId:'HFT',siteId:'SITE1',warehouseId:'WH1',
+  completeUnfilteredHistory:true,immutableFacts:history,
+  accounts:[{...a,persistedQuantity:'0',persistedVersion:4},
+   {...firstCustody,persistedQuantity:'0',persistedVersion:2},
+   {...nextCustody,persistedQuantity:'1',persistedVersion:1}]};
+ assert.equal(verifyVersionedLedgerReadback(p).get('ACC-SER-CUST2'),1_000_000n);
+});
 test('OPS-A original ISSUE quantity, employee and source identity bound to RETURN',()=>{
  const {readback,facts}=fresh();
- const wrong=structuredClone(readback),ret=facts[2];
+ const wrong=mutable(readback),ret=facts[2];
  wrong.immutableFacts[2]=sealed({...ret.command,employeeId:'EMP2'},
   [{...ret.movements[0],account:{...ret.movements[0].account!,
    custodianEmployeeId:'EMP2'}},ret.movements[1]]);
