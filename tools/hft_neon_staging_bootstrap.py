@@ -283,7 +283,10 @@ def authenticated_history_gate(phase,auth,continuity,manifest_path,filemap_path)
    pin(RECOVERY_COLLECTOR_PIN,'RECOVERY_V2_COLLECTOR'),
    pin(RECOVERY_WITNESS_PIN,'RECOVERY_V2_WITNESS'),
    auth['not_before_utc'],
-   approved_baseline_sha256=auth['historical_root_collection_sha256'])
+   approved_baseline_sha256=auth['historical_root_collection_sha256'],
+   approved_operator_id=auth['operator'],
+   approved_custodian_id=auth['evidence_custodian'],
+   approved_witness_id=auth['independent_verifier'])
  except ValueError:raise Stop('HISTORICAL_PREDECESSOR_NOT_AUTHENTICATED') from None
  if (continuity.get('schema')!=c028_catalog.ROLE_CONTINUITY_SCHEMA or
      any(continuity.get(k)!=v for k,v in
