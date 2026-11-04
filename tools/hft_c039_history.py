@@ -201,14 +201,16 @@ def verify_collection(obj,stage,target,refs,collector_source,now):
      phase['migration_role_exists'] is not (actual_stage!='S0') or
      phase['creator_default_restricted'] is not
       (actual_stage not in ('S0','S1')) or
-     phase['non_system_user_objects']!=(8 if post else 0)):
-  # Exact object counts are NOT normative for post-migration; handled below.
-  if not post or (phase['non_system_user_objects']<1):
-   stop('COLLECTION_PHASE_UNQUALIFIED')
+     type(phase['non_system_user_objects']) is not int or
+     (phase['non_system_user_objects']<1 if post else
+      phase['non_system_user_objects']!=0) or
+     (phase['schema_owner']!='hft_staging_migration_owner' if post else
+      phase['schema_owner'] is not None) or
+     phase['required_catalog_present'] is not post):
+  stop('COLLECTION_PHASE_UNQUALIFIED')
  if post:
-  expected=[{'version':v,'sha256':h} for v,_,h in
-    __import__('tools.hft_neon_staging_bootstrap',
-      fromlist=['MIGS']).MIGS]
+  expected=[{'version':v,'sha256':h}
+    for v,h in enumerate(catalog.CANONICAL_SHA,1)]
   if (phase['schema_owner']!='hft_staging_migration_owner' or
       phase['required_catalog_present'] is not True or
       obj['revisions']!=expected):
