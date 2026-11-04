@@ -63,7 +63,9 @@ The collector's corporate identity trust is
 Both must have canonical exact bytes and externally approved SHA-256 pins;
 the corporate identity issuer is `HFT_CORPORATE_IDENTITY`, enrollment
 status is `ACTIVE`, with separate verifier IDs, enrolled public keys
-and valid enrollment timestamps. These asserted trust-record properties
+and valid enrollment timestamps. The collector and human witness must
+use distinct enrolled public keys; historical capture must not predate either
+enrollment. These asserted trust-record properties
 are *not* evidence of independent corporate enrollment unless the actual
 protected trust hashes are independently qualified.
 
