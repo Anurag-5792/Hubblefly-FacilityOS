@@ -298,6 +298,35 @@ class SignedHistory(unittest.TestCase):
     self.validate('S0',manifest_path=mp,manifest_sha=ms,
      file_map_path=fmap,baseline_sha=root)
 
+ def test_capture_cannot_predate_corporate_enrollment(self):
+  with tempfile.TemporaryDirectory() as t:
+   older=(self.now-dt.timedelta(hours=4)).isoformat().replace('+00:00','Z')
+   mp,ms,fmap,root=self.signed_baseline_variant(t,
+    change_artifact=lambda x:x.update(captured_at_utc=older))
+   with self.assertRaisesRegex(ValueError,
+       'HISTORY_CAPTURE_PRECEDES_CORPORATE_ENROLLMENT'):
+    self.validate('S0',manifest_path=mp,manifest_sha=ms,
+     file_map_path=fmap,baseline_sha=root)
+
+ def test_collapsed_collector_and_witness_signing_key_not_independent(self):
+  with tempfile.TemporaryDirectory() as t:
+   d=Path(t)
+   collector=copy.deepcopy(self.trust['collector']['record'])
+   collector['public_key_pem']=self.trust['witness']['record']['public_key_pem']
+   new_trust=d/'shared-key-collector.json'
+   digest=save_json(new_trust,collector)
+   manifest=json.loads(self.manifests['S0'][0].read_bytes())
+   manifest['collector_trust_sha256']=digest
+   mp=d/'manifest.json'
+   msha=save_json(mp,manifest)
+   files=json.loads(self.maps['S0'].read_bytes())
+   files['collector_trust']=str(new_trust)
+   fm=d/'locations.json';save_json(fm,files)
+   with self.assertRaisesRegex(ValueError,
+       'COLLECTOR_WITNESS_KEY_NOT_INDEPENDENT'):
+    self.validate('S0',manifest_path=mp,manifest_sha=msha,
+     file_map_path=fm,collector_pin=digest)
+
  def test_signed_future_collection_and_witness_cannot_backdate_evidence(self):
   with tempfile.TemporaryDirectory() as t:
    future=(self.now+dt.timedelta(hours=1)).isoformat().replace('+00:00','Z')
