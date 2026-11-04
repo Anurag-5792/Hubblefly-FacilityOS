@@ -154,6 +154,10 @@ class RunnerEnforcement(unittest.TestCase):
     for r in source.snapshots[before]['role_census']}}
   continuity_file=self.dir/'role-continuity.synthetic.json'
   continuity_file.write_text(json.dumps(oid_proof))
+  history_file=self.dir/'historical-manifest.synthetic.json'
+  history_file.write_text('{"synthetic":"not for approvals"}')
+  history_map=self.dir/'historical-files.synthetic.json'
+  history_map.write_text('{"synthetic":"not for approvals"}')
 
   def sql(q,env):
    queried.append(q)
@@ -172,6 +176,14 @@ class RunnerEnforcement(unittest.TestCase):
    stack.enter_context(patch.object(runner,'control_plane_live',return_value=self.live))
    stack.enter_context(patch.object(runner,'_get',
     side_effect=lambda path,token:self.api(path)))
+   # Recovery-specific legacy tests do not exercise history signatures;
+   # C039 acceptance does so through real verifier and runner gate.
+   stack.enter_context(patch.object(runner,'authenticated_history_gate',
+    return_value={'stage':stage,'collection_ids':[],
+     'manifest_sha256':'a'*64,'predecessor_collection_sha256':'b'*64,
+     'root_collection_sha256':'c'*64,'predecessor_witness_sha256':'d'*64,
+     'collector_source_sha256':runner.c028_catalog.sha(
+      (runner.ROOT/'tools/hft_c028_catalog.py').read_bytes())}))
    stack.enter_context(patch.object(runner,'auth_artifact',
     side_effect=AssertionError('NO_GATE_A_REQUIRED') if only_recovery else None,
     return_value=None if only_recovery else self.auth))
@@ -184,6 +196,8 @@ class RunnerEnforcement(unittest.TestCase):
    stack.enter_context(patch.object(runner,'empty'))
    stack.enter_context(patch.object(runner,'ledger'))
    argv=['runner',phase,'--role-continuity-evidence',str(continuity_file),
+    '--historical-manifest',str(history_file),
+    '--historical-file-map',str(history_map),
     '--recovery-evidence',str(self.manifest),
     '--snapshot-detail-readback',str(self.mapping),'--journal',str(self.journal)]
    if not only_recovery:argv.extend(['--authorization-artifact',str(self.auth_file)])
