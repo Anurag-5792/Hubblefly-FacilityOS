@@ -85,6 +85,30 @@ def verify_signature(public_key,raw,signature):
    stop('SIGNATURE_VERIFIER_UNAVAILABLE')
   if result.returncode:stop('SIGNATURE_INVALID')
 
+# RFC 8410 Ed25519 SubjectPublicKeyInfo: 12-byte algorithm/bitstring
+# header and 32-byte raw key. PEM formatting is not a cryptographic identity.
+ED25519_SPKI_PREFIX=bytes.fromhex('302a300506032b6570032100')
+def ed25519_public_key_identity(pem):
+ if (not isinstance(pem,str) or
+     pem.count('-----BEGIN PUBLIC KEY-----')!=1 or
+     pem.count('-----END PUBLIC KEY-----')!=1 or
+     not pem.strip().startswith('-----BEGIN PUBLIC KEY-----') or
+     not pem.strip().endswith('-----END PUBLIC KEY-----')):
+  stop('CORPORATE_PUBLIC_KEY_FORMAT')
+ try:
+  parsed=subprocess.run(['openssl','pkey','-pubin','-inform','PEM',
+   '-outform','DER'],input=pem.encode('utf-8'),
+   capture_output=True,timeout=5)
+ except (OSError,subprocess.TimeoutExpired,UnicodeError):
+  stop('CORPORATE_PUBLIC_KEY_PARSE_UNAVAILABLE')
+ if parsed.returncode!=0 or not parsed.stdout:
+  stop('CORPORATE_PUBLIC_KEY_PARSE_FAILED')
+ der=parsed.stdout
+ if (len(der)!=len(ED25519_SPKI_PREFIX)+32 or
+     not der.startswith(ED25519_SPKI_PREFIX)):
+  stop('CORPORATE_KEY_NOT_ED25519')
+ return sha(der)
+
 def trust_records(filemap,manifest,collector_pin,witness_pin,now):
  if manifest['collector_trust_sha256']!=collector_pin or (
      manifest['witness_trust_sha256']!=witness_pin):
@@ -111,12 +135,10 @@ def trust_records(filemap,manifest,collector_pin,witness_pin,now):
  if (utc(collector['verified_at'])>now or
      utc(witness['verified_at'])>now):
   stop('TRUST_VERIFIED_IN_FUTURE')
- if collector['public_key_pem']==witness['public_key_pem']:
+ collector_key_id=ed25519_public_key_identity(collector['public_key_pem'])
+ witness_key_id=ed25519_public_key_identity(witness['public_key_pem'])
+ if collector_key_id==witness_key_id:
   stop('COLLECTOR_WITNESS_KEY_NOT_INDEPENDENT')
- for trust in (collector,witness):
-  if not isinstance(trust['public_key_pem'],str) or (
-      '-----BEGIN PUBLIC KEY-----' not in trust['public_key_pem']):
-   stop('CORPORATE_PUBLIC_KEY_UNAVAILABLE')
  return collector,witness
 
 # Exact signed predecessor retains all 30 categories and raw target-local OIDs.
@@ -188,20 +210,25 @@ def verify_collection(obj,stage,target,refs,collector_source,now):
      not isinstance(envelope['transport_sha256'],str) or
      not HEX.fullmatch(envelope['transport_sha256'])):
   stop('COLLECTION_ORIGINAL_IDENTITY')
- if obj['collection_id']!=sha(canonical(envelope)):
-  stop('COLLECTION_ID_CHANGED')
  observed=obj['catalog']
  transport=obj['transport_jsonl']
  if not isinstance(transport,str) or not transport or (
      sha(transport.encode('utf-8'))!=envelope['transport_sha256']):
   stop('ORIGINAL_TRANSPORT_MISSING_OR_CHANGED')
+ reconstructed_envelope={}
  try:
   replayed,replayed_phase,replayed_revisions=catalog.collect(
    lambda statement:transport,include_phase=True,
    expected_identity=(target['database'],envelope['db_user'],
-    envelope['server_version']))
- except (ValueError,TypeError):
+    '180006'),evidence_out=reconstructed_envelope,
+   branch_id=target['branch_id'])
+ except (ValueError,TypeError,KeyError):
   stop('ORIGINAL_TRANSPORT_SNAPSHOT_INVALID')
+ actual_envelope={key:reconstructed_envelope[key] for key in ENVELOPE_FIELDS}
+ if canonical(actual_envelope)!=canonical(envelope):
+  stop('ORIGINAL_TRANSPORT_ENVELOPE_IDENTITY_MISMATCH')
+ if obj['collection_id']!=sha(canonical(actual_envelope)):
+  stop('COLLECTION_ID_CHANGED')
  if (replayed!=observed or replayed_phase!=obj['phase'] or
      replayed_revisions!=obj['revisions']):
   stop('ORIGINAL_TRANSPORT_NOT_SAME_COLLECTION')
