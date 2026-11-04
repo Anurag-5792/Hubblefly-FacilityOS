@@ -221,6 +221,127 @@ class RecoveryV2Contract(unittest.TestCase):
   self.provider['branch']['ttl_interval_seconds']=None
   self.provider['branch']['expires_at']=self.ts(500)
   self.denial('PRESERVATION_PROVIDER_RETENTION_PAIR_CONTRADICTION')
+ def test_explicit_null_expiration_pair_is_valid_preservation_parent(self):
+  self.assertIsNone(self.provider['branch']['expires_at'])
+  self.assertIsNone(self.provider['branch']['ttl_interval_seconds'])
+  self.assertEqual(self.verify()['schema'],m.SCHEMA)
+
+ def test_absent_expiry_pair_is_valid_and_preserves_raw_evidence_shape(self):
+  branch=self.provider['branch']
+  explicit=m.preservation_provider_projection(branch,[])
+  explicit_sha=m.sha(m.normalized(explicit))
+  del branch['expires_at'];del branch['ttl_interval_seconds']
+  observed=m.preservation_provider_projection(branch,[])
+  self.assertNotIn('expires_at',observed)
+  self.assertNotIn('ttl_interval_seconds',observed)
+  self.assertNotEqual(explicit_sha,m.sha(m.normalized(observed)))
+  self.rebind_preservation()
+  self.assertEqual(self.verify()['schema'],m.SCHEMA)
+
+ def test_missing_pair_with_old_provider_hash_fails_closed(self):
+  self.provider['branch'].pop('expires_at')
+  self.provider['branch'].pop('ttl_interval_seconds')
+  self.denial('PRESERVATION_PROVIDER_HASH_DRIFT')
+
+ def test_preservation_one_field_omitted_rejected(self):
+  for missing in ('expires_at','ttl_interval_seconds'):
+   with self.subTest(missing=missing):
+    original=copy.deepcopy(self.provider['branch'])
+    self.provider['branch'].pop(missing)
+    self.denial('PRESERVATION_PROVIDER_RETENTION_FIELDS_PARTIAL')
+    self.provider['branch']=original
+
+ def test_preservation_only_one_retention_value_present_rejected(self):
+  for exp,ttl in ((self.ts(500),None),(None,3600)):
+   with self.subTest(exp=exp,ttl=ttl):
+    self.provider['branch'].update(expires_at=exp,ttl_interval_seconds=ttl)
+    self.denial('PRESERVATION_PROVIDER_RETENTION_PAIR_CONTRADICTION')
+
+ def test_preservation_finite_expiry_always_denied_including_after_window(self):
+  self.provider['branch'].update(
+   expires_at=self.ts(2880),ttl_interval_seconds=172800)
+  self.rebind_preservation()
+  self.denial('PRESERVATION_PARENT_SCHEDULED_EXPIRATION_PROHIBITED')
+
+ def test_preservation_invalid_ttl_and_expiry_rejected(self):
+  pairs=((self.ts(2880),0,'TTL_INVALID'),
+   (self.ts(2880),True,'TTL_INVALID'),
+   (self.ts(2880),'3600','TTL_INVALID'),
+   (self.ts(2880),-1,'TTL_INVALID'),
+   ('not-a-time',3600,'UTC_TIMESTAMP_INVALID'),
+   (self.ts(-40),3600,'EXPIRY_NOT_AFTER_CREATION'))
+  for exp,ttl,code in pairs:
+   with self.subTest(exp=exp,ttl=ttl):
+    self.provider['branch'].update(
+     expires_at=exp,ttl_interval_seconds=ttl)
+    self.denial(code)
+
+ def test_preservation_wrong_branch_project_or_parent_rejected_with_valid_hash(self):
+  checks=(('id',m.STAGING,'PRESERVATION_PROVIDER_MISMATCH'),
+    ('project_id','unrelated-project','PRESERVATION_PROVIDER_TARGET_INVALID'),
+    ('parent_id',m.PRODUCTION_ID,'PRESERVATION_PROVIDER_MISMATCH'))
+  for name,value,error in checks:
+   with self.subTest(identity=name):
+    old=self.provider['branch'][name]
+    self.provider['branch'][name]=value
+    self.rebind_preservation()
+    self.denial(error)
+    self.provider['branch'][name]=old
+    self.rebind_preservation()
+
+ def test_restore_a_and_b_explicit_null_and_absent_pairs_are_valid(self):
+  for key in ('restore_a_branch','restore_b_branch'):
+   for shape in ('NULL_PAIR','ABSENT_PAIR'):
+    with self.subTest(branch=key,shape=shape):
+     original=copy.deepcopy(self.targets[key])
+     if shape=='NULL_PAIR':
+      self.targets[key].update(expires_at=None,ttl_interval_seconds=None)
+     else:
+      self.targets[key].pop('expires_at')
+      self.targets[key].pop('ttl_interval_seconds')
+     self.assertEqual(self.verify()['schema'],m.SCHEMA)
+     self.targets[key]=original
+
+ def test_restore_a_and_b_partial_pair_omission_rejected(self):
+  for key in ('restore_a_branch','restore_b_branch'):
+   for missing in ('expires_at','ttl_interval_seconds'):
+    with self.subTest(branch=key,missing=missing):
+     original=copy.deepcopy(self.targets[key])
+     self.targets[key].pop(missing)
+     self.denial('RESTORE_PROVIDER_RETENTION_FIELDS_PARTIAL')
+     self.targets[key]=original
+
+ def test_restore_a_and_b_finite_expiry_missing_ttl_rejected(self):
+  for key in ('restore_a_branch','restore_b_branch'):
+   with self.subTest(branch=key):
+    original=copy.deepcopy(self.targets[key])
+    self.targets[key]['ttl_interval_seconds']=None
+    self.denial('RESTORE_PROVIDER_RETENTION_PAIR_CONTRADICTION')
+    self.targets[key]=original
+
+ def test_restore_a_and_b_invalid_ttl_and_expiry_rejected(self):
+  for key in ('restore_a_branch','restore_b_branch'):
+   checks=((self.ts(2880),0,'RESTORE_PROVIDER_TTL_INVALID'),
+    (self.ts(2880),True,'RESTORE_PROVIDER_TTL_INVALID'),
+    (self.ts(2880),'172800','RESTORE_PROVIDER_TTL_INVALID'),
+    ('not-a-time',3600,'UTC_TIMESTAMP_INVALID'),
+    (self.ts(-60),3600,'RESTORE_PROVIDER_EXPIRY_NOT_AFTER_CREATION'))
+   for exp,ttl,reason in checks:
+    with self.subTest(branch=key,expiry=exp,ttl=ttl):
+     original=copy.deepcopy(self.targets[key])
+     self.targets[key].update(expires_at=exp,ttl_interval_seconds=ttl)
+     self.denial(reason)
+     self.targets[key]=original
+
+ def test_restore_a_and_b_finite_expiry_must_cover_evidence_period(self):
+  for key in ('restore_a_branch','restore_b_branch'):
+   with self.subTest(branch=key):
+    original=copy.deepcopy(self.targets[key])
+    self.targets[key].update(expires_at=self.ts(45),
+     ttl_interval_seconds=7200)
+    self.denial('RESTORE_BRANCH_EXPIRES_BEFORE_RECOVERY_WINDOW')
+    self.targets[key]=original
+
  def test_dump_tampered(self):
   Path(self.files['dump']).write_bytes(b'PGDMP altered')
   self.denial('CUSTOM_DUMP_LENGTH_INVALID')
