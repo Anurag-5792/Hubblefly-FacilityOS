@@ -189,14 +189,16 @@ SQL.update({
  'provider_roles':"""SELECT r.rolname AS id,r.rolcanlogin,r.rolsuper,r.rolcreatedb,
  r.rolcreaterole,r.rolreplication,r.rolbypassrls,r.rolinherit,
  r.rolvaliduntil::text AS expires
- FROM pg_roles r WHERE r.rolname='neondb_owner' OR r.rolname LIKE 'neon_%'""",
+ FROM pg_roles r WHERE r.rolname='neondb_owner' OR r.rolname LIKE 'neon_%' OR r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls""",
  'provider_memberships':"""SELECT member.rolname||'->'||role.rolname AS id,
  am.admin_option,am.inherit_option,am.set_option
  FROM pg_auth_members am JOIN pg_roles member ON member.oid=am.member
  JOIN pg_roles role ON role.oid=am.roleid
  WHERE member.rolname='neondb_owner' OR role.rolname='neondb_owner'
  OR member.rolname LIKE 'neon_%' OR role.rolname LIKE 'neon_%'
- OR member.rolname LIKE 'hft_%' OR role.rolname LIKE 'hft_%'""",
+ OR member.rolname LIKE 'hft_%' OR role.rolname LIKE 'hft_%'
+ OR role.rolsuper OR role.rolcreatedb OR role.rolcreaterole
+ OR role.rolreplication OR role.rolbypassrls""",
  'schema_public_grants':"""SELECT n.nspname AS id,n.nspacl::text AS acl,
  pg_get_userbyid(n.nspowner) AS owner,
  EXISTS(SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a
