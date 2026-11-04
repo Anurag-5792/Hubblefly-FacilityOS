@@ -17,13 +17,18 @@ PHASES=(('prepare-security','S0'),('prepare-migration-owner','S1'),
 # Real grantor and OID values must come from the independently witnessed PG18
 # stage references, not from these synthetic examples.
 def census_roles(*names):
- return [{'id':name,'role_oid':str(10000+i),
+ # Preserve target-local OIDs through S0-S5 when HFT roles appear at S1.
+ approved,_=c.source_role_contract()
+ order=sorted(set(c.PG18_PREDEFINED_ROLES)|set(approved)|
+  {'neondb_owner','neon_superuser','untracked_login','intermediate_generic'})
+ by_name={name:str(10000+i) for i,name in enumerate(order)}
+ return [{'id':name,'role_oid':by_name[name],
   'rolcanlogin':name in ('neondb_owner','hft_staging_migration_owner',
    'hft_staging_app_runtime','hft_staging_audit_verify','untracked_login'),
   'rolsuper':False,'rolinherit':True,'rolcreatedb':False,
   'rolcreaterole':False,'rolreplication':False,'rolbypassrls':False,
   'rolconnlimit':-1,'expires':None,'settings':None}
-  for i,name in enumerate(sorted(set(names)))]
+  for name in sorted(set(names))]
 
 def census_grant(member,granted,grantor,roles,admin=False,inherit=True,set_role=False):
  by_name={r['id']:r for r in roles}
@@ -153,17 +158,30 @@ class C030Lifecycle(unittest.TestCase):
   self.addCleanup(self.temp.cleanup)
   self.root=Path(self.temp.name)
   self.db=FakePg18()
+  self.continuity={}
+  for idx,stage in enumerate(c.STAGES):
+   before=stage if idx==0 else c.STAGES[idx-1]
+   previous=self.db.snapshots[before]['role_census']
+   self.continuity[stage]={
+    'schema':c.ROLE_CONTINUITY_SCHEMA,'stage':stage,
+    'project_id':runner.PROJECT,'branch_id':runner.BRANCH,
+    'database':runner.DB,
+    'anchor_stage':'S0_BASELINE' if idx==0 else before,
+    'previous_collection_sha256':'a'*64,
+    'witness_evidence_sha256':'b'*64,
+    'collector_source_sha256':c.sha(Path(c.__file__).read_bytes()),
+    'prior_role_oids':{row['id']:row['role_oid'] for row in previous}}
   self.refpaths={}
   for stage in c.STAGES:
    path=self.root/(stage+'.sha256')
-   path.write_text(c.sha(c.canonical(self.db.snapshots[stage]))+'\n')
+   path.write_text(c.portable_stage_hash(self.db.snapshots[stage])+'\n')
    self.refpaths[stage]=path
  def approved(self):
   return patch.object(c,'STAGE_PATHS',self.refpaths)
  def classify(self,phase,stage):
   with self.approved(),patch.object(runner,'psql',
     side_effect=self.db.sql(stage)):
-   return runner.live_database_phase_state({},phase)
+   return runner.live_database_phase_state({},phase,continuity=self.continuity[stage])
  def test_complete_sequential_s0_to_s5_positive(self):
   for phase,stage in PHASES:
    with self.subTest(stage=stage):
@@ -279,7 +297,7 @@ class C030Lifecycle(unittest.TestCase):
   with self.assertRaisesRegex(ValueError,'STAGE_REFERENCE_UNAVAILABLE'):
    c.stage_reference_bundle(self.refpaths)
   self.refpaths['S2'].write_text(
-   c.sha(c.canonical(self.db.snapshots['S2']))+'\n')
+   c.portable_stage_hash(self.db.snapshots['S2'])+'\n')
   baseline=c.stage_reference_bundle(self.refpaths)
   modified=self.root/'SECURITY-COPY.sql'
   modified.write_bytes(c.SECURITY_SQL.read_bytes()+b'\n-- source-drift test')
@@ -288,7 +306,10 @@ class C030Lifecycle(unittest.TestCase):
   self.assertEqual(len(c.TRANSITION_SOURCES),4)
  def run_real_main(self,phase,stage):
   self.marker=self.root/'journal.jsonl'
+  continuity_file=self.root/'role-continuity.synthetic.json'
+  continuity_file.write_text(json.dumps(self.continuity[stage]))
   argv=['hft-online-runner',phase,'--journal',str(self.marker),
+   '--role-continuity-evidence',str(continuity_file),
    '--recovery-evidence',str(self.root/'recovery.json'),
    '--authorization-artifact',str(self.root/'auth.json'),
    '--snapshot-detail-readback',str(self.root/'files.json')]
