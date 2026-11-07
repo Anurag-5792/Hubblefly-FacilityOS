@@ -38,12 +38,12 @@ function pg(result:unknown=valid){
     calls.push(sql);
     if(sql.includes('SELECT current_database()'))
      return {rows:[{db_name:env.PGDATABASE,db_login:env.PGUSER,db_role:env.PGUSER,
-      server_address:'127.0.0.1',server_port:54329}] as T[],rowCount:1};
+      server_address:'127.0.0.1',server_port:54329}] as unknown as T[],rowCount:1};
     if(sql.includes('ops_a2_read_authoritative_v2')){
      proofs.push(JSON.parse(String(args[1])) as Record<string,unknown>);
-     return {rows:[{response:result}] as T[],rowCount:1};
+     return {rows:[{response:result}] as unknown as T[],rowCount:1};
     }
-    return {rows:[] as T[],rowCount:0};
+    return {rows:[] as unknown as T[],rowCount:0};
    },release(){}};
   return client;
  }};

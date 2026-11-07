@@ -9,8 +9,6 @@ import {type PgPool,type PgQueryClient}
  from '../../lib/hft/persistence/isolated-pg-transaction.ts';
 import {submitOpsA2SyntheticSource}
  from '../../lib/hft/persistence/ops-a2-stores-source.ts';
-import {readOpsA2SyntheticSource,checkOpsA2Readback}
- from '../../lib/hft/persistence/ops-a2-stores-readback.ts';
 import {versionedMovementDigest,versionedFactAuditText,OPS_A_EVIDENCE_V1,
  type VersionedCommand,type VersionedImmutableFact,type StockAccountIdentity}
  from '../../lib/hft/persistence/ops-a-versioned-evidence.ts';

@@ -58,10 +58,6 @@ function object(value:unknown,code:string):Record<string,unknown>{
  if(!value||typeof value!=='object'||Array.isArray(value))throw Error(code);
  return value as Record<string,unknown>;
 }
-function required(v:unknown,code:string):string{
- if(typeof v!=='string'||!id.test(v))throw Error(code);
- return v;
-}
 function matching(op:StoreOp,source:Resolution,actor:VerifiedRequestOperator):void{
  if(source.state!=='OPS_A2_AUTHORIZED_SOURCE_V2'||
   source.issuer!=='HFT_P2_PROTECTED_DATABASE'||
