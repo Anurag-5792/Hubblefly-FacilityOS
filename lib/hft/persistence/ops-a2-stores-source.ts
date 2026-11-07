@@ -201,7 +201,10 @@ export async function submitOpsA2SyntheticSource(pool:PgPool,env:IsolatedPgEnvir
  if(op.kind==='IN'&&op.qcState!=='ACCEPTED')
   throw Error('OPS_A2_QC_ACCEPTED_REQUIRED');
  const p0Proof=issueStoresProof(op,actor,signer.p0Key,signer.p0KeyVersion);
- const resolution=await withProtectedReadbackTransaction(pool,env,async client=>{
+ // P0's signed proof verifier takes FOR SHARE key/session locks. A READ ONLY
+ // transaction cannot obtain those locks; this SERIALIZABLE transaction
+ // performs no direct ledger DML. The actual writer rechecks all sources.
+ const resolution=await withProtectedPostingTransaction(pool,env,async client=>{
   const r=await client.query<{source:unknown}>(
    'SELECT hft.ops_a2_resolve_authorized_v2($1::jsonb,$2::jsonb) AS source',
    [JSON.stringify(op),JSON.stringify(p0Proof)]);
