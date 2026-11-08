@@ -878,6 +878,7 @@ DECLARE actor text;scope_count bigint;reconstructed bigint;
  digest_input text;command_record record;scope_generation bigint;
  offset_num integer:=COALESCE(NULLIF(q->>'cursor','')::integer,0);
  next_offset text:='';
+ expected_total bigint;
 BEGIN
  IF pg_catalog.current_setting('transaction_read_only')<>'on'
  THEN RAISE EXCEPTION 'OPS_A2_READ_ONLY_TRANSACTION_REQUIRED'; END IF;
@@ -907,6 +908,59 @@ BEGIN
   ELSE PERFORM hft.assert_command_seal_v1(command_record.id);
   END IF;
  END LOOP;
+ -- Count the EXACT same source rows as each page on this one transaction
+ -- snapshot. A forged premature terminal cursor cannot certify completeness.
+ IF q->>'intent'='MOVEMENTS' THEN
+  SELECT count(*) INTO expected_total
+  FROM hft.stock_entry AS e
+  JOIN hft.stock_command AS cmd ON cmd.id=e.command_id
+  LEFT JOIN hft.stock_account AS a ON a.id=e.account_id
+  JOIN hft.audit_outbox AS audit ON audit.command_id=cmd.id
+  WHERE cmd.legal_entity_id=q->>'legalEntityId'
+   AND cmd.site_id=q->>'siteId' AND cmd.warehouse_id=q->>'warehouseId'
+   AND (q->>'itemCode'='' OR cmd.item_code=q->>'itemCode')
+   AND (q->>'productVersion'='' OR e.product_version_code=q->>'productVersion')
+   AND (q->>'leafLocationId'='' OR
+    COALESCE(a.location_key,cmd.location_id)=q->>'leafLocationId')
+   AND (q->>'employeeId'='' OR
+    COALESCE(a.custodian_employee_id,COALESCE(e.employee_id,''))=q->>'employeeId');
+ ELSIF q->>'intent'='CUSTODY' THEN
+  SELECT count(*) INTO expected_total
+  FROM hft.employee_custody AS cu
+  JOIN hft.stock_command AS issue ON issue.id=cu.issue_command_id
+  JOIN hft.custody_ack_status_v1 AS ack
+   ON ack.issue_command_uuid=cu.issue_command_id
+   AND ack.legal_entity_id=cu.legal_entity_id
+   AND ack.employee_id=cu.employee_id
+  JOIN hft.audit_outbox AS audit ON audit.command_id=cu.issue_command_id
+  JOIN hft.stock_account AS a
+   ON a.legal_entity_id=cu.legal_entity_id
+   AND a.site_id=issue.site_id AND a.warehouse_id=cu.warehouse_id
+   AND a.item_code=cu.item_code
+   AND a.product_version_code=cu.product_version_code
+   AND a.location_key=cu.location_id
+   AND a.account_kind='CUSTODY'
+   AND a.custodian_employee_id=cu.employee_id
+   AND a.serial_key=cu.serial_no AND a.batch_key=cu.batch_no
+  WHERE cu.legal_entity_id=q->>'legalEntityId'
+   AND issue.site_id=q->>'siteId'
+   AND cu.warehouse_id=q->>'warehouseId'
+   AND cu.employee_id=q->>'employeeId'
+   AND cu.issued_micro>cu.returned_micro
+   AND (q->>'itemCode'='' OR cu.item_code=q->>'itemCode')
+   AND (q->>'productVersion'='' OR cu.product_version_code=q->>'productVersion')
+   AND (q->>'leafLocationId'='' OR cu.location_id=q->>'leafLocationId');
+ ELSE
+  SELECT count(*) INTO expected_total FROM hft.stock_account AS a
+  WHERE a.legal_entity_id=q->>'legalEntityId'
+   AND a.site_id=q->>'siteId' AND a.warehouse_id=q->>'warehouseId'
+   AND (q->>'itemCode'='' OR a.item_code=q->>'itemCode')
+   AND (q->>'productVersion'='' OR a.product_version_code=q->>'productVersion')
+   AND (q->>'leafLocationId'='' OR a.location_key=q->>'leafLocationId')
+   AND (q->>'employeeId'='' OR a.custodian_employee_id=q->>'employeeId');
+ END IF;
+ IF expected_total>10000 OR offset_num>expected_total
+ THEN RAISE EXCEPTION 'OPS_A2_SNAPSHOT_SCOPE_LIMIT_OR_OFFSET_INVALID'; END IF;
  IF q->>'intent'='MOVEMENTS' THEN
   -- Scope via immutable COMMAND; LEFT JOIN preserves the legitimate EXTERNAL
   -- debit leg. Account history comes from the ENTRY, never current versions.
@@ -1073,7 +1127,8 @@ BEGIN
   'state','AUTHORITATIVE_VERSIONED_READ',
   'versionAuthority','OPS_A2_VERSION_AWARE_V2',
   'intent',q->>'intent','sourceEpoch','POLICY-'||scope_generation::text,
-  'nextCursor',next_offset,'durable',true,'synthetic',false,'auditVerified',true,
+  'nextCursor',next_offset,'snapshotTotalRows',expected_total,
+  'durable',true,'synthetic',false,'auditVerified',true,
   'rows',rows);
 END $read$;
 
