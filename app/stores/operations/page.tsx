@@ -3,7 +3,7 @@ import Link from 'next/link';
 import {useState,type FormEvent} from 'react';
 import styles from './operations.module.css';
 
-type Kind='IN'|'OUT'|'COUNT'|'TRANSFER';
+type Kind='IN'|'OUT'|'COUNT'|'TRANSFER'|'RETURN';
 type FormData={
  legalEntityId:string;siteId:string;warehouseId:string;itemCode:string;
  productVersion:string;controlType:'NONE'|'BATCH'|'SERIAL';quantity:string;
@@ -15,24 +15,30 @@ type FormData={
  condition:'GOOD'|'DAMAGED'|'QUARANTINE';
  inventoryState:'LOOSE'|'INSTALLED_WIP'|'QUARANTINE'|'OTHER';evidenceId:string;
  sourceLeafId:string;destinationLeafId:string;transferDocumentId:string;reason:string;
+ returnDocumentId:string;returnLineKey:string;originalIssueId:string;
+ inspectionEvidenceId:string;inspectedCondition:'GOOD'|'DAMAGED'|'QUARANTINE';
 };
 const initial:FormData={legalEntityId:'',siteId:'',warehouseId:'',itemCode:'',
  productVersion:'',controlType:'NONE',quantity:'',uom:'',serialNo:'',batchNo:'',
  leafLocationId:'',grnId:'',receiptKey:'',supplierId:'',invoiceNumber:'',
  qcState:'PENDING',qcEvidenceId:'',employeeId:'',workOrderId:'',issueDocumentId:'',
  fragmentId:'',purpose:'',sessionId:'',stockEpoch:'',lineId:'',condition:'GOOD',
- inventoryState:'LOOSE',evidenceId:'',sourceLeafId:'',destinationLeafId:'',transferDocumentId:'',reason:''};
+ inventoryState:'LOOSE',evidenceId:'',sourceLeafId:'',destinationLeafId:'',transferDocumentId:'',reason:'',returnDocumentId:'',returnLineKey:'',
+ originalIssueId:'',inspectionEvidenceId:'',inspectedCondition:'GOOD'};
 const captions:Record<Kind,{title:string;summary:string}>={
  IN:{title:'Receive material (IN)',summary:'Invoice/GRN, QC and destination bin evidence'},
  OUT:{title:'Issue material (OUT)',summary:'Employee, source bin and custody evidence'},
  COUNT:{title:'Physical count',summary:'Exact count session and item/bin observation'},
  TRANSFER:{title:'Location transfer',summary:'Source and destination bins; no silent history edits'},
+ RETURN:{title:'Employee material return',summary:'Original issue, custody and independent inspection references; preparation only'},
 };
 const fields:Record<Kind,readonly (keyof FormData)[]>={
  IN:['leafLocationId','supplierId','invoiceNumber','grnId','receiptKey','qcState','qcEvidenceId'],
  OUT:['leafLocationId','employeeId','workOrderId','issueDocumentId','fragmentId','purpose'],
  COUNT:['leafLocationId','sessionId','stockEpoch','lineId','condition','inventoryState','evidenceId'],
  TRANSFER:['sourceLeafId','destinationLeafId','transferDocumentId','reason'],
+ RETURN:['leafLocationId','employeeId','returnDocumentId','returnLineKey',
+  'originalIssueId','inspectionEvidenceId','inspectedCondition'],
 };
 const names:Partial<Record<keyof FormData,string>>={
  legalEntityId:'Legal entity',siteId:'Site',warehouseId:'Warehouse',itemCode:'Item code',
@@ -45,7 +51,10 @@ const names:Partial<Record<keyof FormData,string>>={
  purpose:'Material issue purpose',sessionId:'Count session',stockEpoch:'Count epoch',
  lineId:'Count line ID',condition:'Observed condition',inventoryState:'Stock category',
  evidenceId:'Count evidence reference',sourceLeafId:'Source leaf bin',
- destinationLeafId:'Destination leaf bin',transferDocumentId:'Movement document',reason:'Movement reason'};
+ destinationLeafId:'Destination leaf bin',transferDocumentId:'Movement document',reason:'Movement reason',
+ returnDocumentId:'Return document',returnLineKey:'Return line key',
+ originalIssueId:'Original issue command',inspectionEvidenceId:'Independent inspection evidence',
+ inspectedCondition:'Inspected condition'};
 type StockReadRow={legalEntityId:string;siteId:string;warehouseId:string;
  itemCode:string;productVersion:string;leafLocationId:string;quantity:string;
  stockState:string;employeeId:string;humanAcknowledgement:string;
@@ -74,7 +83,7 @@ export default function StoresOperationsPage(){
   event.preventDefault();setBusy(true);setLast(null);
   setFeedback(intent==='POST'?'Requesting protected database posting; no success until durable proof is returned.':
    'Verifying signed session and structural request. No stock posting occurs.');
-  const common={contractVersion:'HFT-R1-STORES-P0-PREPARE-V1',requestId:crypto.randomUUID(),
+  const common={contractVersion:kind==='RETURN'?'HFT-R1-OPS-A2-RETURN-PREPARE-V1':'HFT-R1-STORES-P0-PREPARE-V1',requestId:crypto.randomUUID(),
    kind,legalEntityId:form.legalEntityId.trim(),siteId:form.siteId.trim(),
    warehouseId:form.warehouseId.trim(),itemCode:form.itemCode.trim(),
    productVersion:form.productVersion.trim(),controlType:form.controlType,
@@ -82,7 +91,8 @@ export default function StoresOperationsPage(){
    batchNo:form.batchNo.trim()};
   const additional=Object.fromEntries(fields[kind].map(key=>[key,form[key].trim()]));
   try{
-   const res=await fetch(intent==='POST'?'/api/hft/stores/submit':'/api/hft/stores/prepare',{
+   const res=await fetch(kind==='RETURN'?'/api/hft/stores/return-prepare':
+    intent==='POST'?'/api/hft/stores/submit':'/api/hft/stores/prepare',{
     method:'POST',credentials:'same-origin',
     cache:'no-store',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({...common,...additional})});
@@ -137,6 +147,8 @@ export default function StoresOperationsPage(){
  const field=(key:keyof FormData)=>{
   if(key==='qcState')return <label key={key}>{names[key]}<select value={form.qcState} onChange={e=>update('qcState',e.target.value as FormData['qcState'])}>
    <option>PENDING</option><option>ACCEPTED</option><option>REJECTED</option></select></label>;
+  if(key==='inspectedCondition')return <label key={key}>{names[key]}<select value={form.inspectedCondition} onChange={e=>update('inspectedCondition',e.target.value as FormData['inspectedCondition'])}>
+   <option>GOOD</option><option>DAMAGED</option><option>QUARANTINE</option></select></label>;
   if(key==='condition')return <label key={key}>{names[key]}<select value={form.condition} onChange={e=>update('condition',e.target.value as FormData['condition'])}>
    <option>GOOD</option><option>DAMAGED</option><option>QUARANTINE</option></select></label>;
   if(key==='inventoryState')return <label key={key}>{names[key]}<select value={form.inventoryState} onChange={e=>update('inventoryState',e.target.value as FormData['inventoryState'])}>
@@ -150,7 +162,7 @@ export default function StoresOperationsPage(){
   <header className="masters-head"><div>
    <Link href="/stores" className="mis-link">Stores / Operations</Link>
    <p className="eyebrow">Hubblefly FacilityOS · P0 source candidate</p>
-   <h1>Stores receiving, issuing and counting</h1>
+   <h1>Stores receiving, issuing, returning and counting</h1>
    <p>Actual warehouse, rack, level, position, stack slot and bin are verified only by the qualified location registry.</p>
   </div><Link className="masters-back" href="/stores/masters">Masters</Link></header>
   <section className={styles.warning} role="status">
@@ -158,7 +170,7 @@ export default function StoresOperationsPage(){
    <p>Validation never changes stock. Protected submission uses signed server identity and fails closed until qualified PostgreSQL authority is installed; it cannot create its own approval or Hold clearance. Do not treat a rejected request as a receipt or issue record.</p>
   </section>
   <nav className={styles.tabs} aria-label="Stores operation">
-   {(['IN','OUT','COUNT','TRANSFER'] as const).map(x=><button type="button" key={x}
+   {(['IN','OUT','COUNT','TRANSFER','RETURN'] as const).map(x=><button type="button" key={x}
     aria-pressed={kind===x} onClick={()=>switchKind(x)} className={kind===x?styles.selected:undefined}>
      {captions[x].title}</button>)}
   </nav>
@@ -183,10 +195,10 @@ export default function StoresOperationsPage(){
      <option value="POST">Request protected database transaction</option>
     </select>
    </label>
-   <button className="primary-button" type="submit" disabled={busy||intent==='POST'&&kind==='TRANSFER'}>
+   <button className="primary-button" type="submit" disabled={busy||intent==='POST'&&(kind==='TRANSFER'||kind==='RETURN')}>
     {busy?'Checking…':intent==='POST'?'Request protected transaction':'Validate only — do not post'}
    </button>
-   {intent==='POST'&&kind==='TRANSFER'?<p role="alert">Transfer remains blocked until the single P2 protected writer supports authorized atomic relocation.</p>:null}
+   {intent==='POST'&&(kind==='TRANSFER'||kind==='RETURN')?<p role="alert">Transfer and RETURN posting remain blocked until the independently qualified protected writer and source authority are installed.</p>:null}
   </form>
   <section aria-live="polite" className={styles.result}>
    <h2>Result</h2><p>{feedback}</p>
