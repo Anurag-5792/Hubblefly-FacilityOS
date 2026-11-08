@@ -43,9 +43,7 @@ BEGIN
   RAISE EXCEPTION 'OPS_A2_AUTHENTICATED_P0_SOURCE_NOT_IN_APPROVED_RECORD'; END IF;
  IF p->>'kind'='IN' THEN
   IF p->>'qcState'<>'ACCEPTED' OR b.inspection_evidence_id<>p->>'qcEvidenceId'
-  -- P0 signs uppercase UUID text; typed GRN keys use canonical lowercase.
-  -- The alias is permitted ONLY by this exact UUID conversion, and the
-  -- receipt line is independently resolved from the persisted physical GRN.
+  -- Exact uppercase P0 document converted to typed UUID identity.
   OR p->>'grnId' !~ '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}
   THEN RAISE EXCEPTION 'OPS_A2_GRN_QC_SOURCE_NOT_VERIFIED'; END IF;
  ELSIF p->>'kind'='OUT' THEN
@@ -435,16 +433,15 @@ REVOKE EXECUTE ON FUNCTION hft.ops_a2_read_authoritative_v2(jsonb,jsonb)
 COMMIT;
 
   OR b.source_document_id<>pg_catalog.lower(p->>'grnId')
-  OR NOT EXISTS(
-    SELECT 1 FROM hft.grn_partial_receipt AS r
+  OR NOT EXISTS(SELECT 1 FROM hft.grn_partial_receipt AS r
     WHERE r.grn_id::text=b.source_document_id
-      AND r.legal_entity_id=b.legal_entity_id
-      AND r.warehouse_id=b.warehouse_id
-      AND r.location_id=b.destination_leaf
-      AND r.receipt_key=p->>'receiptKey'
-      AND b.source_action_key=r.receipt_key||':'||r.line_no::text
-      AND r.ops_a2_item_code=b.item_code
-      AND r.ops_a2_product_version_code=b.product_version_code)
+    AND r.legal_entity_id=b.legal_entity_id
+    AND r.warehouse_id=b.warehouse_id
+    AND r.location_id=b.destination_leaf
+    AND r.receipt_key=p->>'receiptKey'
+    AND b.source_action_key=r.receipt_key||':'||r.line_no::text
+    AND r.ops_a2_item_code=b.item_code
+    AND r.ops_a2_product_version_code=b.product_version_code)
   OR b.destination_leaf<>p->>'leafLocationId'
   THEN RAISE EXCEPTION 'OPS_A2_GRN_QC_SOURCE_NOT_VERIFIED'; END IF;
  ELSIF p->>'kind'='OUT' THEN
@@ -1219,16 +1216,15 @@ REVOKE EXECUTE ON FUNCTION hft.ops_a2_read_authoritative_v2(jsonb,jsonb)
 COMMIT;
 
   OR b.source_document_id<>pg_catalog.lower(p->>'grnId')
-  OR NOT EXISTS(
-    SELECT 1 FROM hft.grn_partial_receipt AS r
+  OR NOT EXISTS(SELECT 1 FROM hft.grn_partial_receipt AS r
     WHERE r.grn_id::text=b.source_document_id
-      AND r.legal_entity_id=b.legal_entity_id
-      AND r.warehouse_id=b.warehouse_id
-      AND r.location_id=b.destination_leaf
-      AND r.receipt_key=p->>'receiptKey'
-      AND b.source_action_key=r.receipt_key||':'||r.line_no::text
-      AND r.ops_a2_item_code=b.item_code
-      AND r.ops_a2_product_version_code=b.product_version_code)
+    AND r.legal_entity_id=b.legal_entity_id
+    AND r.warehouse_id=b.warehouse_id
+    AND r.location_id=b.destination_leaf
+    AND r.receipt_key=p->>'receiptKey'
+    AND b.source_action_key=r.receipt_key||':'||r.line_no::text
+    AND r.ops_a2_item_code=b.item_code
+    AND r.ops_a2_product_version_code=b.product_version_code)
   OR b.destination_leaf<>p->>'leafLocationId'
   THEN RAISE EXCEPTION 'OPS_A2_GRN_QC_SOURCE_NOT_VERIFIED'; END IF;
  ELSIF p->>'kind'='OUT' THEN
@@ -1997,16 +1993,15 @@ REVOKE EXECUTE ON FUNCTION hft.ops_a2_read_authoritative_v2(jsonb,jsonb)
 COMMIT;
 
   OR b.source_document_id<>pg_catalog.lower(p->>'grnId')
-  OR NOT EXISTS(
-    SELECT 1 FROM hft.grn_partial_receipt AS r
+  OR NOT EXISTS(SELECT 1 FROM hft.grn_partial_receipt AS r
     WHERE r.grn_id::text=b.source_document_id
-      AND r.legal_entity_id=b.legal_entity_id
-      AND r.warehouse_id=b.warehouse_id
-      AND r.location_id=b.destination_leaf
-      AND r.receipt_key=p->>'receiptKey'
-      AND b.source_action_key=r.receipt_key||':'||r.line_no::text
-      AND r.ops_a2_item_code=b.item_code
-      AND r.ops_a2_product_version_code=b.product_version_code)
+    AND r.legal_entity_id=b.legal_entity_id
+    AND r.warehouse_id=b.warehouse_id
+    AND r.location_id=b.destination_leaf
+    AND r.receipt_key=p->>'receiptKey'
+    AND b.source_action_key=r.receipt_key||':'||r.line_no::text
+    AND r.ops_a2_item_code=b.item_code
+    AND r.ops_a2_product_version_code=b.product_version_code)
   OR b.destination_leaf<>p->>'leafLocationId'
   THEN RAISE EXCEPTION 'OPS_A2_GRN_QC_SOURCE_NOT_VERIFIED'; END IF;
  ELSIF p->>'kind'='OUT' THEN
@@ -2781,16 +2776,15 @@ REVOKE EXECUTE ON FUNCTION hft.ops_a2_read_authoritative_v2(jsonb,jsonb)
 COMMIT;
 
   OR b.source_document_id<>pg_catalog.lower(p->>'grnId')
-  OR NOT EXISTS(
-    SELECT 1 FROM hft.grn_partial_receipt AS r
+  OR NOT EXISTS(SELECT 1 FROM hft.grn_partial_receipt AS r
     WHERE r.grn_id::text=b.source_document_id
-      AND r.legal_entity_id=b.legal_entity_id
-      AND r.warehouse_id=b.warehouse_id
-      AND r.location_id=b.destination_leaf
-      AND r.receipt_key=p->>'receiptKey'
-      AND b.source_action_key=r.receipt_key||':'||r.line_no::text
-      AND r.ops_a2_item_code=b.item_code
-      AND r.ops_a2_product_version_code=b.product_version_code)
+    AND r.legal_entity_id=b.legal_entity_id
+    AND r.warehouse_id=b.warehouse_id
+    AND r.location_id=b.destination_leaf
+    AND r.receipt_key=p->>'receiptKey'
+    AND b.source_action_key=r.receipt_key||':'||r.line_no::text
+    AND r.ops_a2_item_code=b.item_code
+    AND r.ops_a2_product_version_code=b.product_version_code)
   OR b.destination_leaf<>p->>'leafLocationId'
   THEN RAISE EXCEPTION 'OPS_A2_GRN_QC_SOURCE_NOT_VERIFIED'; END IF;
  ELSIF p->>'kind'='OUT' THEN
