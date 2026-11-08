@@ -455,6 +455,8 @@ BEGIN
   'sourceEpoch','POLICY-'||policy_generation::text,
   'auditVerified',true,'fact',fact);
 END $reconcile$;
+ALTER FUNCTION hft.ops_a2_reconcile_original_attempt_private_v3(jsonb,jsonb)
+ OWNER TO hft_r1_posting_owner;
 REVOKE ALL ON FUNCTION hft.ops_a2_reconcile_original_attempt_private_v3(jsonb,jsonb)
  FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
 CREATE OR REPLACE FUNCTION hft.ops_a2_reconcile_post_v3(
