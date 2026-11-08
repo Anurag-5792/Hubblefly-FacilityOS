@@ -216,10 +216,10 @@ BEGIN
  ELSE RAISE EXCEPTION 'P2_UNKNOWN_APPROVAL_ACTION'; END IF;
  IF v_rev IS NULL OR v_rev<>NEW.document_revision
  OR v_approver IS DISTINCT FROM NEW.approver_subject
- OR pg_catalog.coalesce(v_maker,'')<>NEW.prepared_by
- OR pg_catalog.coalesce(v_checker,'')<>NEW.checked_by
- OR d.prepared_subject IS DISTINCT FROM pg_catalog.nullif(NEW.prepared_by,'')
- OR d.checked_subject IS DISTINCT FROM pg_catalog.nullif(NEW.checked_by,'')
+ OR COALESCE(v_maker,'')<>NEW.prepared_by
+ OR COALESCE(v_checker,'')<>NEW.checked_by
+ OR d.prepared_subject IS DISTINCT FROM NULLIF(NEW.prepared_by,'')
+ OR d.checked_subject IS DISTINCT FROM NULLIF(NEW.checked_by,'')
  THEN RAISE EXCEPTION 'P2_APPROVAL_SOURCE_ROLE_OR_REVISION_MISMATCH'; END IF;
  IF (pol.require_preparer AND (d.prepared_subject IS NULL OR d.prepared_session_id IS NULL))
  OR (pol.require_checker AND (d.checked_subject IS NULL OR d.checked_session_id IS NULL))
