@@ -4,10 +4,13 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {verifiedFixtureOperator} from '../support/signed-session-fixture.ts';
+import {verifiedFixtureOperator,createSignedRequest,signedToken,identityEnv}
+ from '../support/signed-session-fixture.ts';
+import {resolveVerifiedRequestOperator}
+ from '../../lib/hft/security/verified-request.ts';
 import {type PgPool,type PgQueryClient}
  from '../../lib/hft/persistence/isolated-pg-transaction.ts';
-import {submitOpsA2SyntheticSource}
+import {submitOpsA2SyntheticSource,reconcileOpsA2SyntheticOriginalAttempt}
  from '../../lib/hft/persistence/ops-a2-stores-source.ts';
 import {versionedMovementDigest,versionedFactAuditText,OPS_A_EVIDENCE_V1,
  type VersionedCommand,type VersionedImmutableFact,type StockAccountIdentity}
@@ -247,5 +250,44 @@ test('OPS-A2 failing source authority cannot call a protected writer',async()=>{
  await assert.rejects(submitOpsA2SyntheticSource(m.pool,env,receipt,
   actor(),signer()),/SYNTHETIC_PROTECTED_SQL_REJECTED/);
  assert.ok(m.calls.includes(m.calls.find(x=>x.sql==='ROLLBACK')!));
+ assert.equal(m.writerCommits(),1);
+});
+
+test('OPS-A2 fresh independently authenticated session can verify original nonce without repost',async()=>{
+ const m=pg(receipt);
+ const original=await submitOpsA2SyntheticSource(m.pool,env,receipt,actor(),signer());
+ assert.equal(original.fact.command.commandId,receipt.requestId);
+ const posting=m.calls.find(x=>x.sql.includes('ops_a2_post_stock_command_v2'));
+ assert.ok(posting);
+ const payload=JSON.parse(String(posting.params[0])) as OpsAPayload;
+ const originalProof=JSON.parse(String(posting.params[1])) as OpsAProof;
+ const reauthenticated=resolveVerifiedRequestOperator(createSignedRequest(
+  signedToken({jti:'FRESH-JTI-02'})),identityEnv);
+ const recovered=await reconcileOpsA2SyntheticOriginalAttempt(
+  m.pool,env,payload,originalProof,reauthenticated,signer());
+ assert.equal(recovered.state,'COMMITTED_VERIFIED');
+ assert.equal(recovered.originalNonce,originalProof.nonce);
+ assert.equal(m.writerCommits(),1);
+ const requests=m.calls.filter(x=>x.sql.includes('ops_a2_reconcile_post_v3'));
+ assert.equal(requests.length,2);
+ const second=requests[1];
+ const freshProof=JSON.parse(String(second.params[3])) as Record<string,unknown>;
+ assert.equal(freshProof.sessionId,'FRESH-JTI-02');
+ assert.notEqual(freshProof.sessionId,originalProof.sessionId);
+ assert.equal(m.calls.filter(x=>x.sql.includes('ops_a2_post_stock_command_v2')).length,1);
+});
+test('OPS-A2 forged fresh recovery scope is denied before readback or posting',async()=>{
+ const m=pg(receipt);
+ const original=await submitOpsA2SyntheticSource(m.pool,env,receipt,actor(),signer());
+ assert.equal(original.requestId,receipt.requestId);
+ const call=m.calls.find(x=>x.sql.includes('ops_a2_post_stock_command_v2'))!;
+ const payload=JSON.parse(String(call.params[0])) as OpsAPayload;
+ const proof=JSON.parse(String(call.params[1])) as OpsAProof;
+ const other=resolveVerifiedRequestOperator(createSignedRequest(
+  signedToken({siteId:'SITE2'})),identityEnv);
+ const before=m.calls.length;
+ await assert.rejects(reconcileOpsA2SyntheticOriginalAttempt(
+  m.pool,env,payload,proof,other,signer()),/SIGNED_SCOPE_DENIED/);
+ assert.equal(m.calls.length,before);
  assert.equal(m.writerCommits(),1);
 });
