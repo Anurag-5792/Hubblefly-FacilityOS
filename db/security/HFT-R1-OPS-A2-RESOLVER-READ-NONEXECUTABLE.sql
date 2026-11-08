@@ -249,6 +249,122 @@ END $resolve$;
 REVOKE EXECUTE ON FUNCTION hft.ops_a2_resolve_authorized_v2(jsonb,jsonb)
  FROM PUBLIC,hft_r1_app_runtime;
 
+-- RETURN is separately authenticated: old P0 HMAC does not support RETURN.
+-- No original-ISSUE/source leaf is accepted from a browser. It is resolved
+-- from the independently governed source binding and still rechecked by
+-- hft.ops_a2_authorized_source_v2 and the protected writer at posting time.
+CREATE OR REPLACE FUNCTION hft.ops_a2_resolve_return_authorized_v2(
+ p jsonb,proof jsonb)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $return_resolve$
+DECLARE
+ actor text;b hft.ops_a2_source_binding%ROWTYPE;
+ action text:='RETURN';payload jsonb;cmd jsonb;
+BEGIN
+ IF pg_catalog.current_setting('transaction_isolation')<>'serializable'
+ OR NOT pg_catalog.pg_has_role(session_user,'hft_r1_app_runtime','MEMBER')
+ OR session_user IN('hft_engineering','hft_r1_posting_owner')
+ THEN RAISE EXCEPTION 'OPS_A2_RETURN_ISOLATED_RUNTIME_REQUIRED'; END IF;
+ actor:=hft.ops_a2_verify_return_proof_v1(p,proof);
+ SELECT * INTO b FROM hft.ops_a2_source_binding AS src
+ WHERE src.request_id=(p->>'requestId')::uuid
+ AND src.legal_entity_id=p->>'legalEntityId'
+ AND src.site_id=p->>'siteId'
+ AND src.warehouse_id=p->>'warehouseId'
+ AND src.item_code=p->>'itemCode'
+ AND src.product_version_code=p->>'productVersion'
+ AND src.actor_subject=actor
+ AND src.action_kind='RETURN'
+ AND src.status='APPROVED'
+ AND src.p0_payload_sha256=hft.ops_a2_return_payload_sha256_v1(p)
+ FOR SHARE;
+ IF b.request_id IS NULL OR
+ b.source_document_id<>pg_catalog.lower(p->>'returnDocumentId')
+ OR b.source_action_key<>p->>'returnLineKey'
+ OR b.fragment_id<>p->>'returnLineKey'
+ OR b.original_issue_id<>p->>'originalIssueId'
+ OR b.employee_id<>p->>'employeeId'
+ OR b.destination_leaf<>p->>'leafLocationId'
+ OR b.inspection_evidence_id<>p->>'inspectionEvidenceId'
+ OR b.authorized_micro<>((p->>'quantity')::numeric*1000000)::bigint
+ OR NOT EXISTS(SELECT 1 FROM hft.employee_custody AS cu
+   JOIN hft.stock_command AS original ON original.id=cu.issue_command_id
+   WHERE original.legal_entity_id=b.legal_entity_id
+   AND original.site_id=b.site_id
+   AND original.warehouse_id=b.warehouse_id
+   AND original.command_id=b.original_issue_id AND original.kind='ISSUE'
+   AND original.product_version_code=b.product_version_code
+   AND cu.legal_entity_id=b.legal_entity_id AND cu.employee_id=b.employee_id
+   AND cu.item_code=b.item_code
+   AND cu.product_version_code=b.product_version_code
+   AND cu.location_id=b.source_leaf
+   AND cu.issued_micro-cu.returned_micro>=b.authorized_micro)
+ THEN RAISE EXCEPTION 'OPS_A2_RETURN_ORIGINAL_CUSTODY_OR_SOURCE_UNVERIFIED'; END IF;
+ cmd:=pg_catalog.jsonb_build_object(
+  'commandId',p->>'requestId','idempotencyKey',p->>'requestId',
+  'kind',action,'legalEntityId',b.legal_entity_id,
+  'siteId',b.site_id,'warehouseId',b.warehouse_id,
+  'itemCode',b.item_code,'productVersion',b.product_version_code,
+  'controlType',p->>'controlType','serialNo',p->>'serialNo',
+  'batchNo',p->>'batchNo',
+  'requestQuantity',hft.format_signed_micro_v2(b.authorized_micro),
+  'sourceLeafId',b.source_leaf,'destinationLeafId',b.destination_leaf,
+  'expectedSourceAccountVersion',b.source_account_before_version,
+  'expectedDestinationAccountVersion',b.dest_account_before_version,
+  'employeeId',b.employee_id,'originalIssueId',b.original_issue_id,
+  'sourceDocumentId',b.source_document_id,
+  'sourceActionKey',b.source_action_key,'fragmentId',b.fragment_id,
+  'sourceRevision',b.source_revision,'approvalId',b.approval_id,
+  'approvalRevision',b.approval_revision,
+  'policyGeneration',b.policy_generation,
+  'actorSubject',actor,'approvedBy',b.approver_subject,
+  'inspectedCondition',p->>'inspectedCondition',
+  'inspectionEvidenceId',b.inspection_evidence_id);
+ payload:=pg_catalog.jsonb_build_object(
+  'contractVersion','HFT-R1-OPS-A-P2-VERSIONED-POST-V2-PROPOSED',
+  'commandId',p->>'requestId','idempotencyKey',p->>'requestId',
+  'kind',action,'legalEntityId',b.legal_entity_id,
+  'siteId',b.site_id,'warehouseId',b.warehouse_id,
+  'itemCode',b.item_code,'productVersion',b.product_version_code,
+  'controlType',p->>'controlType','serialNo',p->>'serialNo',
+  'batchNo',p->>'batchNo','sourceLeafId',b.source_leaf,
+  'destinationLeafId',b.destination_leaf,
+  'sourceAccountId',COALESCE(b.source_account_id::text,''),
+  'destinationAccountId',b.destination_account_id::text,
+  'sourceAccountBeforeVersion',COALESCE(b.source_account_before_version::text,''),
+  'destinationAccountBeforeVersion',b.dest_account_before_version::text,
+  'employeeId',b.employee_id,'originalIssueId',b.original_issue_id,
+  'sourceDocumentId',b.source_document_id,
+  'sourceActionKey',b.source_action_key,'fragmentId',b.fragment_id,
+  'quantityMicro',b.authorized_micro::text,
+  'sourceRevision',b.source_revision::text,
+  'approvalId',b.approval_id,'approvalRevision',b.approval_revision::text,
+  'policyGeneration',b.policy_generation::text,
+  'approvedPayloadSha256',b.approved_scope_sha256,
+  'approvedBy',b.approver_subject,'actorSubject',actor,
+  'inspectedCondition',p->>'inspectedCondition',
+  'inspectionEvidenceId',b.inspection_evidence_id);
+ -- Recheck persisted approval/person/Holds/typed source BEFORE releasing
+ -- the prospective V2 bytes to the trusted server signer.
+ PERFORM hft.ops_a2_authorized_source_v2(payload);
+ RETURN pg_catalog.jsonb_build_object(
+  'state','OPS_A2_AUTHORIZED_SOURCE_V2',
+  'issuer','HFT_P2_PROTECTED_DATABASE','actorSubject',actor,
+  'sessionId',proof->>'sessionId','legalEntityId',b.legal_entity_id,
+  'siteId',b.site_id,'warehouseId',b.warehouse_id,
+  'itemCode',b.item_code,'productVersion',b.product_version_code,
+  'sourceDocumentId',b.source_document_id,
+  'sourceActionKey',b.source_action_key,
+  'approvalPayloadSha256',b.approved_scope_sha256,
+  'sourceAccountId',COALESCE(b.source_account_id::text,''),
+  'destinationAccountId',b.destination_account_id::text,
+  'command',cmd);
+END $return_resolve$;
+ALTER FUNCTION hft.ops_a2_resolve_return_authorized_v2(jsonb,jsonb)
+ OWNER TO hft_r1_posting_owner;
+REVOKE ALL ON FUNCTION hft.ops_a2_resolve_return_authorized_v2(jsonb,jsonb)
+ FROM PUBLIC,hft_r1_app_runtime;
+
 -- Uncertain COMMIT: original proof and persisted nonce identity ONLY.
 -- This is STRICTLY READ ONLY, even if original signer key was retired.
 CREATE OR REPLACE FUNCTION hft.ops_a2_reconcile_post_v2(p jsonb,proof jsonb)
