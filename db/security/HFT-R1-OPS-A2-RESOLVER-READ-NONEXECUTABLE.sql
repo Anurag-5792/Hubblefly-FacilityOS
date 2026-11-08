@@ -104,9 +104,9 @@ BEGIN
   'controlType',p->>'controlType','serialNo',p->>'serialNo',
   'batchNo',p->>'batchNo','sourceLeafId',b.source_leaf,
   'destinationLeafId',b.destination_leaf,
-  'sourceAccountId',pg_catalog.coalesce(b.source_account_id::text,''),
+  'sourceAccountId',COALESCE(b.source_account_id::text,''),
   'destinationAccountId',b.destination_account_id::text,
-  'sourceAccountBeforeVersion',pg_catalog.coalesce(b.source_account_before_version::text,''),
+  'sourceAccountBeforeVersion',COALESCE(b.source_account_before_version::text,''),
   'destinationAccountBeforeVersion',b.dest_account_before_version::text,
   'employeeId',b.employee_id,'originalIssueId',b.original_issue_id,
   'sourceDocumentId',b.source_document_id,
@@ -131,7 +131,7 @@ BEGIN
   'sourceDocumentId',b.source_document_id,
   'sourceActionKey',b.source_action_key,
   'approvalPayloadSha256',b.approved_scope_sha256,
-  'sourceAccountId',pg_catalog.coalesce(b.source_account_id::text,''),
+  'sourceAccountId',COALESCE(b.source_account_id::text,''),
   'destinationAccountId',b.destination_account_id::text,
   'command',cmd);
 END $resolve$;
@@ -326,8 +326,8 @@ BEGIN
   WHERE legal_entity_id=q->>'legalEntityId' AND site_id=q->>'siteId'
    AND warehouse_id=q->>'warehouseId'
  LOOP
-  SELECT pg_catalog.coalesce(sum(qty_delta_micro),0),
-    pg_catalog.coalesce(count(*),0)
+  SELECT COALESCE(sum(qty_delta_micro),0),
+    COALESCE(count(*),0)
   INTO reconstructed,scope_count FROM hft.stock_entry
   WHERE account_id=a.id;
   IF a.qty_micro<>reconstructed OR a.version<>scope_count
@@ -377,7 +377,7 @@ BEGIN
   END LOOP;
  ELSE
   FOR c IN
-   SELECT a.*,pg_catalog.coalesce(
+   SELECT a.*,COALESCE(
     (SELECT audit.canonical_sha256 FROM hft.stock_entry e
      JOIN hft.audit_outbox audit ON audit.command_id=e.command_id
      WHERE e.account_id=a.id ORDER BY e.id DESC LIMIT 1),repeat('0',64))
