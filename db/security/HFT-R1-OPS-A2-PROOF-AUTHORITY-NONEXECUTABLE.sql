@@ -192,9 +192,9 @@ BEGIN
   OR b.approver_subject<>p->>'approvedBy'
   OR b.source_leaf<>p->>'sourceLeafId'
   OR b.destination_leaf<>p->>'destinationLeafId'
-  OR pg_catalog.coalesce(b.source_account_id::text,'')<>p->>'sourceAccountId'
+  OR COALESCE(b.source_account_id::text,'')<>p->>'sourceAccountId'
   OR b.destination_account_id::text<>p->>'destinationAccountId'
-  OR pg_catalog.coalesce(b.source_account_before_version::text,'')<>
+  OR COALESCE(b.source_account_before_version::text,'')<>
      p->>'sourceAccountBeforeVersion'
   OR b.dest_account_before_version::text<>p->>'destinationAccountBeforeVersion'
   OR b.employee_id<>p->>'employeeId'
