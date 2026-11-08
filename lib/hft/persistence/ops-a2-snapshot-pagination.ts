@@ -27,10 +27,6 @@ export type SnapshotPage<T>=Readonly<{
  nextCursor:string;
 }>;
 export type OrdinalRow=Readonly<{ordinal:number;rowSha256:string;movementId:string}>;
-function record(v:unknown,code:string):Record<string,unknown>{
- if(!v||typeof v!=='object'||Array.isArray(v))throw Error(code);
- return v as Record<string,unknown>;
-}
 function secret(key:Uint8Array):void{
  if(!(key instanceof Uint8Array)||key.length<32)
   throw Error('OPS_A2_CURSOR_PRIVATE_KEY_REQUIRED');
