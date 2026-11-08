@@ -68,7 +68,10 @@ ALTER TABLE hft.stock_command ADD COLUMN ops_a2_source_account_id uuid;
 ALTER TABLE hft.stock_command ADD COLUMN ops_a2_destination_account_id uuid;
 ALTER TABLE hft.stock_command ADD CONSTRAINT ops_a2_stock_command_account_identity
  CHECK(payload_contract_version<>'HFT-R1-OPS-A-P2-VERSIONED-POST-V2-PROPOSED'
-  OR (ops_a2_destination_leaf<>'' AND ops_a2_destination_account_id IS NOT NULL));
+  OR (ops_a2_destination_account_id IS NOT NULL
+   AND ((kind='ISSUE' AND ops_a2_source_leaf<>''
+     AND ops_a2_destination_leaf='')
+    OR (kind<>'ISSUE' AND ops_a2_destination_leaf<>''))));
 ALTER TABLE hft.stock_command ADD CONSTRAINT ops_a2_command_source_account_fk
  FOREIGN KEY(ops_a2_source_account_id) REFERENCES hft.stock_account(id);
 ALTER TABLE hft.stock_command ADD CONSTRAINT ops_a2_command_dest_account_fk
