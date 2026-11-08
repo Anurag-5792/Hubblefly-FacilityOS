@@ -35,7 +35,7 @@ export function issueReturnProof(raw:unknown,actor:VerifiedRequestOperator,
   now<1||actor.expiresAt<=now)throw Error('OPS_A2_RETURN_SIGNER_OR_SESSION_INVALID');
  const value=nonceOverride??randomBytes(24).toString('hex');
  if(!nonce.test(value))throw Error('OPS_A2_RETURN_NONCE_INVALID');
- const fields={proofVersion:OPS_A2_RETURN_PROOF_V1,
+ const fields={proofVersion:OPS_A2_RETURN_PROOF_V1 as typeof OPS_A2_RETURN_PROOF_V1,
   actorSubject:actor.subject,sessionId:actor.sessionId,
   payloadSha256:returnPayloadSha256(req),issuedAt:String(now),
   expiresAt:String(Math.min(now+40,actor.expiresAt)),
