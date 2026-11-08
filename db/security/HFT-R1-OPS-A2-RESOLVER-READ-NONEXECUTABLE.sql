@@ -447,22 +447,6 @@ BEGIN
    IF c.qty_micro=0 AND c.version=0 THEN
     RAISE EXCEPTION 'OPS_A2_UNATTESTED_ZERO_OPENING_ACCOUNT'; END IF;
    ack:='NOT_APPLICABLE';
-   IF q->>'intent'='CUSTODY' THEN
-    SELECT status.state INTO ack FROM hft.employee_custody AS cust
-    JOIN hft.stock_command AS issue ON issue.id=cust.issue_command_id
-    JOIN hft.custody_ack_status_v1 AS status ON
-     status.issue_command_uuid=cust.issue_command_id
-    WHERE cust.legal_entity_id=c.legal_entity_id
-    AND cust.employee_id=c.custodian_employee_id
-    AND cust.item_code=c.item_code
-    AND cust.product_version_code=c.product_version_code
-    AND cust.location_id=c.location_key
-    AND cust.serial_no=c.serial_key AND cust.batch_no=c.batch_key
-    AND cust.issued_micro>cust.returned_micro
-    AND issue.legal_entity_id=c.legal_entity_id
-    ORDER BY issue.committed_at DESC LIMIT 1;
-    IF ack IS NULL THEN RAISE EXCEPTION 'OPS_A2_CUSTODY_ACK_READBACK_MISSING'; END IF;
-   END IF;
    rows:=rows||pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
     'legalEntityId',c.legal_entity_id,'siteId',c.site_id,
     'warehouseId',c.warehouse_id,'itemCode',c.item_code,
