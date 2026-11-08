@@ -78,7 +78,10 @@ ALTER TABLE hft.stock_command ADD COLUMN ops_a2_source_account_id uuid;
 ALTER TABLE hft.stock_command ADD COLUMN ops_a2_destination_account_id uuid;
 ALTER TABLE hft.stock_command ADD CONSTRAINT ops_a2_stock_command_account_identity
  CHECK(payload_contract_version<>'HFT-R1-OPS-A-P2-VERSIONED-POST-V2-PROPOSED'
-  OR (ops_a2_destination_leaf<>'' AND ops_a2_destination_account_id IS NOT NULL));
+  OR (ops_a2_destination_account_id IS NOT NULL
+   AND ((kind='ISSUE' AND ops_a2_source_leaf<>''
+     AND ops_a2_destination_leaf='')
+    OR (kind<>'ISSUE' AND ops_a2_destination_leaf<>''))));
 ALTER TABLE hft.stock_command ADD CONSTRAINT ops_a2_command_source_account_fk
  FOREIGN KEY(ops_a2_source_account_id) REFERENCES hft.stock_account(id);
 ALTER TABLE hft.stock_command ADD CONSTRAINT ops_a2_command_dest_account_fk
@@ -2744,8 +2747,11 @@ BEGIN
    SELECT a.*,COALESCE(
     (SELECT audit.canonical_sha256 FROM hft.stock_entry e
      JOIN hft.audit_outbox audit ON audit.command_id=e.command_id
-     WHERE e.account_id=a.id ORDER BY e.id DESC LIMIT 1),repeat('0',64))
-      AS source_audit
+     WHERE e.account_id=a.id ORDER BY e.id DESC LIMIT 1),
+    (SELECT receipt.source_evidence_sha256
+     FROM hft.ops_a2_account_provision_receipt AS receipt
+     WHERE receipt.account_id=a.id),
+    repeat('0',64)) AS source_audit
    FROM hft.stock_account a
    WHERE a.legal_entity_id=q->>'legalEntityId'
     AND a.site_id=q->>'siteId' AND a.warehouse_id=q->>'warehouseId'
@@ -2758,8 +2764,23 @@ BEGIN
    ORDER BY a.item_code,a.product_version_code,a.location_key,a.id
    LIMIT (q->>'limit')::integer+1
   LOOP
-   IF c.qty_micro=0 AND c.version=0 THEN
-    RAISE EXCEPTION 'OPS_A2_UNATTESTED_ZERO_OPENING_ACCOUNT'; END IF;
+   IF c.qty_micro=0 AND c.version=0 AND NOT EXISTS(
+    SELECT 1 FROM hft.ops_a2_account_provision_receipt AS receipt
+    JOIN hft.ops_a2_account_provision_order AS approved
+     ON approved.order_id=receipt.order_id
+    WHERE receipt.account_id=c.id
+     AND approved.account_id=c.id
+     AND approved.legal_entity_id=c.legal_entity_id
+     AND approved.site_id=c.site_id
+     AND approved.warehouse_id=c.warehouse_id
+     AND approved.item_code=c.item_code
+     AND approved.product_version_code=c.product_version_code
+     AND approved.leaf_location_id=c.location_key
+     AND approved.account_kind=c.account_kind
+     AND approved.condition=c.condition
+     AND approved.serial_no=c.serial_key AND approved.batch_no=c.batch_key
+     AND approved.custodian_employee_id=c.custodian_employee_id)
+   THEN RAISE EXCEPTION 'OPS_A2_UNATTESTED_ZERO_OPENING_ACCOUNT'; END IF;
    ack:='NOT_APPLICABLE';
    rows:=rows||pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
     'legalEntityId',c.legal_entity_id,'siteId',c.site_id,
@@ -2788,6 +2809,363 @@ BEGIN
 END $read$;
 REVOKE EXECUTE ON FUNCTION hft.ops_a2_read_authoritative_v2(jsonb,jsonb)
  FROM PUBLIC,hft_r1_app_runtime;
+-- 061 source-only: independent page HMAC, SQL filters and ordering are
+-- rechecked per query. The only qualified usage is a single pinned
+-- REPEATABLE READ READ ONLY transaction that exhausts every page before
+-- returning a result. A browser cannot resume these offsets in a new
+-- transaction and claim snapshot completeness.
+CREATE OR REPLACE FUNCTION hft.ops_a2_verify_paged_readproof_v3(q jsonb,proof jsonb)
+RETURNS text LANGUAGE plpgsql STABLE SET search_path=pg_catalog,pg_temp
+AS $readproof$
+DECLARE names text[]:=ARRAY['proofVersion','actorSubject','sessionId',
+ 'payloadSha256','issuedAt','expiresAt','nonce','keyVersion','macSha256'];
+ k hft_secret.p0_stores_proof_key%ROWTYPE;
+ field text;digest text;mac_expected bytea;mac_claimed bytea;
+ i integer;v integer;xor_bits integer:=0;issued bigint;expiry bigint;now_epoch bigint;
+ fields text[];
+BEGIN
+ IF pg_catalog.current_setting('transaction_isolation')<>'repeatable read'
+ OR pg_catalog.current_setting('transaction_read_only')<>'on'
+ OR pg_catalog.jsonb_typeof(q)<>'object' OR
+ (SELECT count(*) FROM pg_catalog.jsonb_object_keys(q))<>11
+ OR pg_catalog.jsonb_typeof(proof)<>'object' OR
+ (SELECT count(*) FROM pg_catalog.jsonb_object_keys(proof))<>9
+ THEN RAISE EXCEPTION 'OPS_A2_READ_PROOF_OR_QUERY_INVALID'; END IF;
+ FOREACH field IN ARRAY names LOOP
+  IF NOT(proof?field) OR pg_catalog.jsonb_typeof(proof->field)<>'string'
+  THEN RAISE EXCEPTION 'OPS_A2_READ_PROOF_FIELDS_INVALID'; END IF;
+ END LOOP;
+ IF proof->>'proofVersion'<>'HFT-R1-P0-STORES-READ-HMAC-V1'
+ OR proof->>'nonce' !~ '^[0-9a-f]{48}$'
+ OR proof->>'macSha256' !~ '^[0-9a-f]{64}$'
+ OR proof->>'keyVersion' !~ '^[1-9][0-9]{0,8}$'
+ OR proof->>'issuedAt' !~ '^[1-9][0-9]{0,18}$'
+ OR proof->>'expiresAt' !~ '^[1-9][0-9]{0,18}$'
+ OR proof->>'actorSubject' !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$'
+ OR proof->>'sessionId' !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$'
+ THEN RAISE EXCEPTION 'OPS_A2_READ_PROOF_FORMAT_INVALID'; END IF;
+ fields:=ARRAY[q->>'contractVersion',q->>'intent',
+  q->>'legalEntityId',q->>'siteId',q->>'warehouseId',
+  q->>'itemCode',q->>'productVersion',q->>'leafLocationId',
+  q->>'employeeId',q->>'cursor',q->>'limit'];
+ IF EXISTS(SELECT 1 FROM pg_catalog.unnest(fields) AS v WHERE v IS NULL)
+ OR q->>'contractVersion'<>'HFT-R1-P0-READ-V1'
+ OR q->>'intent' NOT IN('BALANCES','MOVEMENTS','CUSTODY')
+ OR (q->>'cursor'<>'' AND (
+  q->>'cursor' !~ '^[1-9][0-9]{0,4}$'
+  OR (q->>'cursor')::integer>10000)) OR
+ q->>'limit' !~ '^[1-9][0-9]{0,2}$' OR
+ (q->>'limit')::integer>100 OR
+ (q->>'intent')='CUSTODY' AND q->>'employeeId'=''
+ THEN RAISE EXCEPTION 'OPS_A2_READ_SCOPE_OR_UNQUALIFIED_CURSOR'; END IF;
+ digest:=pg_catalog.encode(hft_crypto.digest(
+  hft.p2_length_prefixed_v1(fields),'sha256'),'hex');
+ IF digest<>proof->>'payloadSha256'
+ THEN RAISE EXCEPTION 'OPS_A2_READ_QUERY_DIGEST_MISMATCH'; END IF;
+ issued:=(proof->>'issuedAt')::bigint;
+ expiry:=(proof->>'expiresAt')::bigint;
+ v:=(proof->>'keyVersion')::integer;
+ now_epoch:=pg_catalog.floor(pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp()))::bigint;
+ IF issued>now_epoch+30 OR expiry<=now_epoch OR expiry<=issued OR expiry-issued>40
+ THEN RAISE EXCEPTION 'OPS_A2_READ_PROOF_EXPIRED_OR_FUTURE'; END IF;
+ SELECT * INTO k FROM hft_secret.p0_stores_proof_key WHERE key_version=v;
+ IF k.key_version IS NULL OR k.revoked_at IS NOT NULL OR
+ pg_catalog.clock_timestamp()<k.not_before OR
+ pg_catalog.clock_timestamp()>=k.not_after
+ THEN RAISE EXCEPTION 'OPS_A2_READ_SIGNING_KEY_UNAVAILABLE'; END IF;
+ mac_expected:=hft_crypto.hmac(hft.p2_length_prefixed_v1(
+  ARRAY[proof->>'proofVersion',proof->>'actorSubject',proof->>'sessionId',
+  digest,proof->>'issuedAt',proof->>'expiresAt',proof->>'nonce',
+  proof->>'keyVersion']),k.key_bytes,'sha256');
+ mac_claimed:=pg_catalog.decode(proof->>'macSha256','hex');
+ FOR i IN 0..31 LOOP
+  xor_bits:=xor_bits | (pg_catalog.get_byte(mac_expected,i) #
+                        pg_catalog.get_byte(mac_claimed,i));
+ END LOOP;
+ IF xor_bits<>0 THEN RAISE EXCEPTION 'OPS_A2_READ_HMAC_INVALID'; END IF;
+ PERFORM 1 FROM hft.posting_session sess
+ WHERE sess.session_id=proof->>'sessionId'
+ AND sess.actor_subject=proof->>'actorSubject'
+ AND sess.revoked_at IS NULL AND sess.expires_at>pg_catalog.clock_timestamp();
+ IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_READ_SESSION_REVOKED'; END IF;
+ PERFORM 1 FROM hft.actor_warehouse_grant g
+ WHERE g.actor_subject=proof->>'actorSubject'
+ AND g.legal_entity_id=q->>'legalEntityId'
+ AND g.site_id=q->>'siteId' AND g.warehouse_id=q->>'warehouseId'
+ AND g.active;
+ IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_READ_PERSISTED_SCOPE_DENIED'; END IF;
+ RETURN proof->>'actorSubject';
+END $readproof$;
+
+REVOKE ALL ON FUNCTION hft.ops_a2_verify_paged_readproof_v3(jsonb,jsonb)
+ FROM PUBLIC,hft_r1_app_runtime;
+
+CREATE OR REPLACE FUNCTION hft.ops_a2_read_snapshot_page_v3(q jsonb,proof jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $read$
+DECLARE actor text;scope_count bigint;reconstructed bigint;
+ a record;c record;row jsonb;rows jsonb:='[]'::jsonb;
+ latest_audit text;last_move text;ack text;source_epoch text;
+ digest_input text;command_record record;scope_generation bigint;
+ offset_num integer:=COALESCE(NULLIF(q->>'cursor','')::integer,0);
+ next_offset text:='';
+ expected_total bigint;
+BEGIN
+ IF pg_catalog.current_setting('transaction_read_only')<>'on'
+ THEN RAISE EXCEPTION 'OPS_A2_READ_ONLY_TRANSACTION_REQUIRED'; END IF;
+ actor:=hft.ops_a2_verify_paged_readproof_v3(q,proof);
+ -- True original immutable account reconstruction precedes every response.
+ FOR a IN SELECT id,qty_micro,version FROM hft.stock_account
+  WHERE legal_entity_id=q->>'legalEntityId' AND site_id=q->>'siteId'
+   AND warehouse_id=q->>'warehouseId'
+ LOOP
+  SELECT COALESCE(sum(qty_delta_micro),0),
+    COALESCE(count(*),0)
+  INTO reconstructed,scope_count FROM hft.stock_entry
+  WHERE account_id=a.id;
+  IF a.qty_micro<>reconstructed OR a.version<>scope_count
+  THEN RAISE EXCEPTION 'OPS_A2_READ_ACCOUNT_RECONSTRUCTION_INVALID'; END IF;
+ END LOOP;
+ -- Every source command in the requested scope must have an authentic
+ -- immutable seal, audit, original nonce and exactly two matching ledger legs.
+ FOR command_record IN SELECT id,payload_contract_version
+  FROM hft.stock_command
+ WHERE legal_entity_id=q->>'legalEntityId'
+  AND site_id=q->>'siteId'
+  AND warehouse_id=q->>'warehouseId'
+ LOOP
+  IF command_record.payload_contract_version='HFT-R1-OPS-A-P2-VERSIONED-POST-V2-PROPOSED'
+  THEN PERFORM hft.ops_a2_assert_command_seal_v2(command_record.id);
+  ELSE PERFORM hft.assert_command_seal_v1(command_record.id);
+  END IF;
+ END LOOP;
+ -- Count the EXACT same source rows as each page on this one transaction
+ -- snapshot. A forged premature terminal cursor cannot certify completeness.
+ IF q->>'intent'='MOVEMENTS' THEN
+  SELECT count(*) INTO expected_total
+  FROM hft.stock_entry AS e
+  JOIN hft.stock_command AS cmd ON cmd.id=e.command_id
+  LEFT JOIN hft.stock_account AS a ON a.id=e.account_id
+  JOIN hft.audit_outbox AS audit ON audit.command_id=cmd.id
+  WHERE cmd.legal_entity_id=q->>'legalEntityId'
+   AND cmd.site_id=q->>'siteId' AND cmd.warehouse_id=q->>'warehouseId'
+   AND (q->>'itemCode'='' OR cmd.item_code=q->>'itemCode')
+   AND (q->>'productVersion'='' OR e.product_version_code=q->>'productVersion')
+   AND (q->>'leafLocationId'='' OR
+    COALESCE(a.location_key,cmd.location_id)=q->>'leafLocationId')
+   AND (q->>'employeeId'='' OR
+    COALESCE(a.custodian_employee_id,COALESCE(e.employee_id,''))=q->>'employeeId');
+ ELSIF q->>'intent'='CUSTODY' THEN
+  SELECT count(*) INTO expected_total
+  FROM hft.employee_custody AS cu
+  JOIN hft.stock_command AS issue ON issue.id=cu.issue_command_id
+  JOIN hft.custody_ack_status_v1 AS ack
+   ON ack.issue_command_uuid=cu.issue_command_id
+   AND ack.legal_entity_id=cu.legal_entity_id
+   AND ack.employee_id=cu.employee_id
+  JOIN hft.audit_outbox AS audit ON audit.command_id=cu.issue_command_id
+  JOIN hft.stock_account AS a
+   ON a.legal_entity_id=cu.legal_entity_id
+   AND a.site_id=issue.site_id AND a.warehouse_id=cu.warehouse_id
+   AND a.item_code=cu.item_code
+   AND a.product_version_code=cu.product_version_code
+   AND a.location_key=cu.location_id
+   AND a.account_kind='CUSTODY'
+   AND a.custodian_employee_id=cu.employee_id
+   AND a.serial_key=cu.serial_no AND a.batch_key=cu.batch_no
+  WHERE cu.legal_entity_id=q->>'legalEntityId'
+   AND issue.site_id=q->>'siteId'
+   AND cu.warehouse_id=q->>'warehouseId'
+   AND cu.employee_id=q->>'employeeId'
+   AND cu.issued_micro>cu.returned_micro
+   AND (q->>'itemCode'='' OR cu.item_code=q->>'itemCode')
+   AND (q->>'productVersion'='' OR cu.product_version_code=q->>'productVersion')
+   AND (q->>'leafLocationId'='' OR cu.location_id=q->>'leafLocationId');
+ ELSE
+  SELECT count(*) INTO expected_total FROM hft.stock_account AS a
+  WHERE a.legal_entity_id=q->>'legalEntityId'
+   AND a.site_id=q->>'siteId' AND a.warehouse_id=q->>'warehouseId'
+   AND (q->>'itemCode'='' OR a.item_code=q->>'itemCode')
+   AND (q->>'productVersion'='' OR a.product_version_code=q->>'productVersion')
+   AND (q->>'leafLocationId'='' OR a.location_key=q->>'leafLocationId')
+   AND (q->>'employeeId'='' OR a.custodian_employee_id=q->>'employeeId');
+ END IF;
+ IF expected_total>10000 OR offset_num>expected_total
+ THEN RAISE EXCEPTION 'OPS_A2_SNAPSHOT_SCOPE_LIMIT_OR_OFFSET_INVALID'; END IF;
+ IF q->>'intent'='MOVEMENTS' THEN
+  -- Scope via immutable COMMAND; LEFT JOIN preserves the legitimate EXTERNAL
+  -- debit leg. Account history comes from the ENTRY, never current versions.
+  FOR c IN
+   SELECT e.id AS entry_id,e.command_id AS command_uuid,
+    e.account_id,e.account_before_version,e.account_after_version,
+    e.qty_delta_micro,e.bucket AS account_kind,
+    cmd.legal_entity_id,cmd.site_id,cmd.warehouse_id,cmd.item_code,
+    e.product_version_code,
+    COALESCE(a.location_key,cmd.location_id) AS location_key,
+    COALESCE(a.condition,'GOOD') AS condition,
+    COALESCE(a.serial_key,COALESCE(e.serial_no,'')) AS serial_key,
+    COALESCE(a.batch_key,COALESCE(e.batch_no,'')) AS batch_key,
+    COALESCE(a.custodian_employee_id,COALESCE(e.employee_id,'')) AS custodian_employee_id,
+    audit.canonical_sha256
+   FROM hft.stock_entry AS e
+   JOIN hft.stock_command AS cmd ON cmd.id=e.command_id
+   LEFT JOIN hft.stock_account AS a ON a.id=e.account_id
+   JOIN hft.audit_outbox AS audit ON audit.command_id=cmd.id
+   WHERE cmd.legal_entity_id=q->>'legalEntityId'
+    AND cmd.site_id=q->>'siteId' AND cmd.warehouse_id=q->>'warehouseId'
+    AND (q->>'itemCode'='' OR cmd.item_code=q->>'itemCode')
+    AND (q->>'productVersion'='' OR e.product_version_code=q->>'productVersion')
+    AND (q->>'leafLocationId'='' OR
+      COALESCE(a.location_key,cmd.location_id)=q->>'leafLocationId')
+    AND (q->>'employeeId'='' OR
+      COALESCE(a.custodian_employee_id,COALESCE(e.employee_id,''))=q->>'employeeId')
+   ORDER BY e.id LIMIT (q->>'limit')::integer+1 OFFSET offset_num
+  LOOP
+   IF c.account_kind='EXTERNAL' AND
+      (c.account_id IS NOT NULL OR c.account_before_version IS NOT NULL
+       OR c.account_after_version IS NOT NULL)
+   THEN RAISE EXCEPTION 'OPS_A2_EXTERNAL_LEDGER_OWNERSHIP_INVALID'; END IF;
+   rows:=rows||pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+    'legalEntityId',c.legal_entity_id,'siteId',c.site_id,
+    'warehouseId',c.warehouse_id,'itemCode',c.item_code,
+    'productVersion',c.product_version_code,'leafLocationId',c.location_key,
+    'accountKind',c.account_kind,'condition',c.condition,
+    'serialNo',c.serial_key,'batchNo',c.batch_key,
+    'employeeId',c.custodian_employee_id,
+    'quantity',hft.format_signed_micro_v2(c.qty_delta_micro),
+    'accountVersion',COALESCE(c.account_after_version,0),
+    'accountBeforeVersion',c.account_before_version,
+    'accountAfterVersion',c.account_after_version,
+    'commandUuid',c.command_uuid::text,'entryId',c.entry_id::text,
+    'movementId','ENTRY-'||c.entry_id::text,
+    'auditSha256',c.canonical_sha256,
+    'humanAcknowledgement','NOT_APPLICABLE'));
+  END LOOP;
+ ELSIF q->>'intent'='CUSTODY' THEN
+  -- One row per ORIGINAL ISSUE, never a latest-ACK inference on an
+  -- aggregate CUSTODY account. Separate issue/fragment provenance survives.
+  FOR c IN
+   SELECT cu.issue_command_id,cu.legal_entity_id,issue.site_id,
+    cu.warehouse_id,cu.item_code,cu.product_version_code,
+    cu.location_id,cu.employee_id,cu.serial_no,cu.batch_no,
+    cu.issued_micro-cu.returned_micro AS outstanding_micro,
+    a.version AS account_version,ack.state AS ack_state,
+    audit.canonical_sha256 AS source_audit,issue.command_id AS original_issue_id
+   FROM hft.employee_custody AS cu
+   JOIN hft.stock_command AS issue ON issue.id=cu.issue_command_id
+   JOIN hft.custody_ack_status_v1 AS ack
+    ON ack.issue_command_uuid=cu.issue_command_id
+    AND ack.legal_entity_id=cu.legal_entity_id
+    AND ack.employee_id=cu.employee_id
+   JOIN hft.audit_outbox AS audit ON audit.command_id=cu.issue_command_id
+   JOIN hft.stock_account AS a
+    ON a.legal_entity_id=cu.legal_entity_id
+    AND a.site_id=issue.site_id AND a.warehouse_id=cu.warehouse_id
+    AND a.item_code=cu.item_code
+    AND a.product_version_code=cu.product_version_code
+    AND a.location_key=cu.location_id
+    AND a.account_kind='CUSTODY'
+    AND a.custodian_employee_id=cu.employee_id
+    AND a.serial_key=cu.serial_no AND a.batch_key=cu.batch_no
+   WHERE cu.legal_entity_id=q->>'legalEntityId'
+    AND issue.site_id=q->>'siteId'
+    AND cu.warehouse_id=q->>'warehouseId'
+    AND cu.employee_id=q->>'employeeId'
+    AND cu.issued_micro>cu.returned_micro
+    AND (q->>'itemCode'='' OR cu.item_code=q->>'itemCode')
+    AND (q->>'productVersion'='' OR cu.product_version_code=q->>'productVersion')
+    AND (q->>'leafLocationId'='' OR cu.location_id=q->>'leafLocationId')
+   ORDER BY cu.issue_command_id LIMIT (q->>'limit')::integer+1 OFFSET offset_num
+  LOOP
+   IF c.ack_state NOT IN('ACK_PENDING','ACKNOWLEDGED','DISPUTED')
+   THEN RAISE EXCEPTION 'OPS_A2_CUSTODY_ACK_STATE_INVALID'; END IF;
+   rows:=rows||pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+    'legalEntityId',c.legal_entity_id,'siteId',c.site_id,
+    'warehouseId',c.warehouse_id,'itemCode',c.item_code,
+    'productVersion',c.product_version_code,'leafLocationId',c.location_id,
+    'accountKind','CUSTODY','condition','GOOD',
+    'serialNo',c.serial_no,'batchNo',c.batch_no,'employeeId',c.employee_id,
+    'quantity',hft.format_signed_micro_v2(c.outstanding_micro),
+    'accountVersion',c.account_version,
+    'movementId','ISSUE-'||c.issue_command_id::text,
+    'originalIssueId',c.original_issue_id,
+    'auditSha256',c.source_audit,'humanAcknowledgement',c.ack_state));
+  END LOOP;
+ ELSE
+  FOR c IN
+   SELECT a.*,COALESCE(
+    (SELECT audit.canonical_sha256 FROM hft.stock_entry e
+     JOIN hft.audit_outbox audit ON audit.command_id=e.command_id
+     WHERE e.account_id=a.id ORDER BY e.id DESC LIMIT 1),
+    (SELECT receipt.source_evidence_sha256
+     FROM hft.ops_a2_account_provision_receipt AS receipt
+     WHERE receipt.account_id=a.id),
+    repeat('0',64)) AS source_audit
+   FROM hft.stock_account a
+   WHERE a.legal_entity_id=q->>'legalEntityId'
+    AND a.site_id=q->>'siteId' AND a.warehouse_id=q->>'warehouseId'
+    AND (q->>'itemCode'='' OR a.item_code=q->>'itemCode')
+    AND (q->>'productVersion'='' OR a.product_version_code=q->>'productVersion')
+    AND (q->>'leafLocationId'='' OR a.location_key=q->>'leafLocationId')
+    AND (q->>'employeeId'='' OR a.custodian_employee_id=q->>'employeeId')
+    AND (q->>'intent'<>'CUSTODY' OR
+      a.account_kind='CUSTODY' AND a.custodian_employee_id=q->>'employeeId')
+   ORDER BY a.item_code,a.product_version_code,a.location_key,a.id
+   LIMIT (q->>'limit')::integer+1 OFFSET offset_num
+  LOOP
+   IF c.qty_micro=0 AND c.version=0 AND NOT EXISTS(
+    SELECT 1 FROM hft.ops_a2_account_provision_receipt AS receipt
+    JOIN hft.ops_a2_account_provision_order AS approved
+     ON approved.order_id=receipt.order_id
+    WHERE receipt.account_id=c.id
+     AND approved.account_id=c.id
+     AND approved.legal_entity_id=c.legal_entity_id
+     AND approved.site_id=c.site_id
+     AND approved.warehouse_id=c.warehouse_id
+     AND approved.item_code=c.item_code
+     AND approved.product_version_code=c.product_version_code
+     AND approved.leaf_location_id=c.location_key
+     AND approved.account_kind=c.account_kind
+     AND approved.condition=c.condition
+     AND approved.serial_no=c.serial_key AND approved.batch_no=c.batch_key
+     AND approved.custodian_employee_id=c.custodian_employee_id)
+   THEN RAISE EXCEPTION 'OPS_A2_UNATTESTED_ZERO_OPENING_ACCOUNT'; END IF;
+   ack:='NOT_APPLICABLE';
+   rows:=rows||pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+    'legalEntityId',c.legal_entity_id,'siteId',c.site_id,
+    'warehouseId',c.warehouse_id,'itemCode',c.item_code,
+    'productVersion',c.product_version_code,
+    'leafLocationId',c.location_key,'accountKind',c.account_kind,
+    'condition',c.condition,'serialNo',c.serial_key,'batchNo',c.batch_key,
+    'employeeId',c.custodian_employee_id,
+    'quantity',hft.format_signed_micro_v2(c.qty_micro),
+    'accountVersion',c.version,'movementId','ACCOUNT-'||c.id::text,
+    'auditSha256',c.source_audit,'humanAcknowledgement',ack));
+  END LOOP;
+ END IF;
+ IF pg_catalog.jsonb_array_length(rows)>(q->>'limit')::integer THEN
+  next_offset:=(offset_num+(q->>'limit')::integer)::text;
+  SELECT COALESCE(pg_catalog.jsonb_agg(x.value ORDER BY x.ordinality),'[]'::jsonb)
+  INTO rows FROM pg_catalog.jsonb_array_elements(rows)
+   WITH ORDINALITY AS x(value,ordinality)
+   WHERE x.ordinality<=(q->>'limit')::integer;
+ END IF;
+ SELECT generation INTO scope_generation FROM hft.posting_policy_epoch
+ WHERE legal_entity_id=q->>'legalEntityId'
+ AND site_id=q->>'siteId' AND warehouse_id=q->>'warehouseId';
+ IF scope_generation IS NULL THEN RAISE EXCEPTION 'OPS_A2_READ_POLICY_EPOCH_MISSING'; END IF;
+ RETURN pg_catalog.jsonb_build_object(
+  'state','AUTHORITATIVE_VERSIONED_READ',
+  'versionAuthority','OPS_A2_VERSION_AWARE_V2',
+  'intent',q->>'intent','sourceEpoch','POLICY-'||scope_generation::text,
+  'nextCursor',next_offset,'snapshotTotalRows',expected_total,
+  'durable',true,'synthetic',false,'auditVerified',true,
+  'rows',rows);
+END $read$;
+
+REVOKE ALL ON FUNCTION hft.ops_a2_read_snapshot_page_v3(jsonb,jsonb)
+ FROM PUBLIC,hft_r1_app_runtime;
+
 -- No grants in this candidate. The actual future runtime allowlist MUST
 -- include exactly the vetted resolver, writer, reconcile and readback
 -- functions under distinct qualified nonowner logins after independent
