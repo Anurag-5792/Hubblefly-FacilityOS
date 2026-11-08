@@ -32,6 +32,25 @@ class OpsA2061Source(unittest.TestCase):
   self.assertNotIn("GRANT EXECUTE ON FUNCTION hft.ops_a2_",self.forward)
   self.assertEqual(self.forward.count("-- ===== BEGIN SOURCE"),4)
 
+ def test_issuer_roles_and_cryptographic_source_dependencies_preflight_before_ddl(self):
+  preflight=self.foundation.split("DO $preflight$",1)[1].split("END $preflight$;",1)[0]
+  for required in (
+   "to_regrole('hft_r1_posting_owner')",
+   "to_regrole('hft_r1_governance_issuer')",
+   "to_regrole('hft_r1_app_runtime')",
+   "to_regprocedure('hft.ops_a_payload_digest_v2(jsonb)')",
+   "to_regprocedure('hft.p2_length_prefixed_v1(text[])')",
+   "to_regprocedure('hft_crypto.hmac(bytea,bytea,text)')",
+   "to_regclass('hft_secret.p0_stores_proof_key')",
+   "to_regclass('hft.protected_approval_decision')",
+   "to_regclass('hft.actor_warehouse_grant')",
+   "to_regclass('hft.stock_hold')",
+   "to_regclass('hft.return_inspection_attestation')",
+   "to_regclass('hft.custody_ack_status_v1')"):
+   with self.subTest(required=required):self.assertIn(required,preflight)
+  self.assertLess(self.foundation.index("END $preflight$;"),
+                  self.foundation.index("ALTER TABLE hft.stock_command"))
+
  def test_zero_only_account_provision_requires_external_approval_and_fact(self):
   f=self.foundation
   for token in (
