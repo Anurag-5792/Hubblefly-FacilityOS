@@ -369,6 +369,15 @@ REVOKE ALL ON FUNCTION hft.ops_a2_resolve_return_authorized_v2(jsonb,jsonb)
 -- This is STRICTLY READ ONLY, even if original signer key was retired.
 CREATE OR REPLACE FUNCTION hft.ops_a2_reconcile_post_v2(p jsonb,proof jsonb)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $deny_old_recovery$
+BEGIN
+ RAISE EXCEPTION 'OPS_A2_RECOVERY_FRESH_AUTHENTICATION_V3_REQUIRED';
+END $deny_old_recovery$;
+REVOKE ALL ON FUNCTION hft.ops_a2_reconcile_post_v2(jsonb,jsonb)
+ FROM PUBLIC,hft_r1_app_runtime;
+
+CREATE OR REPLACE FUNCTION hft.ops_a2_reconcile_original_attempt_private_v3(p jsonb,proof jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE
 SET search_path=pg_catalog,pg_temp AS $reconcile$
 DECLARE
  c hft.stock_command%ROWTYPE;
@@ -419,7 +428,7 @@ BEGIN
  SELECT * INTO sess FROM hft.posting_session
  WHERE session_id=proof->>'sessionId'
  AND actor_subject=proof->>'actorSubject'
- AND revoked_at IS NULL AND expires_at>pg_catalog.clock_timestamp();
+;
  IF envelope.command_uuid IS NULL OR n.nonce IS NULL OR sess.session_id IS NULL
  OR c.payload_sha256<>sha OR c.idempotency_key<>p->>'idempotencyKey'
  OR c.product_version_code<>p->>'productVersion'
@@ -446,8 +455,36 @@ BEGIN
   'sourceEpoch','POLICY-'||policy_generation::text,
   'auditVerified',true,'fact',fact);
 END $reconcile$;
-REVOKE EXECUTE ON FUNCTION hft.ops_a2_reconcile_post_v2(jsonb,jsonb)
- FROM PUBLIC,hft_r1_app_runtime;
+REVOKE ALL ON FUNCTION hft.ops_a2_reconcile_original_attempt_private_v3(jsonb,jsonb)
+ FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
+CREATE OR REPLACE FUNCTION hft.ops_a2_reconcile_post_v3(
+ p jsonb,original_proof jsonb,q jsonb,fresh_read_proof jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $reconcile_v3$
+DECLARE authenticated_actor text;
+BEGIN
+ IF pg_catalog.current_setting('transaction_read_only')<>'on'
+ OR NOT pg_catalog.pg_has_role(session_user,'hft_r1_app_runtime','MEMBER')
+ OR session_user IN('hft_engineering','hft_r1_posting_owner')
+ THEN RAISE EXCEPTION 'OPS_A2_RECOVERY_SEPARATE_READ_ONLY_RUNTIME_REQUIRED'; END IF;
+ authenticated_actor:=hft.ops_a2_verify_readproof_v2(q,fresh_read_proof);
+ IF authenticated_actor IS NULL OR q->>'intent'<>'MOVEMENTS'
+ OR q->>'cursor'<>''
+ OR q->>'legalEntityId'<>p->>'legalEntityId'
+ OR q->>'siteId'<>p->>'siteId'
+ OR q->>'warehouseId'<>p->>'warehouseId'
+ OR q->>'itemCode'<>p->>'itemCode'
+ OR q->>'productVersion'<>p->>'productVersion'
+ OR q->>'leafLocationId'<>''
+ OR q->>'employeeId'<>''
+ OR q->>'limit'<>'1'
+ THEN RAISE EXCEPTION 'OPS_A2_RECOVERY_NEW_ACTOR_SOURCE_SCOPE_MISMATCH'; END IF;
+ RETURN hft.ops_a2_reconcile_original_attempt_private_v3(p,original_proof);
+END $reconcile_v3$;
+ALTER FUNCTION hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)
+ OWNER TO hft_r1_posting_owner;
+REVOKE ALL ON FUNCTION hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)
+ FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
 
 -- Readback test/source contract: the current P0 READ HMAC is verified
 -- in a REPEATABLE READ READ ONLY transaction. No nonce write or direct
