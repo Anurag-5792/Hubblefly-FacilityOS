@@ -1,6 +1,7 @@
 /** OPS-A2 RETURN request: source-only validation. No posting authority. */
 import {parseQuantity,formatQuantity} from '../domain/quantity.ts';
 const id=/^[A-Z0-9][A-Z0-9._:-]{1,63}$/;
+const uppercaseUuid=/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export const OPS_A2_RETURN_REQUEST_FIELDS=['contractVersion','kind','requestId','legalEntityId','siteId','warehouseId',
  'itemCode','productVersion','controlType','quantity','uom','serialNo','batchNo',
@@ -20,7 +21,11 @@ export function validateOpsA2ReturnRequest(raw:unknown):OpsA2ReturnRequest{
  if(!uuid.test(v.requestId))invalid('REQUEST_ID');
  for(const key of fields){
   if(['contractVersion','kind','requestId','quantity','controlType','serialNo','batchNo','inspectedCondition'].includes(key))continue;
-  if(!id.test(v[key]))invalid(key.toUpperCase());
+  if(key==='returnDocumentId'){
+   if(!uppercaseUuid.test(v[key]))invalid('RETURN_DOCUMENT_ID');
+  }else if(key==='originalIssueId'){
+   if(!uuid.test(v[key]))invalid('ORIGINAL_ISSUE_ID');
+  }else if(!id.test(v[key]))invalid(key.toUpperCase());
  }
  if(!['NONE','BATCH','SERIAL'].includes(v.controlType))invalid('CONTROL');
  if(!['GOOD','DAMAGED','QUARANTINE'].includes(v.inspectedCondition))invalid('CONDITION');
