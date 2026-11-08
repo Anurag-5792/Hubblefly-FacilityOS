@@ -329,6 +329,191 @@ CREATE TRIGGER immutable_ops_a2_source_binding BEFORE UPDATE OR DELETE
  EXECUTE FUNCTION hft.deny_fact_mutation();
 REVOKE ALL ON hft.ops_a2_source_binding FROM PUBLIC,hft_r1_app_runtime;
 
+-- OPS-A2 061: ZERO-ONLY ACCOUNT PROVISIONING, SOURCE-ONLY CANDIDATE.
+-- The independent governance issuer records the ORIGINAL, approved source
+-- order. Ordinary runtime can neither insert orders nor provision accounts.
+-- The order is NOT stock and cannot declare opening quantity.
+CREATE TABLE hft.ops_a2_account_provision_order(
+ order_id uuid PRIMARY KEY,account_id uuid NOT NULL UNIQUE,
+ legal_entity_id text NOT NULL,site_id text NOT NULL,warehouse_id text NOT NULL,
+ item_code text NOT NULL,product_version_code text NOT NULL,
+ leaf_location_id text NOT NULL,account_kind text NOT NULL
+ CHECK(account_kind IN('AVAILABLE','CUSTODY','QUARANTINE','DAMAGED','WIP','INSTALLED')),
+ condition text NOT NULL CHECK(condition IN('GOOD','DAMAGED','QUARANTINE')),
+ serial_no text NOT NULL DEFAULT '',batch_no text NOT NULL DEFAULT '',
+ custodian_employee_id text NOT NULL DEFAULT '',
+ action_kind text NOT NULL CHECK(action_kind IN('RECEIVE','ISSUE','RETURN','TRANSFER')),
+ source_document_id text NOT NULL,source_revision bigint NOT NULL CHECK(source_revision>0),
+ approval_id text NOT NULL,approval_revision bigint NOT NULL CHECK(approval_revision>0),
+ policy_generation bigint NOT NULL CHECK(policy_generation>0),
+ prepared_subject text NOT NULL,prepared_session_id text NOT NULL,
+ checked_subject text NOT NULL,checked_session_id text NOT NULL,
+ approved_subject text NOT NULL,approved_session_id text NOT NULL,
+ decision_evidence_sha256 text NOT NULL
+ CHECK(decision_evidence_sha256~'^[0-9a-f]{64}$'),
+ approved_at timestamptz NOT NULL,
+ status text NOT NULL CHECK(status='AUTHORIZED'),
+ FOREIGN KEY(legal_entity_id,item_code,product_version_code)
+ REFERENCES hft.item_version_catalog(legal_entity_id,item_code,version_code),
+ FOREIGN KEY(legal_entity_id,warehouse_id,site_id)
+ REFERENCES hft.warehouse(legal_entity_id,warehouse_id,site_id),
+ FOREIGN KEY(legal_entity_id,warehouse_id,leaf_location_id)
+ REFERENCES hft.location(legal_entity_id,warehouse_id,location_id),
+ FOREIGN KEY(legal_entity_id,approval_id,approval_revision)
+ REFERENCES hft.protected_stock_approval(legal_entity_id,approval_id,approval_revision),
+ CHECK((account_kind='CUSTODY' AND custodian_employee_id<>'' AND condition='GOOD')
+ OR (account_kind<>'CUSTODY' AND custodian_employee_id='' AND
+   ((account_kind='QUARANTINE' AND condition='QUARANTINE')
+    OR (account_kind='DAMAGED' AND condition='DAMAGED')
+    OR (account_kind NOT IN('DAMAGED','QUARANTINE') AND condition='GOOD')))),
+ CHECK(prepared_subject<>checked_subject AND
+  prepared_subject<>approved_subject AND checked_subject<>approved_subject)
+);
+CREATE TABLE hft.ops_a2_account_provision_receipt(
+ order_id uuid PRIMARY KEY REFERENCES hft.ops_a2_account_provision_order(order_id),
+ account_id uuid NOT NULL UNIQUE REFERENCES hft.stock_account(id),
+ provisioned_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ provisioned_by text NOT NULL,source_evidence_sha256 text NOT NULL
+ CHECK(source_evidence_sha256~'^[0-9a-f]{64}$')
+);
+CREATE TRIGGER immutable_ops_a2_account_order
+ BEFORE UPDATE OR DELETE ON hft.ops_a2_account_provision_order
+ FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+CREATE TRIGGER immutable_ops_a2_account_receipt
+ BEFORE UPDATE OR DELETE ON hft.ops_a2_account_provision_receipt
+ FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+REVOKE ALL ON hft.ops_a2_account_provision_order,
+ hft.ops_a2_account_provision_receipt FROM PUBLIC,hft_r1_app_runtime;
+
+-- Caller is independently controlled governance, not a posting operator.
+-- Zero balance, reserved quantity and revision are CONSTANTS, not parameters.
+CREATE OR REPLACE FUNCTION hft.ops_a2_provision_zero_account_v2(p_order uuid)
+RETURNS uuid LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $provision$
+DECLARE
+ o hft.ops_a2_account_provision_order%ROWTYPE;
+ a hft.protected_stock_approval%ROWTYPE;
+ d hft.protected_approval_decision%ROWTYPE;
+ maker text;checker text;approver text;
+ leaf_name text;
+BEGIN
+ IF pg_catalog.current_setting('transaction_isolation')<>'serializable'
+ OR NOT pg_catalog.pg_has_role(session_user,'hft_r1_governance_issuer','MEMBER')
+ OR pg_catalog.pg_has_role(session_user,'hft_r1_app_runtime','MEMBER')
+ OR session_user IN('hft_engineering','hft_r1_posting_owner')
+ THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_INDEPENDENT_GOVERNANCE_LOGIN_REQUIRED'; END IF;
+ SELECT * INTO o FROM hft.ops_a2_account_provision_order
+ WHERE order_id=p_order AND status='AUTHORIZED' FOR SHARE;
+ IF o.order_id IS NULL OR EXISTS(
+  SELECT 1 FROM hft.ops_a2_account_provision_receipt WHERE order_id=p_order)
+ THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_ORDER_ABSENT_OR_CONSUMED'; END IF;
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+  'HFT:GATE:'||o.legal_entity_id||':'||o.site_id||':'||o.warehouse_id,0));
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+  'HFT:STOCK:'||o.legal_entity_id||':'||o.warehouse_id||':'||
+  o.item_code||':'||o.batch_no||':'||o.serial_no,0));
+ SELECT * INTO a FROM hft.protected_stock_approval
+ WHERE legal_entity_id=o.legal_entity_id
+ AND approval_id=o.approval_id AND approval_revision=o.approval_revision
+ FOR SHARE;
+ SELECT * INTO d FROM hft.protected_approval_decision
+ WHERE legal_entity_id=o.legal_entity_id
+ AND approval_id=o.approval_id AND approval_revision=o.approval_revision
+ FOR SHARE;
+ IF a.approval_id IS NULL OR d.approval_id IS NULL OR NOT a.approved
+ OR a.kind<>o.action_kind OR a.document_id<>o.source_document_id
+ OR a.document_revision<>o.source_revision OR
+ a.policy_generation<>o.policy_generation OR
+ a.legal_entity_id<>o.legal_entity_id OR a.site_id<>o.site_id
+ OR a.warehouse_id<>o.warehouse_id OR a.item_code<>o.item_code
+ OR d.decision_evidence_sha256<>o.decision_evidence_sha256
+ OR d.prepared_subject IS DISTINCT FROM o.prepared_subject
+ OR d.checked_subject IS DISTINCT FROM o.checked_subject
+ OR d.approver_subject<>o.approved_subject
+ OR d.prepared_session_id IS DISTINCT FROM o.prepared_session_id
+ OR d.checked_session_id IS DISTINCT FROM o.checked_session_id
+ OR d.approver_session_id<>o.approved_session_id
+ OR EXISTS(SELECT 1 FROM hft.protected_approval_revocation AS rev
+  WHERE rev.legal_entity_id=o.legal_entity_id
+    AND rev.approval_id=o.approval_id
+    AND rev.approval_revision=o.approval_revision)
+ OR EXISTS(SELECT 1 FROM hft.protected_approval_supersession AS sup
+  WHERE sup.legal_entity_id=o.legal_entity_id
+    AND sup.approval_id=o.approval_id
+    AND sup.approval_revision=o.approval_revision)
+ THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_APPROVAL_PROVENANCE_INVALID'; END IF;
+ maker:=hft.p2_qualified_human_v1(o.legal_entity_id,o.prepared_subject,
+  o.prepared_session_id,o.action_kind,'PREPARER',pg_catalog.clock_timestamp());
+ checker:=hft.p2_qualified_human_v1(o.legal_entity_id,o.checked_subject,
+  o.checked_session_id,o.action_kind,'CHECKER',pg_catalog.clock_timestamp());
+ approver:=hft.p2_qualified_human_v1(o.legal_entity_id,o.approved_subject,
+  o.approved_session_id,o.action_kind,'APPROVER',pg_catalog.clock_timestamp());
+ IF maker IS NULL OR checker IS NULL OR approver IS NULL OR maker=checker
+  OR maker=approver OR checker=approver
+ THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_CORPORATE_PERSON_SEPARATION_DENIED'; END IF;
+ PERFORM 1 FROM hft.posting_policy_epoch AS policy
+ WHERE policy.legal_entity_id=o.legal_entity_id
+ AND policy.site_id=o.site_id AND policy.warehouse_id=o.warehouse_id
+ AND policy.generation=o.policy_generation FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_STALE_POLICY'; END IF;
+ PERFORM 1 FROM hft.stock_hold AS hold
+ WHERE hold.legal_entity_id=o.legal_entity_id
+ AND hold.site_id=o.site_id AND hold.warehouse_id=o.warehouse_id
+ AND hold.active AND (hold.item_code IS NULL OR hold.item_code=o.item_code)
+ FOR SHARE;
+ IF FOUND THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_ACTIVE_HOLD'; END IF;
+ PERFORM 1 FROM hft.posting_parent_hold AS hold
+ WHERE hold.legal_entity_id=o.legal_entity_id AND hold.active
+ AND (hold.scope_kind='ENTITY' OR
+  (hold.scope_kind='SITE' AND hold.site_id=o.site_id))
+ AND (hold.expires_at IS NULL OR hold.expires_at>pg_catalog.clock_timestamp())
+ AND NOT EXISTS(SELECT 1 FROM hft.posting_parent_hold_clearance AS clear
+  WHERE clear.legal_entity_id=hold.legal_entity_id AND clear.hold_id=hold.hold_id)
+ FOR SHARE;
+ IF FOUND THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_PARENT_HOLD_ACTIVE'; END IF;
+ SELECT hft.p0_resolve_count_leaf_v1(
+  o.legal_entity_id,o.warehouse_id,o.leaf_location_id) INTO leaf_name;
+ PERFORM 1 FROM hft.item_version_catalog AS v
+ JOIN hft.item AS i ON i.legal_entity_id=v.legal_entity_id
+  AND i.item_code=v.item_code
+ WHERE v.legal_entity_id=o.legal_entity_id AND v.item_code=o.item_code
+ AND v.version_code=o.product_version_code AND i.active
+ AND (v.state='ACTIVE' OR v.state='RETIRED' AND o.action_kind='RETURN')
+ FOR SHARE OF v,i;
+ IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_VERSION_NOT_ACTIVE'; END IF;
+ IF o.custodian_employee_id<>'' THEN
+  PERFORM 1 FROM hft.employee AS employee
+  WHERE employee.legal_entity_id=o.legal_entity_id
+   AND employee.employee_id=o.custodian_employee_id
+   AND employee.site_id=o.site_id AND employee.active FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_CUSTODIAN_NOT_ACTIVE'; END IF;
+ END IF;
+ IF o.serial_no<>'' AND EXISTS(SELECT 1 FROM hft.serial_registry AS serial
+  WHERE serial.legal_entity_id=o.legal_entity_id
+   AND serial.item_code=o.item_code AND serial.serial_no=o.serial_no
+   AND serial.product_version_code<>o.product_version_code)
+ THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_CROSS_VERSION_SERIAL_DENIED'; END IF;
+ IF o.serial_no<>'' AND EXISTS(SELECT 1 FROM hft.stock_account AS other
+  WHERE other.legal_entity_id=o.legal_entity_id
+   AND other.item_code=o.item_code AND other.serial_key=o.serial_no
+   AND other.product_version_code<>o.product_version_code)
+ THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_CROSS_VERSION_ACCOUNT_DENIED'; END IF;
+ INSERT INTO hft.stock_account(id,legal_entity_id,site_id,warehouse_id,
+  item_code,product_version_code,location_key,account_kind,condition,
+  custodian_employee_id,serial_key,batch_key,qty_micro,reserved_micro,version)
+ VALUES(o.account_id,o.legal_entity_id,o.site_id,o.warehouse_id,
+  o.item_code,o.product_version_code,o.leaf_location_id,o.account_kind,
+  o.condition,o.custodian_employee_id,o.serial_no,o.batch_no,0,0,0);
+ INSERT INTO hft.ops_a2_account_provision_receipt(
+  order_id,account_id,provisioned_by,source_evidence_sha256)
+ VALUES(o.order_id,o.account_id,session_user,o.decision_evidence_sha256);
+ RETURN o.account_id;
+END $provision$;
+ALTER FUNCTION hft.ops_a2_provision_zero_account_v2(uuid)
+ OWNER TO hft_r1_posting_owner;
+REVOKE ALL ON FUNCTION hft.ops_a2_provision_zero_account_v2(uuid)
+ FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
+
 -- Original nonce, payload, version and actor provenance is append-only;
 -- this is an authorization envelope, NOT a separate stock ledger/balance.
 CREATE TABLE hft.ops_a2_command_envelope(
