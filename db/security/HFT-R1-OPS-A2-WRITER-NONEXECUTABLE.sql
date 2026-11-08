@@ -130,7 +130,23 @@ BEGIN
  THEN RAISE EXCEPTION 'OPS_A2_V2_IMMUTABLE_SEAL_AUDIT_OR_OUTCOME_INVALID'; END IF;
  SELECT count(*),pg_catalog.coalesce(sum(qty_delta_micro),0)
  INTO nlegs,delta FROM hft.stock_entry WHERE command_id=p_id;
- IF nlegs<>2 OR delta<>0
+ -- A zero net delta alone is not conservation: forged equal-and-opposite
+ -- legs of the wrong magnitude must be rejected at deferred COMMIT.
+ IF nlegs<>2 OR delta<>0 OR
+   (SELECT count(*) FROM hft.stock_entry AS debit
+    WHERE debit.command_id=p_id AND debit.qty_delta_micro=-c.quantity_micro
+    AND (debit.account_id IS NOT DISTINCT FROM c.ops_a2_source_account_id)
+    AND (debit.account_before_version IS NOT DISTINCT FROM
+      (envelope.exact_payload->>'sourceAccountBeforeVersion')::bigint
+      OR c.kind='RECEIVE' AND debit.account_before_version IS NULL)
+    AND (debit.account_after_version=debit.account_before_version+1
+      OR c.kind='RECEIVE' AND debit.account_after_version IS NULL))<>1 OR
+   (SELECT count(*) FROM hft.stock_entry AS credit
+    WHERE credit.command_id=p_id AND credit.qty_delta_micro=c.quantity_micro
+    AND credit.account_id=c.ops_a2_destination_account_id
+    AND credit.account_before_version=
+      (envelope.exact_payload->>'destinationAccountBeforeVersion')::bigint
+    AND credit.account_after_version=credit.account_before_version+1)<>1
  THEN RAISE EXCEPTION 'OPS_A2_V2_UNBALANCED_OR_INCOMPLETE_MOVEMENTS'; END IF;
  SELECT count(*) INTO missing FROM hft.stock_entry AS leg
  LEFT JOIN hft.stock_account AS acct ON acct.id=leg.account_id
