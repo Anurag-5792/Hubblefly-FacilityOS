@@ -137,7 +137,7 @@ BEGIN
     WHERE debit.command_id=p_id AND debit.qty_delta_micro=-c.quantity_micro
     AND (debit.account_id IS NOT DISTINCT FROM c.ops_a2_source_account_id)
     AND (debit.account_before_version IS NOT DISTINCT FROM
-      (envelope.exact_payload->>'sourceAccountBeforeVersion')::bigint
+      pg_catalog.nullif(envelope.exact_payload->>'sourceAccountBeforeVersion','')::bigint
       OR c.kind='RECEIVE' AND debit.account_before_version IS NULL)
     AND (debit.account_after_version=debit.account_before_version+1
       OR c.kind='RECEIVE' AND debit.account_after_version IS NULL))<>1 OR
