@@ -23,7 +23,7 @@ export type VersionedReadRow=Readonly<{
  condition:'GOOD'|'DAMAGED'|'QUARANTINE';
  serialNo:string;batchNo:string;employeeId:string;
  quantity:string;accountVersion:number;movementId:string;
- auditSha256:string;humanAcknowledgement:string;
+ auditSha256:string;humanAcknowledgement:string;originalIssueId?:string;
 }>;
 export type OpsA2ReadResult=Readonly<{
  state:'SOURCE_ONLY_VERSIONED_READ_NOT_OPERATIONAL';
@@ -94,7 +94,8 @@ export function checkOpsA2Readback(input:unknown,query:unknown):OpsA2ReadResult{
    throw Error('OPS_A2_READ_ZERO_MOVEMENT');
   if(q.intent==='CUSTODY'&&
    (r.accountKind!=='CUSTODY'||
-    !['ACK_PENDING','ACKNOWLEDGED','EXCEPTION'].includes(r.humanAcknowledgement as string)))
+    !['ACK_PENDING','ACKNOWLEDGED','DISPUTED'].includes(r.humanAcknowledgement as string)||
+    typeof r.originalIssueId!=='string'||!id.test(r.originalIssueId)))
    throw Error('OPS_A2_READ_CUSTODY_ACK_INVALID');
   const cursorKey=JSON.stringify([r.legalEntityId,r.siteId,r.warehouseId,
    r.itemCode,r.productVersion,r.leafLocationId,r.accountKind,
