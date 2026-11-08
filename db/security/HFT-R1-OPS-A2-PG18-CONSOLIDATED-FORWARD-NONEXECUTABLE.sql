@@ -29,6 +29,20 @@ BEGIN
  OR session_user<>'hft_engineering'
  OR NOT EXISTS(SELECT 1 FROM hft.schema_revision WHERE version=6)
  OR (SELECT count(*) FROM hft.schema_revision)<>6
+ OR pg_catalog.to_regrole('hft_r1_posting_owner') IS NULL
+ OR pg_catalog.to_regrole('hft_r1_governance_issuer') IS NULL
+ OR pg_catalog.to_regrole('hft_r1_app_runtime') IS NULL
+ OR pg_catalog.to_regprocedure('hft.ops_a_payload_digest_v2(jsonb)') IS NULL
+ OR pg_catalog.to_regprocedure('hft.p2_length_prefixed_v1(text[])') IS NULL
+ OR pg_catalog.to_regprocedure('hft_crypto.hmac(bytea,bytea,text)') IS NULL
+ OR pg_catalog.to_regclass('hft_secret.p0_stores_proof_key') IS NULL
+ OR pg_catalog.to_regclass('hft.protected_approval_decision') IS NULL
+ OR pg_catalog.to_regclass('hft.posting_action_policy') IS NULL
+ OR pg_catalog.to_regclass('hft.actor_warehouse_grant') IS NULL
+ OR pg_catalog.to_regclass('hft.stock_hold') IS NULL
+ OR pg_catalog.to_regclass('hft.posting_parent_hold') IS NULL
+ OR pg_catalog.to_regclass('hft.return_inspection_attestation') IS NULL
+ OR pg_catalog.to_regclass('hft.custody_ack_status_v1') IS NULL
  OR pg_catalog.to_regprocedure('hft.ops_a_payload_fields_v2(jsonb)') IS NULL
  OR pg_catalog.to_regprocedure('hft.p0_verify_stores_proof_v1(jsonb,jsonb)') IS NULL
  OR pg_catalog.to_regprocedure('hft.p2_qualified_human_v1(text,text,text,text,text,timestamptz)') IS NULL
