@@ -33,7 +33,7 @@ export function verifyReturnP2Source(raw:unknown,resolved:ProtectedReturnResolut
     parseQuantity(c.requestQuantity)!==parseQuantity(req.quantity)||
     c.destinationLeafId!==req.leafLocationId||
     c.employeeId!==req.employeeId||c.originalIssueId!==req.originalIssueId||
-    c.sourceDocumentId!==req.returnDocumentId||
+    c.sourceDocumentId!==req.returnDocumentId.toLowerCase()||
     c.sourceActionKey!==req.returnLineKey||c.fragmentId!==req.returnLineKey||
     c.inspectionEvidenceId!==req.inspectionEvidenceId||
     c.inspectedCondition!==req.inspectedCondition||
