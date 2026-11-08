@@ -672,8 +672,12 @@ BEGIN
  OR session_user IN('hft_engineering','hft_r1_posting_owner')
  THEN RAISE EXCEPTION 'OPS_A2_SOURCE_INDEPENDENT_ISSUER_LOGIN_REQUIRED'; END IF;
  PERFORM hft.ops_a_payload_fields_v2(p2);
- actor:=hft.p0_verify_stores_proof_v1(p0,p0_proof);
- IF p0->>'kind' NOT IN('IN','OUT','TRANSFER') OR
+ IF p0->>'kind'='RETURN' THEN
+  actor:=hft.ops_a2_verify_return_proof_v1(p0,p0_proof);
+ ELSE
+  actor:=hft.p0_verify_stores_proof_v1(p0,p0_proof);
+ END IF;
+ IF p0->>'kind' NOT IN('IN','OUT','TRANSFER','RETURN') OR
  p2->>'actorSubject'<>actor OR
  p2->>'commandId'<>p0->>'requestId' OR
  p2->>'idempotencyKey'<>p0->>'requestId' OR
@@ -689,18 +693,24 @@ BEGIN
   (p0->>'quantity')::numeric*1000000)::bigint
  THEN RAISE EXCEPTION 'OPS_A2_ISSUER_ORIGINAL_SIGNED_P0_MISMATCH'; END IF;
  source_kind:=CASE p0->>'kind'
- WHEN 'IN' THEN 'RECEIVE' WHEN 'OUT' THEN 'ISSUE' ELSE 'TRANSFER' END;
+ WHEN 'IN' THEN 'RECEIVE' WHEN 'OUT' THEN 'ISSUE'
+ WHEN 'RETURN' THEN 'RETURN' ELSE 'TRANSFER' END;
  IF p2->>'kind'<>source_kind
  THEN RAISE EXCEPTION 'OPS_A2_ISSUER_KIND_MISMATCH'; END IF;
  doc:=CASE p0->>'kind' WHEN 'IN' THEN p0->>'grnId'
-  WHEN 'OUT' THEN p0->>'issueDocumentId' ELSE p0->>'transferDocumentId' END;
+  WHEN 'OUT' THEN p0->>'issueDocumentId'
+  WHEN 'RETURN' THEN p0->>'returnDocumentId'
+  ELSE p0->>'transferDocumentId' END;
  IF doc !~ '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$'
  OR p2->>'sourceDocumentId'<>pg_catalog.lower(doc)
  THEN RAISE EXCEPTION 'OPS_A2_ISSUER_CANONICAL_UUID_INVALID'; END IF;
  source_leaf:=CASE p0->>'kind' WHEN 'IN' THEN ''
- WHEN 'OUT' THEN p0->>'leafLocationId' ELSE p0->>'sourceLeafId' END;
+ WHEN 'OUT' THEN p0->>'leafLocationId'
+ WHEN 'RETURN' THEN p2->>'sourceLeafId'
+ ELSE p0->>'sourceLeafId' END;
  destination_leaf:=CASE p0->>'kind' WHEN 'IN' THEN p0->>'leafLocationId'
- WHEN 'OUT' THEN '' ELSE p0->>'destinationLeafId' END;
+ WHEN 'OUT' THEN '' WHEN 'RETURN' THEN p0->>'leafLocationId'
+ ELSE p0->>'destinationLeafId' END;
  IF p2->>'sourceLeafId'<>source_leaf
  OR p2->>'destinationLeafId'<>destination_leaf
  THEN RAISE EXCEPTION 'OPS_A2_ISSUER_PHYSICAL_LEAF_MISMATCH'; END IF;
@@ -726,6 +736,31 @@ BEGIN
   OR p2->>'employeeId'<>p0->>'employeeId'
   OR p2->>'destinationLeafId'<>''
   THEN RAISE EXCEPTION 'OPS_A2_ISSUER_EMPLOYEE_CUSTODY_MISMATCH'; END IF;
+ ELSIF source_kind='RETURN' THEN
+  IF p2->>'sourceActionKey'<>p0->>'returnLineKey'
+  OR p2->>'fragmentId'<>p0->>'returnLineKey'
+  OR p2->>'employeeId'<>p0->>'employeeId'
+  OR p2->>'originalIssueId'<>p0->>'originalIssueId'
+  OR p2->>'inspectionEvidenceId'<>p0->>'inspectionEvidenceId'
+  OR p2->>'inspectedCondition'<>p0->>'inspectedCondition'
+  OR p2->>'sourceAccountId'=p2->>'destinationAccountId'
+  OR NOT EXISTS(SELECT 1 FROM hft.employee_custody AS cu
+   JOIN hft.stock_command AS issued ON issued.id=cu.issue_command_id
+   WHERE issued.legal_entity_id=p2->>'legalEntityId'
+   AND issued.site_id=p2->>'siteId'
+   AND issued.warehouse_id=p2->>'warehouseId'
+   AND issued.command_id=p2->>'originalIssueId'
+   AND issued.kind='ISSUE'
+   AND issued.product_version_code=p2->>'productVersion'
+   AND cu.legal_entity_id=issued.legal_entity_id
+   AND cu.employee_id=p2->>'employeeId'
+   AND cu.item_code=p2->>'itemCode'
+   AND cu.product_version_code=p2->>'productVersion'
+   AND cu.location_id=p2->>'sourceLeafId'
+   AND cu.serial_no=p2->>'serialNo'
+   AND cu.batch_no=p2->>'batchNo'
+   AND cu.issued_micro-cu.returned_micro>=(p2->>'quantityMicro')::bigint)
+  THEN RAISE EXCEPTION 'OPS_A2_ISSUER_ORIGINAL_CUSTODY_OR_INSPECTION_DENIED'; END IF;
  ELSE
   IF p2->>'sourceActionKey'<>p2->>'fragmentId'
   OR p2->>'sourceLeafId'=p2->>'destinationLeafId'
@@ -793,7 +828,9 @@ BEGIN
  VALUES((p2->>'commandId')::uuid,p2->>'legalEntityId',p2->>'siteId',
   p2->>'warehouseId',p2->>'itemCode',p2->>'productVersion',source_kind,
   p2->>'sourceDocumentId',p2->>'sourceActionKey',
-  (p2->>'sourceRevision')::bigint,hft.p0_stores_payload_sha256_v1(p0),
+  (p2->>'sourceRevision')::bigint,
+  CASE WHEN source_kind='RETURN' THEN hft.ops_a2_return_payload_sha256_v1(p0)
+   ELSE hft.p0_stores_payload_sha256_v1(p0) END,
   p2->>'approvedPayloadSha256',p2->>'approvalId',
   (p2->>'approvalRevision')::bigint,(p2->>'policyGeneration')::bigint,
   actor,p2->>'approvedBy',source_leaf,destination_leaf,
