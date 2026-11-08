@@ -182,11 +182,23 @@ function checkedReconciliation(value:unknown,payload:OpsAPayload,
  return row as unknown as P2Reconciliation;
 }
 async function authoritativeReconcile(pool:PgPool,env:IsolatedPgEnvironment,
- payload:OpsAPayload,proof:OpsAProof):Promise<P2Reconciliation>{
+ payload:OpsAPayload,proof:OpsAProof,actor:VerifiedRequestOperator,
+ signer:OpsA2Signer):Promise<P2Reconciliation>{
+ // Fresh signed READ authority, independent of the original P2 proof.
+ // The caller may reauthenticate if the old posting session has expired;
+ // no old session is reactivated and the original nonce is never replaced.
+ assertVerifiedRequestOperator(actor,payload);
+ const q={contractVersion:'HFT-R1-P0-READ-V1' as const,
+  intent:'MOVEMENTS' as const,legalEntityId:payload.legalEntityId,
+  siteId:payload.siteId,warehouseId:payload.warehouseId,
+  itemCode:payload.itemCode,productVersion:payload.productVersion,
+  leafLocationId:'',employeeId:'',cursor:'',limit:1};
+ const freshProof=issueStoresReadProof(q,actor,signer.p0Key,signer.p0KeyVersion);
  const response=await withProtectedReadbackTransaction(pool,env,async client=>{
   const r=await client.query<{recovery:unknown}>(
-   'SELECT hft.ops_a2_reconcile_post_v2($1::jsonb,$2::jsonb) AS recovery',
-   [JSON.stringify(payload),JSON.stringify(proof)]);
+   'SELECT hft.ops_a2_reconcile_post_v3($1::jsonb,$2::jsonb,$3::jsonb,$4::jsonb) AS recovery',
+   [JSON.stringify(payload),JSON.stringify(proof),
+    JSON.stringify(q),JSON.stringify(freshProof)]);
   if(r.rows.length!==1)throw Error('OPS_A2_RECOVERY_ROW_MISSING');
   return r.rows[0].recovery;
  });
@@ -214,7 +226,7 @@ async function postResolvedPayload(pool:PgPool,env:IsolatedPgEnvironment,
  }catch(error){
   if(!(error instanceof CommitOutcomeUncertain))throw error;
   // NEVER repost on an uncertain COMMIT. Use original nonce/proof only.
-  const recovered=await authoritativeReconcile(pool,env,payload,proof);
+  const recovered=await authoritativeReconcile(pool,env,payload,proof,actor,signer);
   if(recovered.state==='INDETERMINATE_NOT_FOUND')
    throw Error('OPS_A2_UNCERTAIN_COMMIT_UNRESOLVED_NO_RETRY');
   return {state:'SOURCE_ONLY_COMMITTED_FACT_VERIFIED_NOT_OPERATIONAL',
@@ -222,7 +234,7 @@ async function postResolvedPayload(pool:PgPool,env:IsolatedPgEnvironment,
    sourceEpoch:recovered.sourceEpoch!,fact:recovered.fact!};
  }
  if(!attempted)throw Error('OPS_A2_NO_POSTING_ATTEMPT');
- const recovered=await authoritativeReconcile(pool,env,payload,proof);
+ const recovered=await authoritativeReconcile(pool,env,payload,proof,actor,signer);
  if(recovered.state!=='COMMITTED_VERIFIED')
   throw Error('OPS_A2_COMMIT_READBACK_NOT_VERIFIED_NO_RETRY');
  return {state:'SOURCE_ONLY_COMMITTED_FACT_VERIFIED_NOT_OPERATIONAL',
@@ -290,4 +302,18 @@ export async function submitOpsA2SyntheticReturnSource(pool:PgPool,
  const payload=verifyReturnP2Source(op,resolved);
  canonicalOpsAPayloadFields(payload);
  return postResolvedPayload(pool,env,payload,actor,signer);
+}
+
+/** Independent fresh-session reconciliation after ambiguous COMMIT.
+ * Original V2 signed payload/nonce/proof MUST be retained by an approved
+ * private attempt-custody service. No automatic posting or nonce renewal.
+ * This API remains synthetic-only and has no HTTP route.
+ */
+export async function reconcileOpsA2SyntheticOriginalAttempt(pool:PgPool,
+ env:IsolatedPgEnvironment,payload:OpsAPayload,originalProof:OpsAProof,
+ freshActor:VerifiedRequestOperator,signer:OpsA2Signer
+):Promise<P2Reconciliation>{
+ assertSyntheticOnly(env);
+ canonicalOpsAPayloadFields(payload);
+ return authoritativeReconcile(pool,env,payload,originalProof,freshActor,signer);
 }
