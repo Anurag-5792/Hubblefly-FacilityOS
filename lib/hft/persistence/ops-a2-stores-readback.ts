@@ -140,3 +140,58 @@ export async function readOpsA2SyntheticSource(pool:PgPool,env:IsolatedPgEnviron
   return checkOpsA2Readback(r.rows[0].response,query);
  });
 }
+
+/** Exhaust ALL SQL pages on one isolated REPEATABLE READ READ ONLY session.
+ * This is the only source-level path eligible to claim a complete snapshot.
+ * The browser never receives a resumable DB offset. Separate requests MUST
+ * start new snapshot reads; they may not splice pages across transactions.
+ */
+export async function readOpsA2CompleteSyntheticSource(pool:PgPool,
+ env:IsolatedPgEnvironment,request:unknown,actor:VerifiedRequestOperator,
+ key:Uint8Array,keyVersion:number
+):Promise<Readonly<OpsA2ReadResult&{complete:true;pageCount:number}>>{
+ const original=validateStoresQuery(request);
+ assertVerifiedRequestOperator(actor,original);
+ assertP0PersistenceEnvironment(env);
+ if(env.HFT_OPS_A2_SOURCE_MODE!==sourceMode||
+  env.HFT_ENVIRONMENT!=='test'||env.NODE_ENV!=='test'||
+  env.HFT_LIVE_POSTING_ENABLED!=='false'||original.cursor!=='')
+  throw Error('OPS_A2_COMPLETE_SNAPSHOT_SOURCE_ONLY');
+ return withProtectedReadbackTransaction(pool,env,async client=>{
+  let cursor='';let epoch='';let pages=0;
+  const seen=new Set<string>(),all:VersionedReadRow[]=[];
+  while(pages<Math.ceil(10000/original.limit)+1){
+   const q={...original,cursor};
+   const signed=issueStoresReadProof(q,actor,key,keyVersion);
+   const r=await client.query<{response:unknown}>(
+    'SELECT hft.ops_a2_read_snapshot_page_v3($1::jsonb,$2::jsonb) AS response',
+    [JSON.stringify(q),JSON.stringify(signed)]);
+   if(r.rows.length!==1)throw Error('OPS_A2_SNAPSHOT_PAGE_NOT_SINGULAR');
+   const page=checkOpsA2Readback(r.rows[0].response,q);
+   if(pages>0&&page.sourceEpoch!==epoch)
+    throw Error('OPS_A2_SNAPSHOT_SOURCE_EPOCH_CHANGED');
+   if(pages===0)epoch=page.sourceEpoch;
+   for(const row of page.rows){
+    if(seen.has(row.movementId))throw Error('OPS_A2_SNAPSHOT_DUPLICATE_MOVEMENT');
+    seen.add(row.movementId);all.push(row);
+   }
+   pages++;
+   if(all.length>10000)throw Error('OPS_A2_SNAPSHOT_MAX_ROWS_EXCEEDED');
+   if(!page.nextCursor){
+    return Object.freeze({
+     state:'SOURCE_ONLY_VERSIONED_READ_NOT_OPERATIONAL' as const,
+     versionAuthority:'OPS_A2_VERSION_AWARE_V2' as const,
+     intent:original.intent,sourceEpoch:epoch,nextCursor:'',
+     rows:Object.freeze(all),complete:true as const,pageCount:pages
+    });
+   }
+   // A complete page must advance exactly by the signed offset. Skips,
+   // empty pages, duplicates and repeated continuation are fail-closed.
+   if(page.rows.length!==original.limit||
+    page.nextCursor!==String(all.length)||page.nextCursor===cursor)
+    throw Error('OPS_A2_SNAPSHOT_PAGE_GAP_OR_TRUNCATION');
+   cursor=page.nextCursor;
+  }
+  throw Error('OPS_A2_SNAPSHOT_COMPLETE_PAGE_LIMIT_EXCEEDED');
+ });
+}
