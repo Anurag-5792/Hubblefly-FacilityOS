@@ -84,13 +84,18 @@ test('OPS-A2 versioned balance rejects negative quantity or forged account versi
 test('OPS-A2 custody read requires exact employee, state and acknowledgement',()=>{
  const q={...query,intent:'CUSTODY',employeeId:'EMP1'};
  const item={...row,accountKind:'CUSTODY',
-  employeeId:'EMP1',humanAcknowledgement:'ACK_PENDING'};
+  employeeId:'EMP1',originalIssueId:'ISSUE1',humanAcknowledgement:'ACK_PENDING'};
  const resp={...valid,intent:'CUSTODY',rows:[item]};
  assert.equal(checkOpsA2Readback(resp,q).rows[0].employeeId,'EMP1');
  assert.throws(()=>checkOpsA2Readback({...resp,rows:[{
   ...item,humanAcknowledgement:'ACKNOWLEDGED_BY_BROWSER'}]},q),/CUSTODY_ACK_INVALID/);
  assert.throws(()=>checkOpsA2Readback({...resp,rows:[{
   ...item,employeeId:'EMP2'}]},q),/FILTER_NOT_ENFORCED/);
+ const disputed={...item,movementId:'ISSUE2',originalIssueId:'ISSUE2',
+  humanAcknowledgement:'DISPUTED'};
+ assert.equal(checkOpsA2Readback({...resp,rows:[item,disputed]},q).rows[1].humanAcknowledgement,'DISPUTED');
+ assert.throws(()=>checkOpsA2Readback({...resp,rows:[{...item,originalIssueId:''}]},q),
+  /CUSTODY_ACK_INVALID/);
 });
 test('OPS-A2 source rejects duplicate location/version/serial/custody row',()=>{
  assert.throws(()=>checkOpsA2Readback({...valid,rows:[row,row]},query),
