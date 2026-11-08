@@ -37,7 +37,7 @@ test('RETURN protected resolver mapping produces a V2 custody command, not a pos
  assert.equal(p.quantityMicro,'1000000');
 });
 test('RETURN exact source, custody, inspection, revision and maker-checker mismatches deny',()=>{
- const changes=[
+ const changes: Array<{request?:Record<string,string>;resolved?:unknown}>=[
   {request:{...request,employeeId:'EMP02'}},
   {request:{...request,originalIssueId:'ISSUE02'}},
   {request:{...request,returnLineKey:'LINE02'}},
