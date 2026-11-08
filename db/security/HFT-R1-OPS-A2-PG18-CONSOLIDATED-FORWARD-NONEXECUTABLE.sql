@@ -1852,33 +1852,53 @@ BEGIN
   END IF;
  END LOOP;
  IF q->>'intent'='MOVEMENTS' THEN
+  -- Scope via immutable COMMAND; LEFT JOIN preserves the legitimate EXTERNAL
+  -- debit leg. Account history comes from the ENTRY, never current versions.
   FOR c IN
-   SELECT e.id AS entry_id,e.qty_delta_micro,a.*,
+   SELECT e.id AS entry_id,e.command_id AS command_uuid,
+    e.account_id,e.account_before_version,e.account_after_version,
+    e.qty_delta_micro,e.bucket AS account_kind,
+    cmd.legal_entity_id,cmd.site_id,cmd.warehouse_id,cmd.item_code,
+    e.product_version_code,
+    COALESCE(a.location_key,cmd.location_id) AS location_key,
+    COALESCE(a.condition,'GOOD') AS condition,
+    COALESCE(a.serial_key,COALESCE(e.serial_no,'')) AS serial_key,
+    COALESCE(a.batch_key,COALESCE(e.batch_no,'')) AS batch_key,
+    COALESCE(a.custodian_employee_id,COALESCE(e.employee_id,'')) AS custodian_employee_id,
     audit.canonical_sha256
    FROM hft.stock_entry AS e
-   JOIN hft.stock_account AS a ON a.id=e.account_id
    JOIN hft.stock_command AS cmd ON cmd.id=e.command_id
+   LEFT JOIN hft.stock_account AS a ON a.id=e.account_id
    JOIN hft.audit_outbox AS audit ON audit.command_id=cmd.id
-   WHERE a.legal_entity_id=q->>'legalEntityId'
-    AND a.site_id=q->>'siteId' AND a.warehouse_id=q->>'warehouseId'
-    AND (q->>'itemCode'='' OR a.item_code=q->>'itemCode')
-    AND (q->>'productVersion'='' OR a.product_version_code=q->>'productVersion')
-    AND (q->>'leafLocationId'='' OR a.location_key=q->>'leafLocationId')
-    AND (q->>'employeeId'='' OR a.custodian_employee_id=q->>'employeeId')
+   WHERE cmd.legal_entity_id=q->>'legalEntityId'
+    AND cmd.site_id=q->>'siteId' AND cmd.warehouse_id=q->>'warehouseId'
+    AND (q->>'itemCode'='' OR cmd.item_code=q->>'itemCode')
+    AND (q->>'productVersion'='' OR e.product_version_code=q->>'productVersion')
+    AND (q->>'leafLocationId'='' OR
+      COALESCE(a.location_key,cmd.location_id)=q->>'leafLocationId')
+    AND (q->>'employeeId'='' OR
+      COALESCE(a.custodian_employee_id,COALESCE(e.employee_id,''))=q->>'employeeId')
    ORDER BY e.id LIMIT (q->>'limit')::integer+1
   LOOP
-   rows:=rows||pg_catalog.jsonb_build_array(
-    pg_catalog.jsonb_build_object(
-      'legalEntityId',c.legal_entity_id,'siteId',c.site_id,
-      'warehouseId',c.warehouse_id,'itemCode',c.item_code,
-      'productVersion',c.product_version_code,'leafLocationId',c.location_key,
-      'accountKind',c.account_kind,'condition',c.condition,
-      'serialNo',c.serial_key,'batchNo',c.batch_key,
-      'employeeId',c.custodian_employee_id,
-      'quantity',hft.format_signed_micro_v2(c.qty_delta_micro),
-      'accountVersion',c.version,'movementId','ENTRY-'||c.entry_id::text,
-      'auditSha256',c.canonical_sha256,
-      'humanAcknowledgement','NOT_APPLICABLE'));
+   IF c.account_kind='EXTERNAL' AND
+      (c.account_id IS NOT NULL OR c.account_before_version IS NOT NULL
+       OR c.account_after_version IS NOT NULL)
+   THEN RAISE EXCEPTION 'OPS_A2_EXTERNAL_LEDGER_OWNERSHIP_INVALID'; END IF;
+   rows:=rows||pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+    'legalEntityId',c.legal_entity_id,'siteId',c.site_id,
+    'warehouseId',c.warehouse_id,'itemCode',c.item_code,
+    'productVersion',c.product_version_code,'leafLocationId',c.location_key,
+    'accountKind',c.account_kind,'condition',c.condition,
+    'serialNo',c.serial_key,'batchNo',c.batch_key,
+    'employeeId',c.custodian_employee_id,
+    'quantity',hft.format_signed_micro_v2(c.qty_delta_micro),
+    'accountVersion',COALESCE(c.account_after_version,0),
+    'accountBeforeVersion',c.account_before_version,
+    'accountAfterVersion',c.account_after_version,
+    'commandUuid',c.command_uuid::text,'entryId',c.entry_id::text,
+    'movementId','ENTRY-'||c.entry_id::text,
+    'auditSha256',c.canonical_sha256,
+    'humanAcknowledgement','NOT_APPLICABLE'));
   END LOOP;
  ELSIF q->>'intent'='CUSTODY' THEN
   -- One row per ORIGINAL ISSUE, never a latest-ACK inference on an
