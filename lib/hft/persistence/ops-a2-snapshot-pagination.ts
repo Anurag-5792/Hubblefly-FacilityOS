@@ -106,8 +106,14 @@ export function inspectSnapshotCursor(encoded:string,query:unknown,
  * computed on these ordinals by the qualified snapshot issuer, not the UI.
  */
 export function snapshotRowsSha256(rows:readonly OrdinalRow[]):string{
- return createHash('sha256').update(lengthPrefixedUtf8(
-  rows.flatMap(r=>[String(r.ordinal),r.rowSha256,r.movementId]))).digest('hex');
+ // The shared encoder limits each call to 64 fields. Hash a fixed domain
+ // followed by each row's three length-prefixed fields incrementally, rather
+ // than imposing a hidden 21-row snapshot limit.
+ const digest=createHash('sha256').update(
+  lengthPrefixedUtf8(['HFT-OPS-A2-SNAPSHOT-ROWS-V1']));
+ for(const r of rows)digest.update(lengthPrefixedUtf8([
+  String(r.ordinal),r.rowSha256,r.movementId]));
+ return digest.digest('hex');
 }
 export function verifyCompleteSnapshotPages(pages:readonly SnapshotPage<OrdinalRow>[]):void{
  if(pages.length===0)throw Error('OPS_A2_SNAPSHOT_NO_PAGES');
