@@ -716,8 +716,11 @@ BEGIN
    SELECT a.*,COALESCE(
     (SELECT audit.canonical_sha256 FROM hft.stock_entry e
      JOIN hft.audit_outbox audit ON audit.command_id=e.command_id
-     WHERE e.account_id=a.id ORDER BY e.id DESC LIMIT 1),repeat('0',64))
-      AS source_audit
+     WHERE e.account_id=a.id ORDER BY e.id DESC LIMIT 1),
+    (SELECT receipt.source_evidence_sha256
+     FROM hft.ops_a2_account_provision_receipt AS receipt
+     WHERE receipt.account_id=a.id),
+    repeat('0',64)) AS source_audit
    FROM hft.stock_account a
    WHERE a.legal_entity_id=q->>'legalEntityId'
     AND a.site_id=q->>'siteId' AND a.warehouse_id=q->>'warehouseId'
@@ -730,8 +733,23 @@ BEGIN
    ORDER BY a.item_code,a.product_version_code,a.location_key,a.id
    LIMIT (q->>'limit')::integer+1
   LOOP
-   IF c.qty_micro=0 AND c.version=0 THEN
-    RAISE EXCEPTION 'OPS_A2_UNATTESTED_ZERO_OPENING_ACCOUNT'; END IF;
+   IF c.qty_micro=0 AND c.version=0 AND NOT EXISTS(
+    SELECT 1 FROM hft.ops_a2_account_provision_receipt AS receipt
+    JOIN hft.ops_a2_account_provision_order AS approved
+     ON approved.order_id=receipt.order_id
+    WHERE receipt.account_id=c.id
+     AND approved.account_id=c.id
+     AND approved.legal_entity_id=c.legal_entity_id
+     AND approved.site_id=c.site_id
+     AND approved.warehouse_id=c.warehouse_id
+     AND approved.item_code=c.item_code
+     AND approved.product_version_code=c.product_version_code
+     AND approved.leaf_location_id=c.location_key
+     AND approved.account_kind=c.account_kind
+     AND approved.condition=c.condition
+     AND approved.serial_no=c.serial_key AND approved.batch_no=c.batch_key
+     AND approved.custodian_employee_id=c.custodian_employee_id)
+   THEN RAISE EXCEPTION 'OPS_A2_UNATTESTED_ZERO_OPENING_ACCOUNT'; END IF;
    ack:='NOT_APPLICABLE';
    rows:=rows||pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
     'legalEntityId',c.legal_entity_id,'siteId',c.site_id,
