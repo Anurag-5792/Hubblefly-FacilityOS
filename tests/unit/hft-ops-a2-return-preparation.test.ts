@@ -6,8 +6,8 @@ const sample={contractVersion:'HFT-R1-OPS-A2-RETURN-PREPARE-V1',kind:'RETURN',
  requestId:'123e4567-e89b-42d3-a456-426614174000',legalEntityId:'LE01',
  siteId:'S01',warehouseId:'WH01',itemCode:'ITEM01',productVersion:'V01',
  controlType:'SERIAL',quantity:'1',uom:'EA',serialNo:'SER01',batchNo:'',
- leafLocationId:'BIN01',employeeId:'EMP01',returnDocumentId:'RET01',
- returnLineKey:'LINE01',originalIssueId:'ISSUE01',
+ leafLocationId:'BIN01',employeeId:'EMP01',returnDocumentId:'A123E456-E89B-42D3-A456-426614174001',
+ returnLineKey:'LINE01',originalIssueId:'123e4567-e89b-42d3-a456-426614174002',
  inspectionEvidenceId:'QC01',inspectedCondition:'GOOD'};
 test('RETURN preflight is nonposting and never claims DB authority',()=>{
  const v=validateOpsA2ReturnRequest(sample);
@@ -23,7 +23,10 @@ test('RETURN rejects forged keys and identity switches',()=>{
  for(const bad of [
   {...sample,approvedBy:'SELF'}, {...sample,kind:'OUT'},
   {...sample,contractVersion:'HFT-R1-STORES-P0-PREPARE-V1'},
-  {...sample,requestId:'not-a-uuid'}, {...sample,originalIssueId:''},
+  {...sample,requestId:'not-a-uuid'},
+  {...sample,returnDocumentId:'RET01'},
+  {...sample,returnDocumentId:'a123e456-e89b-42d3-a456-426614174001'},
+  {...sample,originalIssueId:'ISSUE01'}, {...sample,originalIssueId:''},
   {...sample,inspectionEvidenceId:''}, {...sample,quantity:'-1'},
   {...sample,quantity:'2'}, {...sample,serialNo:'',batchNo:'LOT01'},
   {...sample,inspectedCondition:'NOT_INSPECTED'},
