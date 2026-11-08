@@ -650,6 +650,171 @@ ALTER FUNCTION hft.ops_a2_issue_transfer_document_v2(uuid)
 REVOKE ALL ON FUNCTION hft.ops_a2_issue_transfer_document_v2(uuid)
  FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
 
+-- Independently authorized SOURCE BINDING issuance. Reads a genuine P0 HMAC,
+-- P2 payload and immutable human approval/decision records. It cannot CREATE
+-- an approval or provision stock or use a browser-provided approver.
+-- RETURN is intentionally separate until the signed RETURN source verifier
+-- is independently installed; never reinterpret the legacy P0 HMAC kind.
+CREATE OR REPLACE FUNCTION hft.ops_a2_issue_source_binding_v2(
+ p0 jsonb,p0_proof jsonb,p2 jsonb)
+RETURNS uuid LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $issue_binding$
+DECLARE
+ actor text;source_kind text;doc text;action text;
+ source_leaf text;destination_leaf text;qty bigint;
+ a hft.protected_stock_approval%ROWTYPE;
+ d hft.protected_approval_decision%ROWTYPE;
+ issuer_person text;approver_person text;
+BEGIN
+ IF pg_catalog.current_setting('transaction_isolation')<>'serializable'
+ OR NOT pg_catalog.pg_has_role(session_user,'hft_r1_governance_issuer','MEMBER')
+ OR pg_catalog.pg_has_role(session_user,'hft_r1_app_runtime','MEMBER')
+ OR session_user IN('hft_engineering','hft_r1_posting_owner')
+ THEN RAISE EXCEPTION 'OPS_A2_SOURCE_INDEPENDENT_ISSUER_LOGIN_REQUIRED'; END IF;
+ PERFORM hft.ops_a_payload_fields_v2(p2);
+ actor:=hft.p0_verify_stores_proof_v1(p0,p0_proof);
+ IF p0->>'kind' NOT IN('IN','OUT','TRANSFER') OR
+ p2->>'actorSubject'<>actor OR
+ p2->>'commandId'<>p0->>'requestId' OR
+ p2->>'idempotencyKey'<>p0->>'requestId' OR
+ p2->>'legalEntityId'<>p0->>'legalEntityId' OR
+ p2->>'siteId'<>p0->>'siteId' OR
+ p2->>'warehouseId'<>p0->>'warehouseId' OR
+ p2->>'itemCode'<>p0->>'itemCode' OR
+ p2->>'productVersion'<>p0->>'productVersion' OR
+ p2->>'controlType'<>p0->>'controlType' OR
+ p2->>'serialNo'<>p0->>'serialNo' OR
+ p2->>'batchNo'<>p0->>'batchNo' OR
+ (p2->>'quantityMicro')::bigint<>(
+  (p0->>'quantity')::numeric*1000000)::bigint
+ THEN RAISE EXCEPTION 'OPS_A2_ISSUER_ORIGINAL_SIGNED_P0_MISMATCH'; END IF;
+ source_kind:=CASE p0->>'kind'
+ WHEN 'IN' THEN 'RECEIVE' WHEN 'OUT' THEN 'ISSUE' ELSE 'TRANSFER' END;
+ IF p2->>'kind'<>source_kind
+ THEN RAISE EXCEPTION 'OPS_A2_ISSUER_KIND_MISMATCH'; END IF;
+ doc:=CASE p0->>'kind' WHEN 'IN' THEN p0->>'grnId'
+  WHEN 'OUT' THEN p0->>'issueDocumentId' ELSE p0->>'transferDocumentId' END;
+ IF doc !~ '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$'
+ OR p2->>'sourceDocumentId'<>pg_catalog.lower(doc)
+ THEN RAISE EXCEPTION 'OPS_A2_ISSUER_CANONICAL_UUID_INVALID'; END IF;
+ source_leaf:=CASE p0->>'kind' WHEN 'IN' THEN ''
+ WHEN 'OUT' THEN p0->>'leafLocationId' ELSE p0->>'sourceLeafId' END;
+ destination_leaf:=CASE p0->>'kind' WHEN 'IN' THEN p0->>'leafLocationId'
+ WHEN 'OUT' THEN '' ELSE p0->>'destinationLeafId' END;
+ IF p2->>'sourceLeafId'<>source_leaf
+ OR p2->>'destinationLeafId'<>destination_leaf
+ THEN RAISE EXCEPTION 'OPS_A2_ISSUER_PHYSICAL_LEAF_MISMATCH'; END IF;
+ IF source_kind='RECEIVE' THEN
+  IF p0->>'qcState'<>'ACCEPTED'
+  OR p2->>'inspectionEvidenceId'<>p0->>'qcEvidenceId'
+  OR NOT EXISTS(
+   SELECT 1 FROM hft.grn_partial_receipt AS r
+   WHERE r.grn_id::text=pg_catalog.lower(doc)
+    AND r.legal_entity_id=p2->>'legalEntityId'
+    AND r.warehouse_id=p2->>'warehouseId'
+    AND r.receipt_key=p0->>'receiptKey'
+    AND r.receipt_key||':'||r.line_no::text=p2->>'sourceActionKey'
+    AND r.location_id=destination_leaf
+    AND r.ops_a2_item_code=p2->>'itemCode'
+    AND r.ops_a2_product_version_code=p2->>'productVersion'
+    AND r.qc_state='ACCEPTED'
+    AND r.evidence_reference=p0->>'qcEvidenceId')
+  THEN RAISE EXCEPTION 'OPS_A2_ISSUER_GRN_RECEIPT_LINE_NOT_AUTHORIZED'; END IF;
+ ELSIF source_kind='ISSUE' THEN
+  IF p2->>'sourceActionKey'<>p0->>'fragmentId'
+  OR p2->>'fragmentId'<>p0->>'fragmentId'
+  OR p2->>'employeeId'<>p0->>'employeeId'
+  OR p2->>'destinationLeafId'<>''
+  THEN RAISE EXCEPTION 'OPS_A2_ISSUER_EMPLOYEE_CUSTODY_MISMATCH'; END IF;
+ ELSE
+  IF p2->>'sourceActionKey'<>p2->>'fragmentId'
+  OR p2->>'sourceLeafId'=p2->>'destinationLeafId'
+  OR p2->>'sourceAccountId'=p2->>'destinationAccountId'
+  THEN RAISE EXCEPTION 'OPS_A2_ISSUER_TRANSFER_SOURCE_INVALID'; END IF;
+ END IF;
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+ 'HFT:GATE:'||(p2->>'legalEntityId')||':'||(p2->>'siteId')||':'||
+  (p2->>'warehouseId'),0));
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+ 'HFT:STOCK:'||(p2->>'legalEntityId')||':'||(p2->>'warehouseId')||':'||
+  (p2->>'itemCode')||':'||(p2->>'batchNo')||':'||(p2->>'serialNo'),0));
+ SELECT * INTO a FROM hft.protected_stock_approval
+ WHERE legal_entity_id=p2->>'legalEntityId'
+ AND approval_id=p2->>'approvalId'
+ AND approval_revision=(p2->>'approvalRevision')::bigint FOR SHARE;
+ SELECT * INTO d FROM hft.protected_approval_decision
+ WHERE legal_entity_id=p2->>'legalEntityId'
+ AND approval_id=p2->>'approvalId'
+ AND approval_revision=(p2->>'approvalRevision')::bigint FOR SHARE;
+ IF a.approval_id IS NULL OR d.approval_id IS NULL OR NOT a.approved
+ OR a.kind<>p2->>'kind'
+ OR a.site_id<>p2->>'siteId' OR a.warehouse_id<>p2->>'warehouseId'
+ OR a.item_code<>p2->>'itemCode'
+ OR a.document_id<>p2->>'sourceDocumentId'
+ OR a.source_action_key<>p2->>'sourceActionKey'
+ OR a.fragment_id<>p2->>'fragmentId'
+ OR a.document_revision<>(p2->>'sourceRevision')::bigint
+ OR a.approval_revision<>(p2->>'approvalRevision')::bigint
+ OR a.policy_generation<>(p2->>'policyGeneration')::bigint
+ OR a.actor_subject<>actor OR a.approver_subject<>p2->>'approvedBy'
+ OR a.payload_sha256<>hft.ops_a_payload_digest_v2(p2)
+ OR a.approved_scope_sha256<>p2->>'approvedPayloadSha256'
+ OR a.inspection_evidence_id<>p2->>'inspectionEvidenceId'
+ OR a.quantity_micro<>(p2->>'quantityMicro')::bigint
+ OR d.payload_sha256<>a.payload_sha256
+ OR d.approver_subject<>a.approver_subject
+ OR pg_catalog.clock_timestamp()<a.valid_from
+ OR pg_catalog.clock_timestamp()>=a.valid_until
+ OR EXISTS(SELECT 1 FROM hft.protected_approval_revocation AS rev
+  WHERE rev.legal_entity_id=a.legal_entity_id
+   AND rev.approval_id=a.approval_id
+   AND rev.approval_revision=a.approval_revision)
+ OR EXISTS(SELECT 1 FROM hft.protected_approval_supersession AS sup
+  WHERE sup.legal_entity_id=a.legal_entity_id
+   AND sup.approval_id=a.approval_id
+   AND sup.approval_revision=a.approval_revision)
+ THEN RAISE EXCEPTION 'OPS_A2_ISSUER_ORIGINAL_APPROVAL_NOT_CURRENT'; END IF;
+ SELECT login.person_id INTO issuer_person FROM hft.approval_human_login AS login
+ WHERE login.legal_entity_id=a.legal_entity_id AND login.actor_subject=actor;
+ approver_person:=hft.p2_qualified_human_v1(a.legal_entity_id,
+  d.approver_subject,d.approver_session_id,a.kind,'APPROVER',
+  pg_catalog.clock_timestamp());
+ IF issuer_person IS NULL OR approver_person IS NULL
+ OR issuer_person=approver_person
+ THEN RAISE EXCEPTION 'OPS_A2_ISSUER_MAKER_CHECKER_PERSON_DENIED'; END IF;
+ INSERT INTO hft.ops_a2_source_binding(
+  request_id,legal_entity_id,site_id,warehouse_id,item_code,product_version_code,
+  action_kind,source_document_id,source_action_key,source_revision,
+  p0_payload_sha256,approved_scope_sha256,approval_id,approval_revision,
+  policy_generation,actor_subject,approver_subject,source_leaf,destination_leaf,
+  source_account_id,destination_account_id,source_account_before_version,
+  dest_account_before_version,employee_id,original_issue_id,fragment_id,
+  inspection_evidence_id,authorized_micro,status,issued_by,issuer_decision_sha256)
+ VALUES((p2->>'commandId')::uuid,p2->>'legalEntityId',p2->>'siteId',
+  p2->>'warehouseId',p2->>'itemCode',p2->>'productVersion',source_kind,
+  p2->>'sourceDocumentId',p2->>'sourceActionKey',
+  (p2->>'sourceRevision')::bigint,hft.p0_stores_payload_sha256_v1(p0),
+  p2->>'approvedPayloadSha256',p2->>'approvalId',
+  (p2->>'approvalRevision')::bigint,(p2->>'policyGeneration')::bigint,
+  actor,p2->>'approvedBy',source_leaf,destination_leaf,
+  NULLIF(p2->>'sourceAccountId','')::uuid,
+  (p2->>'destinationAccountId')::uuid,
+  NULLIF(p2->>'sourceAccountBeforeVersion','')::bigint,
+  (p2->>'destinationAccountBeforeVersion')::bigint,
+  p2->>'employeeId',p2->>'originalIssueId',p2->>'fragmentId',
+  p2->>'inspectionEvidenceId',(p2->>'quantityMicro')::bigint,
+  'APPROVED',session_user,d.decision_evidence_sha256);
+ -- Recheck the typed source, source ceiling, original human approvals, QC,
+ -- Holds, actor grants, account revisions and location after INSERT. Any
+ -- failure rolls the immutable binding INSERT back inside this transaction.
+ PERFORM hft.ops_a2_authorized_source_v2(p2);
+ RETURN (p2->>'commandId')::uuid;
+END $issue_binding$;
+ALTER FUNCTION hft.ops_a2_issue_source_binding_v2(jsonb,jsonb,jsonb)
+ OWNER TO hft_r1_posting_owner;
+REVOKE ALL ON FUNCTION hft.ops_a2_issue_source_binding_v2(jsonb,jsonb,jsonb)
+ FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
+
 -- Original nonce, payload, version and actor provenance is append-only;
 -- this is an authorization envelope, NOT a separate stock ledger/balance.
 CREATE TABLE hft.ops_a2_command_envelope(
