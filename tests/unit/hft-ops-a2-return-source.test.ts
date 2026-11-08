@@ -8,7 +8,7 @@ const request={
  legalEntityId:'LE01',siteId:'S01',warehouseId:'WH01',itemCode:'ITEM01',
  productVersion:'V01',controlType:'SERIAL',quantity:'1',uom:'EA',
  serialNo:'SER01',batchNo:'',leafLocationId:'BIN02',employeeId:'EMP01',
- returnDocumentId:'RET01',returnLineKey:'LINE01',originalIssueId:'ISSUE01',
+ returnDocumentId:'A123E456-E89B-42D3-A456-426614174001',returnLineKey:'LINE01',originalIssueId:'123e4567-e89b-42d3-a456-426614174002',
  inspectionEvidenceId:'QC01',inspectedCondition:'GOOD'
 } as const;
 const resolved:ProtectedReturnResolution={
@@ -21,7 +21,7 @@ const resolved:ProtectedReturnResolution={
   controlType:'SERIAL',serialNo:request.serialNo,batchNo:'',
   requestQuantity:'1',sourceLeafId:'BIN01',destinationLeafId:'BIN02',
   expectedSourceAccountVersion:1,expectedDestinationAccountVersion:2,
-  employeeId:'EMP01',originalIssueId:'ISSUE01',sourceDocumentId:'RET01',
+  employeeId:'EMP01',originalIssueId:'123e4567-e89b-42d3-a456-426614174002',sourceDocumentId:'a123e456-e89b-42d3-a456-426614174001',
   sourceActionKey:'LINE01',fragmentId:'LINE01',sourceRevision:1,
   approvalId:'APP01',approvalRevision:1,policyGeneration:1,
   approvedBy:'CHECKER01',actorSubject:'OPERATOR01',
@@ -29,7 +29,7 @@ const resolved:ProtectedReturnResolution={
 };
 test('RETURN protected resolver mapping produces a V2 custody command, not a post',()=>{
  const p=verifyReturnP2Source(request,resolved);
- assert.equal(p.kind,'RETURN');assert.equal(p.originalIssueId,'ISSUE01');
+ assert.equal(p.kind,'RETURN');assert.equal(p.originalIssueId,'123e4567-e89b-42d3-a456-426614174002');
  assert.equal(p.sourceLeafId,'BIN01');assert.equal(p.destinationLeafId,'BIN02');
  assert.equal(p.sourceAccountBeforeVersion,'1');
  assert.equal(p.destinationAccountBeforeVersion,'2');
@@ -39,7 +39,7 @@ test('RETURN protected resolver mapping produces a V2 custody command, not a pos
 test('RETURN exact source, custody, inspection, revision and maker-checker mismatches deny',()=>{
  const changes: Array<{request?:Record<string,string>;resolved?:unknown}>=[
   {request:{...request,employeeId:'EMP02'}},
-  {request:{...request,originalIssueId:'ISSUE02'}},
+  {request:{...request,originalIssueId:'223e4567-e89b-42d3-a456-426614174002'}},
   {request:{...request,returnLineKey:'LINE02'}},
   {request:{...request,leafLocationId:'BIN03'}},
   {request:{...request,inspectionEvidenceId:'QC02'}},
