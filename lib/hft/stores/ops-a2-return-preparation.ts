@@ -2,10 +2,11 @@
 import {parseQuantity,formatQuantity} from '../domain/quantity.ts';
 const id=/^[A-Z0-9][A-Z0-9._:-]{1,63}$/;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const fields=['contractVersion','kind','requestId','legalEntityId','siteId','warehouseId',
+export const OPS_A2_RETURN_REQUEST_FIELDS=['contractVersion','kind','requestId','legalEntityId','siteId','warehouseId',
  'itemCode','productVersion','controlType','quantity','uom','serialNo','batchNo',
  'leafLocationId','employeeId','returnDocumentId','returnLineKey','originalIssueId',
  'inspectionEvidenceId','inspectedCondition'] as const;
+const fields=OPS_A2_RETURN_REQUEST_FIELDS;
 export type OpsA2ReturnRequest=Readonly<Record<typeof fields[number],string>>;
 function invalid(name:string):never{throw Error('OPS_A2_RETURN_'+name+'_INVALID');}
 /** Strict client transport contract; independent typed return/inspection checks are SQL-only. */
