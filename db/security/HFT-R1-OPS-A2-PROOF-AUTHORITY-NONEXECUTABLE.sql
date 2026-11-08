@@ -322,8 +322,34 @@ BEGIN
   SELECT hft.p0_resolve_count_leaf_v1(b.legal_entity_id,b.warehouse_id,b.source_leaf)
    INTO location_name;
  END IF;
- SELECT hft.p0_resolve_count_leaf_v1(b.legal_entity_id,b.warehouse_id,b.destination_leaf)
-  INTO location_name;
+ -- ISSUE has NO destination leaf. Its credited account is employee custody,
+ -- retaining the physical SOURCE leaf. Never resolve an empty leaf as stock.
+ IF b.action_kind='ISSUE' THEN
+  IF b.destination_leaf<>'' OR b.source_leaf='' THEN
+   RAISE EXCEPTION 'OPS_A2_ISSUE_PHYSICAL_DESTINATION_FORBIDDEN'; END IF;
+  PERFORM 1 FROM hft.stock_account AS custody
+  WHERE custody.id=b.destination_account_id
+    AND custody.legal_entity_id=b.legal_entity_id
+    AND custody.site_id=b.site_id AND custody.warehouse_id=b.warehouse_id
+    AND custody.item_code=b.item_code
+    AND custody.product_version_code=b.product_version_code
+    AND custody.location_key=b.source_leaf
+    AND custody.account_kind='CUSTODY'
+    AND custody.condition='GOOD'
+    AND custody.custodian_employee_id=b.employee_id
+    AND custody.batch_key=p->>'batchNo'
+    AND custody.serial_key=p->>'serialNo'
+    AND custody.version=b.dest_account_before_version
+  FOR SHARE;
+  IF NOT FOUND THEN
+   RAISE EXCEPTION 'OPS_A2_ISSUE_CUSTODY_DESTINATION_NOT_BOUND'; END IF;
+ ELSE
+  IF b.destination_leaf='' THEN
+   RAISE EXCEPTION 'OPS_A2_PHYSICAL_DESTINATION_REQUIRED'; END IF;
+  SELECT hft.p0_resolve_count_leaf_v1(
+   b.legal_entity_id,b.warehouse_id,b.destination_leaf)
+   INTO location_name;
+ END IF;
  -- Parent holds plus exact item/warehouse Holds are checked after shared GATE
  -- advisory lock acquired by the protected writer.
  PERFORM 1 FROM hft.posting_parent_hold AS h
