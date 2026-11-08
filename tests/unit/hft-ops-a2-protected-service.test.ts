@@ -133,7 +133,14 @@ function pg(op:typeof receipt|typeof issue|typeof transfer,mode:Mode='OK'){
       state:'POSTED_PENDING_READBACK',commandId:payload.commandId,
       payloadSha256:opsAPayloadSha256(payload)}});
     }
-    if(sql.includes('ops_a2_reconcile_post_v2')){
+    if(sql.includes('ops_a2_reconcile_post_v3')){
+     const freshQuery=JSON.parse(String(params[2])) as Record<string,unknown>;
+     const freshProof=JSON.parse(String(params[3])) as Record<string,unknown>;
+     assert.equal(freshQuery.intent,'MOVEMENTS');
+     assert.equal(freshQuery.legalEntityId,'HFT');
+     assert.equal(freshQuery.productVersion,'PV1');
+     assert.equal(freshProof.proofVersion,'HFT-R1-P0-STORES-READ-HMAC-V1');
+     assert.equal(freshProof.actorSubject,'STORE1');
      const payload=JSON.parse(String(params[0])) as OpsAPayload;
      const proof=JSON.parse(String(params[1])) as OpsAProof;
      readbackNonce=proof.nonce;
@@ -164,7 +171,7 @@ test('OPS-A2 source-only IN calls P0 scoped resolver, single V2 writer, independ
  assert.equal(result.fact.command.kind,'RECEIVE');
  assert.equal(m.writerCommits(),1);assert.equal(m.connections(),3);
  assert.equal(m.calls.filter(x=>x.sql.includes('ops_a2_post_stock_command_v2')).length,1);
- assert.equal(m.calls.filter(x=>x.sql.includes('ops_a2_reconcile_post_v2')).length,1);
+ assert.equal(m.calls.filter(x=>x.sql.includes('ops_a2_reconcile_post_v3')).length,1);
  assert.equal(m.readbackNonce(),m.proof()?.nonce);
  assert.equal(m.calls.some(x=>/\b(?:INSERT|UPDATE|DELETE)\s+hft\./i.test(x.sql)),false);
 });
