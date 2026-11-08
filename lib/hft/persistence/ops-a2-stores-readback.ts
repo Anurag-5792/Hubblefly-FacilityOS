@@ -30,7 +30,7 @@ export type VersionedReadRow=Readonly<{
 export type OpsA2ReadResult=Readonly<{
  state:'SOURCE_ONLY_VERSIONED_READ_NOT_OPERATIONAL';
  intent:'BALANCES'|'MOVEMENTS'|'CUSTODY';
- sourceEpoch:string;nextCursor:string;
+ sourceEpoch:string;nextCursor:string;snapshotTotalRows?:number;
  versionAuthority:'OPS_A2_VERSION_AWARE_V2';
  rows:readonly VersionedReadRow[];
 }>;
@@ -54,7 +54,11 @@ export function checkOpsA2Readback(input:unknown,query:unknown):OpsA2ReadResult{
   typeof x.sourceEpoch!=='string'||!id.test(x.sourceEpoch)||
   typeof x.nextCursor!=='string'||x.nextCursor.length>512||
   !/^[A-Za-z0-9_-]*$/.test(x.nextCursor)||
-  !Array.isArray(x.rows)||x.rows.length>q.limit)
+  !Array.isArray(x.rows)||x.rows.length>q.limit||
+  (x.snapshotTotalRows!==undefined&&(
+   typeof x.snapshotTotalRows!=='number'||
+   !Number.isSafeInteger(x.snapshotTotalRows)||x.snapshotTotalRows<0||
+   x.snapshotTotalRows>10000)))
   throw Error('OPS_A2_READ_PROVENANCE_OR_PAGINATION_NOT_QUALIFIED');
  const rows:VersionedReadRow[]=[];
  const cursorSet=new Set<string>();
@@ -120,7 +124,9 @@ export function checkOpsA2Readback(input:unknown,query:unknown):OpsA2ReadResult{
  }
  return Object.freeze({state:'SOURCE_ONLY_VERSIONED_READ_NOT_OPERATIONAL',
   intent:q.intent,versionAuthority:'OPS_A2_VERSION_AWARE_V2',
-  sourceEpoch:x.sourceEpoch,nextCursor:x.nextCursor,rows:Object.freeze(rows)});
+  sourceEpoch:x.sourceEpoch,nextCursor:x.nextCursor,
+  ...(x.snapshotTotalRows===undefined?{}:{snapshotTotalRows:x.snapshotTotalRows as number}),
+  rows:Object.freeze(rows)});
 }
 export async function readOpsA2SyntheticSource(pool:PgPool,env:IsolatedPgEnvironment,
  request:unknown,actor:VerifiedRequestOperator,key:Uint8Array,keyVersion:number
@@ -158,7 +164,7 @@ export async function readOpsA2CompleteSyntheticSource(pool:PgPool,
   env.HFT_LIVE_POSTING_ENABLED!=='false'||original.cursor!=='')
   throw Error('OPS_A2_COMPLETE_SNAPSHOT_SOURCE_ONLY');
  return withProtectedReadbackTransaction(pool,env,async client=>{
-  let cursor='';let epoch='';let pages=0;
+  let cursor='';let epoch='';let pages=0;let total:number|undefined;
   const seen=new Set<string>(),all:VersionedReadRow[]=[];
   while(pages<Math.ceil(10000/original.limit)+1){
    const q={...original,cursor};
@@ -168,6 +174,10 @@ export async function readOpsA2CompleteSyntheticSource(pool:PgPool,
     [JSON.stringify(q),JSON.stringify(signed)]);
    if(r.rows.length!==1)throw Error('OPS_A2_SNAPSHOT_PAGE_NOT_SINGULAR');
    const page=checkOpsA2Readback(r.rows[0].response,q);
+   if(page.snapshotTotalRows===undefined||
+    pages>0&&page.snapshotTotalRows!==total)
+    throw Error('OPS_A2_SNAPSHOT_TOTAL_SCOPE_MISMATCH');
+   if(pages===0)total=page.snapshotTotalRows;
    if(pages>0&&page.sourceEpoch!==epoch)
     throw Error('OPS_A2_SNAPSHOT_SOURCE_EPOCH_CHANGED');
    if(pages===0)epoch=page.sourceEpoch;
@@ -178,16 +188,20 @@ export async function readOpsA2CompleteSyntheticSource(pool:PgPool,
    pages++;
    if(all.length>10000)throw Error('OPS_A2_SNAPSHOT_MAX_ROWS_EXCEEDED');
    if(!page.nextCursor){
+    if(all.length!==total)
+     throw Error('OPS_A2_SNAPSHOT_EARLY_TERMINAL_OR_MISSING_ROWS');
     return Object.freeze({
      state:'SOURCE_ONLY_VERSIONED_READ_NOT_OPERATIONAL' as const,
      versionAuthority:'OPS_A2_VERSION_AWARE_V2' as const,
      intent:original.intent,sourceEpoch:epoch,nextCursor:'',
+     snapshotTotalRows:total,
      rows:Object.freeze(all),complete:true as const,pageCount:pages
     });
    }
    // A complete page must advance exactly by the signed offset. Skips,
    // empty pages, duplicates and repeated continuation are fail-closed.
    if(page.rows.length!==original.limit||
+    all.length>=total!||
     page.nextCursor!==String(all.length)||page.nextCursor===cursor)
     throw Error('OPS_A2_SNAPSHOT_PAGE_GAP_OR_TRUNCATION');
    cursor=page.nextCursor;
