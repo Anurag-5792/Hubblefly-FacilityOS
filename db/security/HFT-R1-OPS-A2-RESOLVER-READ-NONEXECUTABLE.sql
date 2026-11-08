@@ -5,6 +5,117 @@ DO $STOP_OPS_A2_READ$
 BEGIN RAISE EXCEPTION 'OPS_A2_PROTECTED_SQL_EXECUTION_NOT_AUTHORIZED'; END
 $STOP_OPS_A2_READ$;
 
+-- Strict, separately domain-separated RETURN HMAC for signed P0 transport.
+-- Canonical order matches lib/hft/security/ops-a2-return-proof.ts. This is
+-- NOT the existing P0 IN/OUT/TRANSFER signing contract.
+CREATE OR REPLACE FUNCTION hft.ops_a2_return_payload_fields_v1(p jsonb)
+RETURNS text[] LANGUAGE plpgsql IMMUTABLE
+SET search_path=pg_catalog,pg_temp AS $return_fields$
+DECLARE
+ keys text[]:=ARRAY['contractVersion','kind','requestId','legalEntityId',
+ 'siteId','warehouseId','itemCode','productVersion','controlType','quantity',
+ 'uom','serialNo','batchNo','leafLocationId','employeeId',
+ 'returnDocumentId','returnLineKey','originalIssueId',
+ 'inspectionEvidenceId','inspectedCondition'];
+ f text;
+BEGIN
+ IF pg_catalog.jsonb_typeof(p)<>'object'
+ OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(p))<>20
+ OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_object_keys(p) AS k
+    WHERE NOT k=ANY(keys))
+ THEN RAISE EXCEPTION 'OPS_A2_RETURN_EXACT_P0_SOURCE_REQUIRED'; END IF;
+ FOREACH f IN ARRAY keys LOOP
+  IF pg_catalog.jsonb_typeof(p->f)<>'string'
+  THEN RAISE EXCEPTION 'OPS_A2_RETURN_P0_FIELDS_MUST_BE_STRINGS'; END IF;
+ END LOOP;
+ IF p->>'contractVersion'<>'HFT-R1-OPS-A2-RETURN-PREPARE-V1'
+ OR p->>'kind'<>'RETURN'
+ OR p->>'returnDocumentId' !~ '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$'
+ OR p->>'originalIssueId' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+ OR p->>'requestId' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+ OR p->>'quantity' !~ '^(0|[1-9][0-9]*)([.][0-9]{1,6})?$'
+ OR (p->>'quantity')::numeric<=0
+ OR p->>'inspectedCondition' NOT IN('GOOD','DAMAGED','QUARANTINE')
+ THEN RAISE EXCEPTION 'OPS_A2_RETURN_P0_CANONICAL_IDENTITY_INVALID'; END IF;
+ RETURN ARRAY(SELECT p->>k FROM pg_catalog.unnest(keys) AS k);
+END $return_fields$;
+CREATE OR REPLACE FUNCTION hft.ops_a2_return_payload_sha256_v1(p jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,pg_temp
+AS $return_digest$
+ SELECT pg_catalog.encode(hft_crypto.digest(
+  hft.p2_length_prefixed_v1(hft.ops_a2_return_payload_fields_v1(p)),
+  'sha256'),'hex');
+$return_digest$;
+REVOKE ALL ON FUNCTION hft.ops_a2_return_payload_fields_v1(jsonb),
+ hft.ops_a2_return_payload_sha256_v1(jsonb) FROM PUBLIC,hft_r1_app_runtime;
+
+CREATE OR REPLACE FUNCTION hft.ops_a2_verify_return_proof_v1(p jsonb,proof jsonb)
+RETURNS text LANGUAGE plpgsql VOLATILE
+SET search_path=pg_catalog,pg_temp AS $return_proof$
+DECLARE
+ k hft_secret.p0_stores_proof_key%ROWTYPE;
+ f text;names text[]:=ARRAY['proofVersion','actorSubject','sessionId',
+  'payloadSha256','issuedAt','expiresAt','nonce','keyVersion','macSha256'];
+ expected bytea;claimed bytea;difference integer:=0;i integer;v integer;
+ issued bigint;expires bigint;at_epoch bigint;
+BEGIN
+ IF pg_catalog.current_setting('transaction_isolation')<>'serializable'
+ OR pg_catalog.jsonb_typeof(proof)<>'object'
+ OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(proof))<>9
+ THEN RAISE EXCEPTION 'OPS_A2_RETURN_PROTECTED_PROOF_REQUIRED'; END IF;
+ FOREACH f IN ARRAY names LOOP
+  IF pg_catalog.jsonb_typeof(proof->f)<>'string'
+  THEN RAISE EXCEPTION 'OPS_A2_RETURN_PROOF_STRING_FIELDS_REQUIRED'; END IF;
+ END LOOP;
+ IF proof->>'proofVersion'<>'HFT-R1-OPS-A2-RETURN-HMAC-V1'
+ OR proof->>'payloadSha256'<>hft.ops_a2_return_payload_sha256_v1(p)
+ OR proof->>'nonce' !~ '^[0-9a-f]{48}$'
+ OR proof->>'macSha256' !~ '^[0-9a-f]{64}$'
+ OR proof->>'keyVersion' !~ '^[1-9][0-9]{0,8}$'
+ OR proof->>'issuedAt' !~ '^[1-9][0-9]{0,18}$'
+ OR proof->>'expiresAt' !~ '^[1-9][0-9]{0,18}$'
+ THEN RAISE EXCEPTION 'OPS_A2_RETURN_ORIGINAL_HMAC_FORMAT_INVALID'; END IF;
+ issued:=(proof->>'issuedAt')::bigint;
+ expires:=(proof->>'expiresAt')::bigint;
+ v:=(proof->>'keyVersion')::integer;
+ at_epoch:=pg_catalog.floor(
+  pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp()))::bigint;
+ IF issued>at_epoch+30 OR expires<=at_epoch
+ OR expires<=issued OR expires-issued>40
+ THEN RAISE EXCEPTION 'OPS_A2_RETURN_HMAC_EXPIRED'; END IF;
+ SELECT * INTO k FROM hft_secret.p0_stores_proof_key
+ WHERE key_version=v FOR SHARE;
+ IF k.key_version IS NULL OR k.revoked_at IS NOT NULL
+ OR pg_catalog.clock_timestamp()<k.not_before
+ OR pg_catalog.clock_timestamp()>=k.not_after
+ THEN RAISE EXCEPTION 'OPS_A2_RETURN_KEY_REVOKED'; END IF;
+ expected:=hft_crypto.hmac(hft.p2_length_prefixed_v1(ARRAY[
+  proof->>'proofVersion',proof->>'actorSubject',proof->>'sessionId',
+  proof->>'payloadSha256',proof->>'issuedAt',proof->>'expiresAt',
+  proof->>'nonce',proof->>'keyVersion']),k.key_bytes,'sha256');
+ claimed:=pg_catalog.decode(proof->>'macSha256','hex');
+ FOR i IN 0..31 LOOP
+  difference:=difference | (
+    pg_catalog.get_byte(expected,i) # pg_catalog.get_byte(claimed,i));
+ END LOOP;
+ IF difference<>0 THEN RAISE EXCEPTION 'OPS_A2_RETURN_HMAC_INVALID'; END IF;
+ PERFORM 1 FROM hft.posting_session AS sess
+ WHERE sess.session_id=proof->>'sessionId'
+ AND sess.actor_subject=proof->>'actorSubject'
+ AND sess.revoked_at IS NULL AND sess.expires_at>pg_catalog.clock_timestamp()
+ FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_RETURN_SIGNED_SESSION_INVALID'; END IF;
+ PERFORM 1 FROM hft.actor_warehouse_grant AS g
+ WHERE g.legal_entity_id=p->>'legalEntityId' AND g.site_id=p->>'siteId'
+ AND g.warehouse_id=p->>'warehouseId'
+ AND g.actor_subject=proof->>'actorSubject' AND g.active AND g.may_post
+ FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_RETURN_ACTOR_SCOPE_DENIED'; END IF;
+ RETURN proof->>'actorSubject';
+END $return_proof$;
+REVOKE ALL ON FUNCTION hft.ops_a2_verify_return_proof_v1(jsonb,jsonb)
+ FROM PUBLIC,hft_r1_app_runtime;
+
 -- P0 browser command is authenticated using the existing P0 proof, then
 -- compared against a persisted, independently approved exact source binding.
 -- P2 writer independently rechecks the same original source and governance.
