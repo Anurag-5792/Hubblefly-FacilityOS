@@ -19,11 +19,13 @@ const sourceMode='OPS_A2_SYNTHETIC_PG_CLIENT_ONLY';
 export type VersionedReadRow=Readonly<{
  legalEntityId:string;siteId:string;warehouseId:string;
  itemCode:string;productVersion:string;leafLocationId:string;
- accountKind:'AVAILABLE'|'CUSTODY'|'QUARANTINE'|'DAMAGED'|'WIP'|'INSTALLED';
+ accountKind:'EXTERNAL'|'AVAILABLE'|'CUSTODY'|'QUARANTINE'|'DAMAGED'|'WIP'|'INSTALLED';
  condition:'GOOD'|'DAMAGED'|'QUARANTINE';
  serialNo:string;batchNo:string;employeeId:string;
  quantity:string;accountVersion:number;movementId:string;
  auditSha256:string;humanAcknowledgement:string;originalIssueId?:string;
+ accountBeforeVersion?:number|null;accountAfterVersion?:number|null;
+ commandUuid?:string;entryId?:string;
 }>;
 export type OpsA2ReadResult=Readonly<{
  state:'SOURCE_ONLY_VERSIONED_READ_NOT_OPERATIONAL';
@@ -79,7 +81,8 @@ export function checkOpsA2Readback(input:unknown,query:unknown):OpsA2ReadResult{
      q.leafLocationId&&r.leafLocationId!==q.leafLocationId||
      q.employeeId&&r.employeeId!==q.employeeId)
    throw Error('OPS_A2_READ_FILTER_NOT_ENFORCED');
-  if(!['AVAILABLE','CUSTODY','QUARANTINE','DAMAGED','WIP','INSTALLED'].includes(r.accountKind as string)||
+  if(!['EXTERNAL','AVAILABLE','CUSTODY','QUARANTINE','DAMAGED','WIP','INSTALLED'].includes(r.accountKind as string)||
+     r.accountKind==='EXTERNAL'&&q.intent!=='MOVEMENTS'||
      !['GOOD','DAMAGED','QUARANTINE'].includes(r.condition as string)||
      r.accountKind==='CUSTODY'&&r.employeeId===''||
      r.accountKind!=='CUSTODY'&&r.employeeId!==''&&q.intent!=='MOVEMENTS'||
@@ -92,6 +95,17 @@ export function checkOpsA2Readback(input:unknown,query:unknown):OpsA2ReadResult{
   const micro=parseQuantity(signed?(r.quantity as string).slice(1):r.quantity as string);
   if(micro===0n&&q.intent==='MOVEMENTS')
    throw Error('OPS_A2_READ_ZERO_MOVEMENT');
+  if(q.intent==='MOVEMENTS'&&(
+    typeof r.commandUuid!=='string'||!id.test(r.commandUuid)||
+    typeof r.entryId!=='string'||!id.test(r.entryId)||
+    r.accountKind==='EXTERNAL'&&(
+      r.accountBeforeVersion!==null||r.accountAfterVersion!==null)||
+    r.accountKind!=='EXTERNAL'&&(
+      !Number.isSafeInteger(r.accountBeforeVersion)||
+      !Number.isSafeInteger(r.accountAfterVersion)||
+      (r.accountAfterVersion as number)!==(r.accountBeforeVersion as number)+1||
+      r.accountVersion!==r.accountAfterVersion)))
+   throw Error('OPS_A2_READ_HISTORICAL_MOVEMENT_REVISION_INVALID');
   if(q.intent==='CUSTODY'&&
    (r.accountKind!=='CUSTODY'||
     !['ACK_PENDING','ACKNOWLEDGED','DISPUTED'].includes(r.humanAcknowledgement as string)||
