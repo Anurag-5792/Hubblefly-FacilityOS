@@ -131,6 +131,40 @@ CREATE TABLE hft.ops_a2_transfer_document(
  CHECK(source_leaf<>destination_leaf),
  CHECK(prepared_by<>checked_by AND prepared_by<>approved_by AND checked_by<>approved_by)
 );
+-- Governance 060: authorize exactly the writer's cumulative movement transition.
+-- Every corporate identity, signed approval and source document field is
+-- immutable. No arbitrary authorized-document edit or document deletion.
+CREATE OR REPLACE FUNCTION hft.ops_a2_protect_transfer_document_v2()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $protect_transfer$
+BEGIN
+ IF TG_OP='DELETE' THEN
+  RAISE EXCEPTION 'OPS_A2_TRANSFER_DOCUMENT_DELETION_DENIED';
+ END IF;
+ IF current_user<>'hft_r1_posting_owner'
+ OR ROW(NEW.id,NEW.legal_entity_id,NEW.site_id,NEW.warehouse_id,
+  NEW.item_code,NEW.product_version_code,NEW.source_leaf,NEW.destination_leaf,
+  NEW.batch_no,NEW.serial_no,NEW.authorized_micro,NEW.revision,
+  NEW.prepared_by,NEW.checked_by,NEW.approved_by,NEW.approved_at,
+  NEW.approval_evidence_sha256)
+ IS DISTINCT FROM ROW(OLD.id,OLD.legal_entity_id,OLD.site_id,OLD.warehouse_id,
+  OLD.item_code,OLD.product_version_code,OLD.source_leaf,OLD.destination_leaf,
+  OLD.batch_no,OLD.serial_no,OLD.authorized_micro,OLD.revision,
+  OLD.prepared_by,OLD.checked_by,OLD.approved_by,OLD.approved_at,
+  OLD.approval_evidence_sha256)
+ OR OLD.status NOT IN('AUTHORIZED','PARTIALLY_MOVED')
+ OR NEW.moved_micro<=OLD.moved_micro
+ OR NEW.moved_micro>OLD.authorized_micro
+ OR NEW.status<>CASE WHEN NEW.moved_micro=OLD.authorized_micro
+  THEN 'MOVED' ELSE 'PARTIALLY_MOVED' END
+ THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_ONLY_PROTECTED_WRITER_TRANSITION'; END IF;
+ RETURN NEW;
+END $protect_transfer$;
+CREATE TRIGGER ops_a2_transfer_document_immutable_v2
+ BEFORE UPDATE OR DELETE ON hft.ops_a2_transfer_document
+ FOR EACH ROW EXECUTE FUNCTION hft.ops_a2_protect_transfer_document_v2();
+REVOKE EXECUTE ON FUNCTION hft.ops_a2_protect_transfer_document_v2()
+ FROM PUBLIC,hft_r1_app_runtime;
+
 -- Only a protected, approved source-governance process may create/authorize.
 -- Direct runtime DML and approval-state transition rights remain revoked.
 REVOKE ALL ON hft.ops_a2_transfer_document FROM PUBLIC,hft_r1_app_runtime;
