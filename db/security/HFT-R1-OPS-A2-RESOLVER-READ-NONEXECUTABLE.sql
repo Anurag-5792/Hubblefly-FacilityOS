@@ -375,6 +375,56 @@ BEGIN
       'auditSha256',c.canonical_sha256,
       'humanAcknowledgement','NOT_APPLICABLE'));
   END LOOP;
+ ELSIF q->>'intent'='CUSTODY' THEN
+  -- One row per ORIGINAL ISSUE, never a latest-ACK inference on an
+  -- aggregate CUSTODY account. Separate issue/fragment provenance survives.
+  FOR c IN
+   SELECT cu.issue_command_id,cu.legal_entity_id,issue.site_id,
+    cu.warehouse_id,cu.item_code,cu.product_version_code,
+    cu.location_id,cu.employee_id,cu.serial_no,cu.batch_no,
+    cu.issued_micro-cu.returned_micro AS outstanding_micro,
+    a.version AS account_version,ack.state AS ack_state,
+    audit.canonical_sha256 AS source_audit,issue.command_id AS original_issue_id
+   FROM hft.employee_custody AS cu
+   JOIN hft.stock_command AS issue ON issue.id=cu.issue_command_id
+   JOIN hft.custody_ack_status_v1 AS ack
+    ON ack.issue_command_uuid=cu.issue_command_id
+    AND ack.legal_entity_id=cu.legal_entity_id
+    AND ack.employee_id=cu.employee_id
+   JOIN hft.audit_outbox AS audit ON audit.command_id=cu.issue_command_id
+   JOIN hft.stock_account AS a
+    ON a.legal_entity_id=cu.legal_entity_id
+    AND a.site_id=issue.site_id AND a.warehouse_id=cu.warehouse_id
+    AND a.item_code=cu.item_code
+    AND a.product_version_code=cu.product_version_code
+    AND a.location_key=cu.location_id
+    AND a.account_kind='CUSTODY'
+    AND a.custodian_employee_id=cu.employee_id
+    AND a.serial_key=cu.serial_no AND a.batch_key=cu.batch_no
+   WHERE cu.legal_entity_id=q->>'legalEntityId'
+    AND issue.site_id=q->>'siteId'
+    AND cu.warehouse_id=q->>'warehouseId'
+    AND cu.employee_id=q->>'employeeId'
+    AND cu.issued_micro>cu.returned_micro
+    AND (q->>'itemCode'='' OR cu.item_code=q->>'itemCode')
+    AND (q->>'productVersion'='' OR cu.product_version_code=q->>'productVersion')
+    AND (q->>'leafLocationId'='' OR cu.location_id=q->>'leafLocationId')
+   ORDER BY cu.issue_command_id LIMIT (q->>'limit')::integer+1
+  LOOP
+   IF c.ack_state NOT IN('ACK_PENDING','ACKNOWLEDGED','DISPUTED')
+   THEN RAISE EXCEPTION 'OPS_A2_CUSTODY_ACK_STATE_INVALID'; END IF;
+   rows:=rows||pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+    'legalEntityId',c.legal_entity_id,'siteId',c.site_id,
+    'warehouseId',c.warehouse_id,'itemCode',c.item_code,
+    'productVersion',c.product_version_code,'leafLocationId',c.location_id,
+    'accountKind','CUSTODY','condition','GOOD',
+    'serialNo',c.serial_no,'batchNo',c.batch_no,'employeeId',c.employee_id,
+    'quantity',hft.format_signed_micro_v2(c.outstanding_micro),
+    'accountVersion',c.account_version,
+    'movementId','ISSUE-'||c.issue_command_id::text,
+    'originalIssueId',c.original_issue_id,
+    'auditSha256',c.source_audit,'humanAcknowledgement',c.ack_state));
+  END LOOP;
  ELSE
   FOR c IN
    SELECT a.*,COALESCE(
