@@ -514,6 +514,142 @@ ALTER FUNCTION hft.ops_a2_provision_zero_account_v2(uuid)
 REVOKE ALL ON FUNCTION hft.ops_a2_provision_zero_account_v2(uuid)
  FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
 
+-- Independently pre-enrolled TRANSFER issuance order. It is an approval
+-- authority reference, NOT an account and NOT a stock movement. Its issuer
+-- must independently attest the original document and corporate people.
+CREATE TABLE hft.ops_a2_transfer_issuance_order(
+ order_id uuid PRIMARY KEY,document_id uuid NOT NULL UNIQUE,
+ legal_entity_id text NOT NULL,site_id text NOT NULL,warehouse_id text NOT NULL,
+ item_code text NOT NULL,product_version_code text NOT NULL,
+ source_leaf text NOT NULL,destination_leaf text NOT NULL,
+ batch_no text NOT NULL DEFAULT '',serial_no text NOT NULL DEFAULT '',
+ authorized_micro bigint NOT NULL CHECK(authorized_micro>0),
+ revision bigint NOT NULL CHECK(revision>0),
+ prepared_subject text NOT NULL,prepared_session_id text NOT NULL,
+ checked_subject text NOT NULL,checked_session_id text NOT NULL,
+ approved_subject text NOT NULL,approved_session_id text NOT NULL,
+ approved_at timestamptz NOT NULL,
+ decision_evidence_sha256 text NOT NULL
+ CHECK(decision_evidence_sha256~'^[0-9a-f]{64}$'),
+ policy_generation bigint NOT NULL CHECK(policy_generation>0),
+ status text NOT NULL CHECK(status='AUTHORIZED'),
+ FOREIGN KEY(legal_entity_id,warehouse_id,site_id)
+ REFERENCES hft.warehouse(legal_entity_id,warehouse_id,site_id),
+ FOREIGN KEY(legal_entity_id,item_code,product_version_code)
+ REFERENCES hft.item_version_catalog(legal_entity_id,item_code,version_code),
+ FOREIGN KEY(legal_entity_id,warehouse_id,source_leaf)
+ REFERENCES hft.location(legal_entity_id,warehouse_id,location_id),
+ FOREIGN KEY(legal_entity_id,warehouse_id,destination_leaf)
+ REFERENCES hft.location(legal_entity_id,warehouse_id,location_id),
+ CHECK(source_leaf<>destination_leaf),
+ CHECK(prepared_subject<>checked_subject AND
+ prepared_subject<>approved_subject AND checked_subject<>approved_subject)
+);
+CREATE TABLE hft.ops_a2_transfer_issuance_receipt(
+ order_id uuid PRIMARY KEY REFERENCES hft.ops_a2_transfer_issuance_order(order_id),
+ document_id uuid NOT NULL UNIQUE REFERENCES hft.ops_a2_transfer_document(id),
+ issued_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+ issuer_login text NOT NULL,original_decision_sha256 text NOT NULL
+ CHECK(original_decision_sha256~'^[0-9a-f]{64}$')
+);
+CREATE TRIGGER immutable_ops_a2_transfer_order BEFORE UPDATE OR DELETE
+ ON hft.ops_a2_transfer_issuance_order FOR EACH ROW
+ EXECUTE FUNCTION hft.deny_fact_mutation();
+CREATE TRIGGER immutable_ops_a2_transfer_issuance_receipt BEFORE UPDATE OR DELETE
+ ON hft.ops_a2_transfer_issuance_receipt FOR EACH ROW
+ EXECUTE FUNCTION hft.deny_fact_mutation();
+REVOKE ALL ON hft.ops_a2_transfer_issuance_order,
+ hft.ops_a2_transfer_issuance_receipt FROM PUBLIC,hft_r1_app_runtime;
+
+-- Only the independently governed issuance order may create an AUTHORIZED
+-- transfer document; there is no DRAFT->AUTHORIZED runtime shortcut.
+CREATE OR REPLACE FUNCTION hft.ops_a2_issue_transfer_document_v2(p_order uuid)
+RETURNS uuid LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $issue_transfer$
+DECLARE
+ o hft.ops_a2_transfer_issuance_order%ROWTYPE;
+ maker text;checker text;approver text;policy_generation bigint;
+ leaf_name text;
+BEGIN
+ IF pg_catalog.current_setting('transaction_isolation')<>'serializable'
+ OR NOT pg_catalog.pg_has_role(session_user,'hft_r1_governance_issuer','MEMBER')
+ OR pg_catalog.pg_has_role(session_user,'hft_r1_app_runtime','MEMBER')
+ OR session_user IN('hft_engineering','hft_r1_posting_owner')
+ THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_INDEPENDENT_ISSUER_LOGIN_REQUIRED'; END IF;
+ SELECT * INTO o FROM hft.ops_a2_transfer_issuance_order
+ WHERE order_id=p_order AND status='AUTHORIZED' FOR SHARE;
+ IF o.order_id IS NULL OR EXISTS(
+  SELECT 1 FROM hft.ops_a2_transfer_issuance_receipt WHERE order_id=p_order)
+ THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_ORDER_ABSENT_OR_CONSUMED'; END IF;
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+  'HFT:GATE:'||o.legal_entity_id||':'||o.site_id||':'||o.warehouse_id,0));
+ PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+  'HFT:STOCK:'||o.legal_entity_id||':'||o.warehouse_id||':'||
+   o.item_code||':'||o.batch_no||':'||o.serial_no,0));
+ maker:=hft.p2_qualified_human_v1(o.legal_entity_id,o.prepared_subject,
+  o.prepared_session_id,'TRANSFER','PREPARER',pg_catalog.clock_timestamp());
+ checker:=hft.p2_qualified_human_v1(o.legal_entity_id,o.checked_subject,
+  o.checked_session_id,'TRANSFER','CHECKER',pg_catalog.clock_timestamp());
+ approver:=hft.p2_qualified_human_v1(o.legal_entity_id,o.approved_subject,
+  o.approved_session_id,'TRANSFER','APPROVER',pg_catalog.clock_timestamp());
+ IF maker IS NULL OR checker IS NULL OR approver IS NULL OR
+ maker=checker OR maker=approver OR checker=approver
+ THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_STABLE_PERSON_INDEPENDENCE_REQUIRED'; END IF;
+ SELECT generation INTO policy_generation FROM hft.posting_policy_epoch
+ WHERE legal_entity_id=o.legal_entity_id AND site_id=o.site_id
+ AND warehouse_id=o.warehouse_id FOR SHARE;
+ IF policy_generation IS NULL OR policy_generation<>o.policy_generation
+ THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_POLICY_STALE'; END IF;
+ PERFORM 1 FROM hft.posting_action_policy AS pol
+ WHERE pol.legal_entity_id=o.legal_entity_id AND pol.site_id=o.site_id
+ AND pol.warehouse_id=o.warehouse_id AND pol.action_kind='TRANSFER'
+ AND pol.require_preparer AND pol.require_checker
+ AND pol.require_independent_approver
+ AND pg_catalog.clock_timestamp()>=pol.valid_from
+ AND pg_catalog.clock_timestamp()<pol.valid_until
+ ORDER BY pol.policy_revision DESC LIMIT 1 FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_CURRENT_POLICY_MISSING'; END IF;
+ PERFORM 1 FROM hft.stock_hold AS hold WHERE hold.active
+ AND hold.legal_entity_id=o.legal_entity_id
+ AND hold.site_id=o.site_id AND hold.warehouse_id=o.warehouse_id
+ AND (hold.item_code IS NULL OR hold.item_code=o.item_code) FOR SHARE;
+ IF FOUND THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_STOCK_HOLD_ACTIVE'; END IF;
+ PERFORM 1 FROM hft.posting_parent_hold AS hold
+ WHERE hold.active AND hold.legal_entity_id=o.legal_entity_id
+ AND (hold.scope_kind='ENTITY' OR hold.scope_kind='SITE' AND hold.site_id=o.site_id)
+ AND (hold.expires_at IS NULL OR hold.expires_at>pg_catalog.clock_timestamp())
+ AND NOT EXISTS(SELECT 1 FROM hft.posting_parent_hold_clearance AS clear
+  WHERE clear.legal_entity_id=hold.legal_entity_id AND clear.hold_id=hold.hold_id)
+ FOR SHARE;
+ IF FOUND THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_PARENT_HOLD_ACTIVE'; END IF;
+ SELECT hft.p0_resolve_count_leaf_v1(o.legal_entity_id,o.warehouse_id,
+  o.source_leaf) INTO leaf_name;
+ SELECT hft.p0_resolve_count_leaf_v1(o.legal_entity_id,o.warehouse_id,
+  o.destination_leaf) INTO leaf_name;
+ PERFORM 1 FROM hft.item_version_catalog AS v
+ WHERE v.legal_entity_id=o.legal_entity_id AND v.item_code=o.item_code
+ AND v.version_code=o.product_version_code AND v.state='ACTIVE' FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_VERSION_INACTIVE'; END IF;
+ INSERT INTO hft.ops_a2_transfer_document(
+  id,legal_entity_id,site_id,warehouse_id,item_code,product_version_code,
+  source_leaf,destination_leaf,batch_no,serial_no,authorized_micro,
+  moved_micro,revision,status,prepared_by,checked_by,approved_by,
+  approved_at,approval_evidence_sha256)
+ VALUES(o.document_id,o.legal_entity_id,o.site_id,o.warehouse_id,
+  o.item_code,o.product_version_code,o.source_leaf,o.destination_leaf,
+  o.batch_no,o.serial_no,o.authorized_micro,0,o.revision,'AUTHORIZED',
+  o.prepared_subject,o.checked_subject,o.approved_subject,o.approved_at,
+  o.decision_evidence_sha256);
+ INSERT INTO hft.ops_a2_transfer_issuance_receipt(
+  order_id,document_id,issuer_login,original_decision_sha256)
+ VALUES(o.order_id,o.document_id,session_user,o.decision_evidence_sha256);
+ RETURN o.document_id;
+END $issue_transfer$;
+ALTER FUNCTION hft.ops_a2_issue_transfer_document_v2(uuid)
+ OWNER TO hft_r1_posting_owner;
+REVOKE ALL ON FUNCTION hft.ops_a2_issue_transfer_document_v2(uuid)
+ FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
+
 -- Original nonce, payload, version and actor provenance is append-only;
 -- this is an authorization envelope, NOT a separate stock ledger/balance.
 CREATE TABLE hft.ops_a2_command_envelope(
