@@ -226,10 +226,10 @@ BEGIN
  ELSE RAISE EXCEPTION 'P2_UNKNOWN_APPROVAL_ACTION'; END IF;
  IF v_rev IS NULL OR v_rev<>NEW.document_revision
  OR v_approver IS DISTINCT FROM NEW.approver_subject
- OR pg_catalog.coalesce(v_maker,'')<>NEW.prepared_by
- OR pg_catalog.coalesce(v_checker,'')<>NEW.checked_by
- OR d.prepared_subject IS DISTINCT FROM pg_catalog.nullif(NEW.prepared_by,'')
- OR d.checked_subject IS DISTINCT FROM pg_catalog.nullif(NEW.checked_by,'')
+ OR COALESCE(v_maker,'')<>NEW.prepared_by
+ OR COALESCE(v_checker,'')<>NEW.checked_by
+ OR d.prepared_subject IS DISTINCT FROM NULLIF(NEW.prepared_by,'')
+ OR d.checked_subject IS DISTINCT FROM NULLIF(NEW.checked_by,'')
  THEN RAISE EXCEPTION 'P2_APPROVAL_SOURCE_ROLE_OR_REVISION_MISMATCH'; END IF;
  IF (pol.require_preparer AND (d.prepared_subject IS NULL OR d.prepared_session_id IS NULL))
  OR (pol.require_checker AND (d.checked_subject IS NULL OR d.checked_session_id IS NULL))
@@ -573,9 +573,9 @@ BEGIN
   OR b.approver_subject<>p->>'approvedBy'
   OR b.source_leaf<>p->>'sourceLeafId'
   OR b.destination_leaf<>p->>'destinationLeafId'
-  OR pg_catalog.coalesce(b.source_account_id::text,'')<>p->>'sourceAccountId'
+  OR COALESCE(b.source_account_id::text,'')<>p->>'sourceAccountId'
   OR b.destination_account_id::text<>p->>'destinationAccountId'
-  OR pg_catalog.coalesce(b.source_account_before_version::text,'')<>
+  OR COALESCE(b.source_account_before_version::text,'')<>
      p->>'sourceAccountBeforeVersion'
   OR b.dest_account_before_version::text<>p->>'destinationAccountBeforeVersion'
   OR b.employee_id<>p->>'employeeId'
@@ -903,8 +903,8 @@ BEGIN
   AND action_kind=NEW.kind
   AND source_leaf=NEW.ops_a2_source_leaf
   AND destination_leaf=NEW.ops_a2_destination_leaf
-  AND pg_catalog.coalesce(source_account_id::text,'')=
-       pg_catalog.coalesce(NEW.ops_a2_source_account_id::text,'')
+  AND COALESCE(source_account_id::text,'')=
+       COALESCE(NEW.ops_a2_source_account_id::text,'')
   AND destination_account_id=NEW.ops_a2_destination_account_id
   FOR SHARE;
  IF b.request_id IS NULL THEN
@@ -959,7 +959,7 @@ BEGIN
  OR outcome.committed_by<>c.actor_subject
  OR NOT EXISTS(SELECT 1 FROM hft.audit_delivery d WHERE d.outbox_id=outbox.id)
  THEN RAISE EXCEPTION 'OPS_A2_V2_IMMUTABLE_SEAL_AUDIT_OR_OUTCOME_INVALID'; END IF;
- SELECT count(*),pg_catalog.coalesce(sum(qty_delta_micro),0)
+ SELECT count(*),COALESCE(sum(qty_delta_micro),0)
  INTO nlegs,delta FROM hft.stock_entry WHERE command_id=p_id;
  -- A zero net delta alone is not conservation: forged equal-and-opposite
  -- legs of the wrong magnitude must be rejected at deferred COMMIT.
@@ -968,7 +968,7 @@ BEGIN
     WHERE debit.command_id=p_id AND debit.qty_delta_micro=-c.quantity_micro
     AND (debit.account_id IS NOT DISTINCT FROM c.ops_a2_source_account_id)
     AND (debit.account_before_version IS NOT DISTINCT FROM
-      pg_catalog.nullif(envelope.exact_payload->>'sourceAccountBeforeVersion','')::bigint
+      NULLIF(envelope.exact_payload->>'sourceAccountBeforeVersion','')::bigint
       OR c.kind='RECEIVE' AND debit.account_before_version IS NULL)
     AND (debit.account_after_version=debit.account_before_version+1
       OR c.kind='RECEIVE' AND debit.account_after_version IS NULL))<>1 OR
@@ -1005,13 +1005,13 @@ BEGIN
  );
  IF missing<>0 THEN RAISE EXCEPTION 'OPS_A2_V2_IMMUTABLE_LEDGER_ATTRIBUTION_INVALID'; END IF;
  SELECT pg_catalog.encode(hft_crypto.digest(pg_catalog.convert_to(
-  pg_catalog.coalesce(pg_catalog.string_agg(
+  COALESCE(pg_catalog.string_agg(
    leg.id::text||'/'||leg.bucket||'/'||
-   pg_catalog.coalesce(leg.account_id::text,'-')||'/'||
+   COALESCE(leg.account_id::text,'-')||'/'||
    leg.qty_delta_micro::text||'/'||
-   pg_catalog.coalesce(leg.employee_id,'')||'/'||
-   pg_catalog.coalesce(leg.batch_no,'')||'/'||
-   pg_catalog.coalesce(leg.serial_no,''),E'\n' ORDER BY leg.id),''),
+   COALESCE(leg.employee_id,'')||'/'||
+   COALESCE(leg.batch_no,'')||'/'||
+   COALESCE(leg.serial_no,''),E'\n' ORDER BY leg.id),''),
   'UTF8'),'sha256'),'hex')
  INTO ledger_digest FROM hft.stock_entry leg WHERE leg.command_id=p_id;
  IF ledger_digest IS DISTINCT FROM seal.movement_sha256
@@ -1099,16 +1099,16 @@ BEGIN
      'legalEntityId',entry.legal_entity_id,'siteId',entry.site_id,
      'warehouseId',entry.warehouse_id,'itemCode',entry.item_code,
      'productVersion',entry.product_version_code,
-     'controlType',p->>'controlType','serialNo',pg_catalog.coalesce(entry.serial_no,''),
-     'batchNo',pg_catalog.coalesce(entry.batch_no,''),
+     'controlType',p->>'controlType','serialNo',COALESCE(entry.serial_no,''),
+     'batchNo',COALESCE(entry.batch_no,''),
      'leafLocationId',entry.location_key,'kind',entry.account_kind,
      'condition',entry.condition,'custodianEmployeeId',entry.custodian_employee_id);
    acc_key:=pg_catalog.encode(hft_crypto.digest(hft.p2_length_prefixed_v1(
      ARRAY['HFT-R1-OPS-A-VERSION-LEDGER-EVIDENCE-V1',
        entry.legal_entity_id,entry.site_id,entry.warehouse_id,
        entry.item_code,entry.product_version_code,p->>'controlType',
-       pg_catalog.coalesce(entry.serial_no,''),
-       pg_catalog.coalesce(entry.batch_no,''),
+       COALESCE(entry.serial_no,''),
+       COALESCE(entry.batch_no,''),
        entry.location_key,entry.account_kind,entry.condition,
        entry.custodian_employee_id]),'sha256'),'hex');
   END IF;
@@ -1122,9 +1122,9 @@ BEGIN
   movements:=movements||pg_catalog.jsonb_build_array(leg);
   ids:=ids||pg_catalog.jsonb_build_array('ENTRY-'||entry.id::text);
   leg_fields:=ARRAY['ENTRY-'||entry.id::text,c.command_id,entry.bucket,
-    pg_catalog.coalesce(entry.account_id::text,''),acc_key,
-    pg_catalog.coalesce(entry.account_before_version::text,''),
-    pg_catalog.coalesce(entry.account_after_version::text,''),debit];
+    COALESCE(entry.account_id::text,''),acc_key,
+    COALESCE(entry.account_before_version::text,''),
+    COALESCE(entry.account_after_version::text,''),debit];
   delta_fields:=delta_fields||leg_fields;
  END LOOP;
  IF pg_catalog.jsonb_array_length(movements)<>2
@@ -1462,13 +1462,13 @@ BEGIN
  -- Historical seal from existing canonical stock_command_seal, with the
  -- accepted V1 movement byte convention PLUS the new V2 digest envelope.
  SELECT pg_catalog.encode(hft_crypto.digest(pg_catalog.convert_to(
-  pg_catalog.coalesce(pg_catalog.string_agg(
+  COALESCE(pg_catalog.string_agg(
    leg.id::text||'/'||leg.bucket||'/'||
-   pg_catalog.coalesce(leg.account_id::text,'-')||'/'||
+   COALESCE(leg.account_id::text,'-')||'/'||
    leg.qty_delta_micro::text||'/'||
-   pg_catalog.coalesce(leg.employee_id,'')||'/'||
-   pg_catalog.coalesce(leg.batch_no,'')||'/'||
-   pg_catalog.coalesce(leg.serial_no,''),E'\n' ORDER BY leg.id),''),
+   COALESCE(leg.employee_id,'')||'/'||
+   COALESCE(leg.batch_no,'')||'/'||
+   COALESCE(leg.serial_no,''),E'\n' ORDER BY leg.id),''),
   'UTF8'),'sha256'),'hex')
  INTO movement_digest FROM hft.stock_entry leg WHERE leg.command_id=cmd_uuid;
  -- Required AVAILABLE poststate is original source for OUT/TRANSFER,
@@ -1609,9 +1609,9 @@ BEGIN
   'controlType',p->>'controlType','serialNo',p->>'serialNo',
   'batchNo',p->>'batchNo','sourceLeafId',b.source_leaf,
   'destinationLeafId',b.destination_leaf,
-  'sourceAccountId',pg_catalog.coalesce(b.source_account_id::text,''),
+  'sourceAccountId',COALESCE(b.source_account_id::text,''),
   'destinationAccountId',b.destination_account_id::text,
-  'sourceAccountBeforeVersion',pg_catalog.coalesce(b.source_account_before_version::text,''),
+  'sourceAccountBeforeVersion',COALESCE(b.source_account_before_version::text,''),
   'destinationAccountBeforeVersion',b.dest_account_before_version::text,
   'employeeId',b.employee_id,'originalIssueId',b.original_issue_id,
   'sourceDocumentId',b.source_document_id,
@@ -1636,7 +1636,7 @@ BEGIN
   'sourceDocumentId',b.source_document_id,
   'sourceActionKey',b.source_action_key,
   'approvalPayloadSha256',b.approved_scope_sha256,
-  'sourceAccountId',pg_catalog.coalesce(b.source_account_id::text,''),
+  'sourceAccountId',COALESCE(b.source_account_id::text,''),
   'destinationAccountId',b.destination_account_id::text,
   'command',cmd);
 END $resolve$;
@@ -1831,8 +1831,8 @@ BEGIN
   WHERE legal_entity_id=q->>'legalEntityId' AND site_id=q->>'siteId'
    AND warehouse_id=q->>'warehouseId'
  LOOP
-  SELECT pg_catalog.coalesce(sum(qty_delta_micro),0),
-    pg_catalog.coalesce(count(*),0)
+  SELECT COALESCE(sum(qty_delta_micro),0),
+    COALESCE(count(*),0)
   INTO reconstructed,scope_count FROM hft.stock_entry
   WHERE account_id=a.id;
   IF a.qty_micro<>reconstructed OR a.version<>scope_count
@@ -1882,7 +1882,7 @@ BEGIN
   END LOOP;
  ELSE
   FOR c IN
-   SELECT a.*,pg_catalog.coalesce(
+   SELECT a.*,COALESCE(
     (SELECT audit.canonical_sha256 FROM hft.stock_entry e
      JOIN hft.audit_outbox audit ON audit.command_id=e.command_id
      WHERE e.account_id=a.id ORDER BY e.id DESC LIMIT 1),repeat('0',64))
