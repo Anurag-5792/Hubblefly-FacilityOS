@@ -427,8 +427,7 @@ BEGIN
   pg_catalog.decode(proof->>'macSha256','hex'),'sha256'),'hex');
  SELECT * INTO sess FROM hft.posting_session
  WHERE session_id=proof->>'sessionId'
- AND actor_subject=proof->>'actorSubject'
-;
+ AND actor_subject=proof->>'actorSubject';
  IF envelope.command_uuid IS NULL OR n.nonce IS NULL OR sess.session_id IS NULL
  OR c.payload_sha256<>sha OR c.idempotency_key<>p->>'idempotencyKey'
  OR c.product_version_code<>p->>'productVersion'
