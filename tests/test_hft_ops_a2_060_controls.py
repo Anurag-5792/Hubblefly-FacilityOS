@@ -41,4 +41,32 @@ class SecurityGov060(unittest.TestCase):
   self.assertLess(MIG.index("RAISE EXCEPTION 'OPS_A2_PROTECTED_SQL_EXECUTION_NOT_AUTHORIZED'"),
                   MIG.index('CREATE TABLE hft.ops_a2_transfer_document'))
 
+ def test_transfer_deferred_approval_validator_is_preserved_and_extended(self):
+  self.assertIn("CREATE OR REPLACE FUNCTION hft.p2_assert_governed_approval_v1()",BASE)
+  self.assertIn("ELSIF NEW.kind='TRANSFER' THEN",BASE)
+  self.assertIn("t.approval_evidence_sha256=d.decision_evidence_sha256",BASE)
+  self.assertIn("OPS_A2_TRANSFER_HUMAN_PERSON_SEPARATION_DENIED",BASE)
+  for kind in ("RECEIVE","ISSUE","RETURN"):
+   self.assertIn("NEW.kind='"+kind+"'",BASE)
+  self.assertIn("p2_assert_governed_approval_v1()",MIG)
+
+ def test_issue_credit_is_employee_custody_not_empty_location(self):
+  proof=(SEC/'HFT-R1-OPS-A2-PROOF-AUTHORITY-NONEXECUTABLE.sql').read_text()
+  self.assertIn("IF b.action_kind='ISSUE' THEN",proof)
+  self.assertIn("b.destination_leaf<>''",proof)
+  self.assertIn("custody.account_kind='CUSTODY'",proof)
+  self.assertIn("custody.custodian_employee_id=b.employee_id",proof)
+  self.assertIn("custody.location_key=b.source_leaf",proof)
+  self.assertIn("custody.version=b.dest_account_before_version",proof)
+
+ def test_canonical_p0_to_database_grn_identity_requires_typed_receipt_line(self):
+  read=(SEC/'HFT-R1-OPS-A2-RESOLVER-READ-NONEXECUTABLE.sql').read_text()
+  for source in ('grnId','issueDocumentId','transferDocumentId'):
+   self.assertIn("pg_catalog.lower(p->>'"+source+"')",read)
+  self.assertIn("b.source_action_key=r.receipt_key||':'||r.line_no::text",read)
+  self.assertIn("r.receipt_key=p->>'receiptKey'",read)
+  self.assertIn("r.ops_a2_product_version_code=b.product_version_code",read)
+  self.assertIn("p->>'grnId' !~ '^[0-9A-F]",read)
+  self.assertIn("p->>'transferDocumentId' !~ '^[0-9A-F]",read)
+
 if __name__=='__main__':unittest.main()
