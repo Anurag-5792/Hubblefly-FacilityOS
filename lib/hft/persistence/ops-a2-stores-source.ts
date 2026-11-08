@@ -25,6 +25,10 @@ import {CommitOutcomeUncertain,type PgPool,type IsolatedPgEnvironment}
 import {proposedOpsAPayload,opsAPayloadSha256,OPS_A_POST_PROOF_V2,
  canonicalOpsAPayloadFields,type OpsAPayload,type OpsAProof,type OpsAProofFields}
  from '../security/ops-a-versioned-invocation.ts';
+import {validateOpsA2ReturnRequest} from '../stores/ops-a2-return-preparation.ts';
+import {issueReturnProof} from '../security/ops-a2-return-proof.ts';
+import {verifyReturnP2Source,type ProtectedReturnResolution}
+ from './ops-a2-return-source.ts';
 import {verifyVersionedImmutableFact,type VersionedCommand,
  type VersionedImmutableFact} from './ops-a-versioned-evidence.ts';
 
@@ -187,34 +191,11 @@ async function authoritativeReconcile(pool:PgPool,env:IsolatedPgEnvironment,
  });
  return checkedReconciliation(response,payload,proof);
 }
-/** Review-only integration boundary. A real PgPool must NEVER be passed without
- * separate protected database execution authorization and approved migration.
- */
-export async function submitOpsA2SyntheticSource(pool:PgPool,env:IsolatedPgEnvironment,
- raw:unknown,actor:VerifiedRequestOperator,signer:OpsA2Signer
+/** Single P2 post+original-nonce verification path used by each P0 kind.
+ * Never carries an approved source from the browser. */
+async function postResolvedPayload(pool:PgPool,env:IsolatedPgEnvironment,
+ payload:OpsAPayload,actor:VerifiedRequestOperator,signer:OpsA2Signer
 ):Promise<OpsA2SourceResult>{
- const op=validateP0Operation(raw);
- if(op.kind==='COUNT')
-  throw Error('OPS_A2_COUNT_SEPARATE_IMMUTABLE_OBSERVATION_AUTHORITY');
- assertVerifiedRequestOperator(actor,op);
- assertSyntheticOnly(env);
- if(op.kind==='IN'&&op.qcState!=='ACCEPTED')
-  throw Error('OPS_A2_QC_ACCEPTED_REQUIRED');
- const p0Proof=issueStoresProof(op,actor,signer.p0Key,signer.p0KeyVersion);
- // P0's signed proof verifier takes FOR SHARE key/session locks. A READ ONLY
- // transaction cannot obtain those locks; this SERIALIZABLE transaction
- // performs no direct ledger DML. The actual writer rechecks all sources.
- const resolution=await withProtectedPostingTransaction(pool,env,async client=>{
-  const r=await client.query<{source:unknown}>(
-   'SELECT hft.ops_a2_resolve_authorized_v2($1::jsonb,$2::jsonb) AS source',
-   [JSON.stringify(op),JSON.stringify(p0Proof)]);
-  if(r.rows.length!==1)throw Error('OPS_A2_RESOLVER_ROW_MISSING');
-  return sourceShape(r.rows[0].source,op,actor);
- });
- const payload=proposedOpsAPayload(resolution.command,
-  resolution.sourceAccountId,resolution.destinationAccountId,
-  resolution.approvalPayloadSha256);
- canonicalOpsAPayloadFields(payload);
  const proof=issueProof(payload,actor,signer);
  let attempted=false;
  try{
@@ -246,4 +227,66 @@ export async function submitOpsA2SyntheticSource(pool:PgPool,env:IsolatedPgEnvir
  return {state:'SOURCE_ONLY_COMMITTED_FACT_VERIFIED_NOT_OPERATIONAL',
   requestId:payload.commandId,productVersion:payload.productVersion,
   sourceEpoch:recovered.sourceEpoch!,fact:recovered.fact!};
+}
+/** Review-only integration boundary. A real PgPool must NEVER be passed without
+ * separate protected database execution authorization and approved migration.
+ */
+export async function submitOpsA2SyntheticSource(pool:PgPool,env:IsolatedPgEnvironment,
+ raw:unknown,actor:VerifiedRequestOperator,signer:OpsA2Signer
+):Promise<OpsA2SourceResult>{
+ const op=validateP0Operation(raw);
+ if(op.kind==='COUNT')
+  throw Error('OPS_A2_COUNT_SEPARATE_IMMUTABLE_OBSERVATION_AUTHORITY');
+ assertVerifiedRequestOperator(actor,op);
+ assertSyntheticOnly(env);
+ if(op.kind==='IN'&&op.qcState!=='ACCEPTED')
+  throw Error('OPS_A2_QC_ACCEPTED_REQUIRED');
+ const p0Proof=issueStoresProof(op,actor,signer.p0Key,signer.p0KeyVersion);
+ // P0's signed proof verifier takes FOR SHARE key/session locks. A READ ONLY
+ // transaction cannot obtain those locks; this SERIALIZABLE transaction
+ // performs no direct ledger DML. The actual writer rechecks all sources.
+ const resolution=await withProtectedPostingTransaction(pool,env,async client=>{
+  const r=await client.query<{source:unknown}>(
+   'SELECT hft.ops_a2_resolve_authorized_v2($1::jsonb,$2::jsonb) AS source',
+   [JSON.stringify(op),JSON.stringify(p0Proof)]);
+  if(r.rows.length!==1)throw Error('OPS_A2_RESOLVER_ROW_MISSING');
+  return sourceShape(r.rows[0].source,op,actor);
+ });
+ const payload=proposedOpsAPayload(resolution.command,
+  resolution.sourceAccountId,resolution.destinationAccountId,
+  resolution.approvalPayloadSha256);
+ canonicalOpsAPayloadFields(payload);
+ return postResolvedPayload(pool,env,payload,actor,signer);
+}
+
+/** RETURN source-only: separate signed transport, independently approved
+ * original ISSUE/custody/inspection resolver, common two-leg writer and
+ * original-nonce reconciliation. Only synthetic PG clients in test mode.
+ * Posting remains forbidden through the production API and middleware.
+ */
+export async function submitOpsA2SyntheticReturnSource(pool:PgPool,
+ env:IsolatedPgEnvironment,raw:unknown,actor:VerifiedRequestOperator,
+ signer:OpsA2Signer):Promise<OpsA2SourceResult>{
+ const op=validateOpsA2ReturnRequest(raw);
+ assertVerifiedRequestOperator(actor,op);
+ assertSyntheticOnly(env);
+ const p0Proof=issueReturnProof(op,actor,signer.p0Key,signer.p0KeyVersion);
+ const resolved=await withProtectedPostingTransaction(pool,env,async client=>{
+  const r=await client.query<{source:unknown}>(
+   'SELECT hft.ops_a2_resolve_return_authorized_v2($1::jsonb,$2::jsonb) AS source',
+   [JSON.stringify(op),JSON.stringify(p0Proof)]);
+  if(r.rows.length!==1)throw Error('OPS_A2_RETURN_SOURCE_ROW_MISSING');
+  const x=object(r.rows[0].source,'OPS_A2_RETURN_PROTECTED_SOURCE_MISSING');
+  if(x.issuer!=='HFT_P2_PROTECTED_DATABASE'||
+   x.state!=='OPS_A2_AUTHORIZED_SOURCE_V2'||
+   x.actorSubject!==actor.subject||x.sessionId!==actor.sessionId||
+   x.legalEntityId!==op.legalEntityId||x.siteId!==op.siteId||
+   x.warehouseId!==op.warehouseId||x.itemCode!==op.itemCode||
+   x.productVersion!==op.productVersion)
+   throw Error('OPS_A2_RETURN_ISSUER_SESSION_OR_SCOPE_MISMATCH');
+  return x as unknown as ProtectedReturnResolution;
+ });
+ const payload=verifyReturnP2Source(op,resolved);
+ canonicalOpsAPayloadFields(payload);
+ return postResolvedPayload(pool,env,payload,actor,signer);
 }
