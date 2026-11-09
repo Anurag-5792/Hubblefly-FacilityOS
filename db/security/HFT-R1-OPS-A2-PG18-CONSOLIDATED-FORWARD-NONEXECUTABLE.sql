@@ -152,6 +152,23 @@ CREATE TABLE hft.ops_a2_transfer_document(
  CHECK(source_leaf<>destination_leaf),
  CHECK(prepared_by<>checked_by AND prepared_by<>approved_by AND checked_by<>approved_by)
 );
+-- 063: one immutable counter transition per immutable TRANSFER command.
+-- No counter-only privileged edit is valid without a unique matching command.
+CREATE TABLE hft.ops_a2_transfer_counter_link(
+ command_uuid uuid PRIMARY KEY REFERENCES hft.stock_command(id),
+ transfer_document_id uuid NOT NULL
+ REFERENCES hft.ops_a2_transfer_document(id),
+ quantity_micro bigint NOT NULL CHECK(quantity_micro>0),
+ before_micro bigint NOT NULL CHECK(before_micro>=0),
+ after_micro bigint NOT NULL CHECK(after_micro>before_micro),
+ UNIQUE(transfer_document_id,after_micro),
+ CHECK(after_micro=before_micro+quantity_micro)
+);
+CREATE TRIGGER immutable_ops_a2_transfer_counter_link
+ BEFORE UPDATE OR DELETE ON hft.ops_a2_transfer_counter_link
+ FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+REVOKE ALL ON hft.ops_a2_transfer_counter_link FROM PUBLIC,hft_r1_app_runtime;
+
 -- Governance 060: authorize exactly the writer's cumulative movement transition.
 -- Every corporate identity, signed approval and source document field is
 -- immutable. No arbitrary authorized-document edit or document deletion.
@@ -177,6 +194,24 @@ BEGIN
  OR NEW.moved_micro>OLD.authorized_micro
  OR NEW.status<>CASE WHEN NEW.moved_micro=OLD.authorized_micro
   THEN 'MOVED' ELSE 'PARTIALLY_MOVED' END
+ OR NOT EXISTS(
+  SELECT 1 FROM hft.ops_a2_transfer_counter_link AS link
+  JOIN hft.stock_command AS command ON command.id=link.command_uuid
+  WHERE link.transfer_document_id=OLD.id
+   AND link.before_micro=OLD.moved_micro
+   AND link.after_micro=NEW.moved_micro
+   AND link.quantity_micro=NEW.moved_micro-OLD.moved_micro
+   AND command.kind='TRANSFER' AND command.id=link.command_uuid
+   AND command.source_document_id=OLD.id::text
+   AND command.legal_entity_id=OLD.legal_entity_id
+   AND command.site_id=OLD.site_id AND command.warehouse_id=OLD.warehouse_id
+   AND command.item_code=OLD.item_code
+   AND command.product_version_code=OLD.product_version_code
+   AND command.ops_a2_source_leaf=OLD.source_leaf
+   AND command.ops_a2_destination_leaf=OLD.destination_leaf
+   AND command.quantity_micro=link.quantity_micro
+   AND (SELECT count(*) FROM hft.stock_entry AS leg
+    WHERE leg.command_id=command.id)=2)
  THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_ONLY_PROTECTED_WRITER_TRANSITION'; END IF;
  RETURN NEW;
 END $protect_transfer$;
@@ -185,6 +220,65 @@ CREATE TRIGGER ops_a2_transfer_document_immutable_v2
  FOR EACH ROW EXECUTE FUNCTION hft.ops_a2_protect_transfer_document_v2();
 REVOKE EXECUTE ON FUNCTION hft.ops_a2_protect_transfer_document_v2()
  FROM PUBLIC,hft_r1_app_runtime;
+-- A deferred link guard rejects privileged counter-only tampering, stale
+-- cumulative status, missing immutable command, and forged linked quantity.
+CREATE OR REPLACE FUNCTION hft.ops_a2_verify_transfer_counter_link_v3()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp
+AS $transfer_link_commit$
+DECLARE d hft.ops_a2_transfer_document%ROWTYPE;
+ c hft.stock_command%ROWTYPE;
+ l hft.ops_a2_transfer_counter_link%ROWTYPE;
+ linked_total bigint;
+BEGIN
+ IF TG_OP='INSERT' THEN l:=NEW;
+ ELSE
+  SELECT * INTO l FROM hft.ops_a2_transfer_counter_link
+  WHERE transfer_document_id=NEW.id AND after_micro=NEW.moved_micro;
+  IF l.command_uuid IS NULL THEN
+   RAISE EXCEPTION 'OPS_A2_TRANSFER_COUNTER_UNBACKED_BY_COMMAND'; END IF;
+ END IF;
+ SELECT * INTO d FROM hft.ops_a2_transfer_document
+ WHERE id=l.transfer_document_id;
+ SELECT * INTO c FROM hft.stock_command WHERE id=l.command_uuid;
+ IF d.id IS NULL OR c.id IS NULL OR c.kind<>'TRANSFER'
+ OR c.source_document_id<>d.id::text
+ OR c.legal_entity_id<>d.legal_entity_id OR c.site_id<>d.site_id
+ OR c.warehouse_id<>d.warehouse_id OR c.item_code<>d.item_code
+ OR c.product_version_code<>d.product_version_code
+ OR c.ops_a2_source_leaf<>d.source_leaf
+ OR c.ops_a2_destination_leaf<>d.destination_leaf
+ OR c.quantity_micro<>l.quantity_micro
+ OR NOT EXISTS(SELECT 1 FROM hft.ops_a2_command_envelope AS env
+    WHERE env.command_uuid=c.id
+    AND env.exact_payload->>'sourceDocumentId'=d.id::text
+    AND (env.exact_payload->>'quantityMicro')::bigint=l.quantity_micro)
+ THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_ORIGINAL_COMMAND_BINDING_INVALID'; END IF;
+ -- The exact command/ledger/evidence checks include both legs and V2 digest.
+ PERFORM hft.ops_a2_assert_command_seal_v2(c.id);
+ SELECT COALESCE(sum(quantity_micro),0) INTO linked_total
+ FROM hft.ops_a2_transfer_counter_link WHERE transfer_document_id=d.id;
+ IF linked_total<>d.moved_micro OR d.moved_micro>d.authorized_micro
+ OR (d.moved_micro=d.authorized_micro AND d.status<>'MOVED')
+ OR (d.moved_micro<d.authorized_micro AND d.status<>'PARTIALLY_MOVED')
+ OR EXISTS(SELECT 1 FROM hft.ops_a2_transfer_counter_link AS x
+  WHERE x.transfer_document_id=d.id AND x.before_micro<>
+   COALESCE((SELECT max(y.after_micro)
+      FROM hft.ops_a2_transfer_counter_link AS y
+      WHERE y.transfer_document_id=d.id AND y.after_micro<x.after_micro),0))
+ THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_COUNTER_LEDGER_CHAIN_MISMATCH'; END IF;
+ RETURN NULL;
+END $transfer_link_commit$;
+CREATE CONSTRAINT TRIGGER ops_a2_transfer_counter_link_requires_command_v3
+ AFTER INSERT ON hft.ops_a2_transfer_counter_link
+ DEFERRABLE INITIALLY DEFERRED
+ FOR EACH ROW EXECUTE FUNCTION hft.ops_a2_verify_transfer_counter_link_v3();
+CREATE CONSTRAINT TRIGGER ops_a2_transfer_counter_change_requires_command_v3
+ AFTER UPDATE ON hft.ops_a2_transfer_document
+ DEFERRABLE INITIALLY DEFERRED
+ FOR EACH ROW EXECUTE FUNCTION hft.ops_a2_verify_transfer_counter_link_v3();
+REVOKE EXECUTE ON FUNCTION hft.ops_a2_verify_transfer_counter_link_v3()
+ FROM PUBLIC,hft_r1_app_runtime;
+
 
 -- 060: extend the EXISTING deferred P2 V1 approval validator to TRANSFER.
 -- The existing trigger is retained unchanged. V1 action logic is preserved;
@@ -681,6 +775,63 @@ ALTER FUNCTION hft.ops_a2_issue_transfer_document_v2(uuid)
 REVOKE ALL ON FUNCTION hft.ops_a2_issue_transfer_document_v2(uuid)
  FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
 
+-- Independently derive one unambiguous typed GRN receipt-line identity from
+-- the ORIGINAL signed P0 fields, not an arbitrary client-provided alias.
+-- Multiple legitimate GRN lines work when each has its own receiptKey. A
+-- repeated receiptKey with identical signed scope is ambiguous and DENIED.
+CREATE OR REPLACE FUNCTION hft.ops_a2_resolve_signed_grn_line_v3(
+ p0 jsonb,p2 jsonb)
+RETURNS text LANGUAGE plpgsql STABLE
+SET search_path=pg_catalog,pg_temp AS $grn_bridge$
+DECLARE typed_line text;matches bigint;
+BEGIN
+ IF p0->>'kind'<>'IN'
+ OR p0->>'grnId' !~ '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$'
+ OR p2->>'sourceDocumentId'<>pg_catalog.lower(p0->>'grnId')
+ OR p0->>'qcState'<>'ACCEPTED'
+ OR p0->>'legalEntityId' IS DISTINCT FROM p2->>'legalEntityId'
+ OR p0->>'siteId' IS DISTINCT FROM p2->>'siteId'
+ OR p0->>'warehouseId' IS DISTINCT FROM p2->>'warehouseId'
+ OR p0->>'itemCode' IS DISTINCT FROM p2->>'itemCode'
+ OR p0->>'productVersion' IS DISTINCT FROM p2->>'productVersion'
+ OR p0->>'leafLocationId' IS DISTINCT FROM p2->>'destinationLeafId'
+ OR p0->>'controlType' IS DISTINCT FROM p2->>'controlType'
+ OR p0->>'serialNo' IS DISTINCT FROM p2->>'serialNo'
+ OR p0->>'batchNo' IS DISTINCT FROM p2->>'batchNo'
+ OR p0->>'qcEvidenceId' IS DISTINCT FROM p2->>'inspectionEvidenceId'
+ OR (p0->>'quantity')::numeric*1000000<>(p2->>'quantityMicro')::bigint
+ THEN RAISE EXCEPTION 'OPS_A2_GRN_SIGNED_RAW_CANONICAL_SOURCE_MISMATCH'; END IF;
+ SELECT count(*),max(r.receipt_key||':'||r.line_no::text)
+ INTO matches,typed_line
+ FROM hft.grn_partial_receipt AS r
+ JOIN hft.grn AS g ON g.id=r.grn_id
+ JOIN hft.grn_line AS gl ON gl.grn_id=r.grn_id AND gl.line_no=r.line_no
+ JOIN hft.supplier_invoice AS inv ON inv.id=g.invoice_id
+ WHERE g.id::text=pg_catalog.lower(p0->>'grnId')
+ AND g.legal_entity_id=p2->>'legalEntityId'
+ AND g.warehouse_id=p2->>'warehouseId'
+ AND g.supplier_id=p0->>'supplierId'
+ AND g.invoice_key=p0->>'invoiceNumber'
+ AND g.status IN('AUTHORIZED','PARTIALLY_RECEIVED')
+ AND inv.legal_entity_id=g.legal_entity_id AND inv.supplier_id=g.supplier_id
+ AND inv.invoice_key=g.invoice_key AND inv.status='VERIFIED'
+ AND r.legal_entity_id=g.legal_entity_id AND r.warehouse_id=g.warehouse_id
+ AND r.receipt_key=p0->>'receiptKey'
+ AND r.location_id=p2->>'destinationLeafId'
+ AND r.ops_a2_item_code=p2->>'itemCode'
+ AND r.ops_a2_product_version_code=p2->>'productVersion'
+ AND r.batch_no=p2->>'batchNo' AND r.serial_no=p2->>'serialNo'
+ AND r.qc_state='ACCEPTED' AND r.evidence_reference=p0->>'qcEvidenceId'
+ AND r.accepted_micro>=(p2->>'quantityMicro')::bigint
+ AND gl.legal_entity_id=g.legal_entity_id
+ AND gl.item_code=p2->>'itemCode';
+ IF matches<>1 OR typed_line IS DISTINCT FROM p2->>'sourceActionKey'
+ THEN RAISE EXCEPTION 'OPS_A2_GRN_RAW_RECEIPT_LINE_AMBIGUOUS_OR_FORGED'; END IF;
+ RETURN typed_line;
+END $grn_bridge$;
+REVOKE ALL ON FUNCTION hft.ops_a2_resolve_signed_grn_line_v3(jsonb,jsonb)
+ FROM PUBLIC,hft_r1_app_runtime;
+
 -- Independently authorized SOURCE BINDING issuance. Reads a genuine P0 HMAC,
 -- P2 payload and immutable human approval/decision records. It cannot CREATE
 -- an approval or provision stock or use a browser-provided approver.
@@ -746,20 +897,8 @@ BEGIN
  OR p2->>'destinationLeafId'<>destination_leaf
  THEN RAISE EXCEPTION 'OPS_A2_ISSUER_PHYSICAL_LEAF_MISMATCH'; END IF;
  IF source_kind='RECEIVE' THEN
-  IF p0->>'qcState'<>'ACCEPTED'
-  OR p2->>'inspectionEvidenceId'<>p0->>'qcEvidenceId'
-  OR NOT EXISTS(
-   SELECT 1 FROM hft.grn_partial_receipt AS r
-   WHERE r.grn_id::text=pg_catalog.lower(doc)
-    AND r.legal_entity_id=p2->>'legalEntityId'
-    AND r.warehouse_id=p2->>'warehouseId'
-    AND r.receipt_key=p0->>'receiptKey'
-    AND r.receipt_key||':'||r.line_no::text=p2->>'sourceActionKey'
-    AND r.location_id=destination_leaf
-    AND r.ops_a2_item_code=p2->>'itemCode'
-    AND r.ops_a2_product_version_code=p2->>'productVersion'
-    AND r.qc_state='ACCEPTED'
-    AND r.evidence_reference=p0->>'qcEvidenceId')
+  IF hft.ops_a2_resolve_signed_grn_line_v3(p0,p2)
+    IS DISTINCT FROM p2->>'sourceActionKey'
   THEN RAISE EXCEPTION 'OPS_A2_ISSUER_GRN_RECEIPT_LINE_NOT_AUTHORIZED'; END IF;
  ELSIF source_kind='ISSUE' THEN
   IF p2->>'sourceActionKey'<>p0->>'fragmentId'
@@ -1475,6 +1614,9 @@ DECLARE
  outcome hft.stock_command_outcome%ROWTYPE;
  nlegs bigint;delta bigint;missing bigint;
  ledger_digest text;
+ fact_v2 jsonb;leg_check record; available hft.stock_account%ROWTYPE;
+ historic_qty bigint;historic_version bigint;cutoff_id bigint;
+ expected_available_id uuid;expected_leaf text;
 BEGIN
  SELECT * INTO c FROM hft.stock_command WHERE id=p_id;
  SELECT * INTO seal FROM hft.stock_command_seal WHERE command_id=p_id;
@@ -1560,6 +1702,60 @@ BEGIN
  INTO ledger_digest FROM hft.stock_entry leg WHERE leg.command_id=p_id;
  IF ledger_digest IS DISTINCT FROM seal.movement_sha256
  THEN RAISE EXCEPTION 'OPS_A2_V2_IMMUTABLE_MOVEMENT_SHA_DRIFT'; END IF;
+ -- Source-history invariant is independent of CURRENT balances: old
+ -- legitimate seals must remain verifiable after later stock transactions.
+ -- Revision zero is created only by the governed zero-account provisioner.
+ SELECT pg_catalog.max(id) INTO cutoff_id FROM hft.stock_entry WHERE command_id=p_id;
+ FOR leg_check IN SELECT id,account_id,account_before_version,
+    account_after_version FROM hft.stock_entry
+   WHERE command_id=p_id AND account_id IS NOT NULL
+ LOOP
+  SELECT COALESCE(sum(qty_delta_micro),0),count(*)
+    INTO historic_qty,historic_version
+    FROM hft.stock_entry
+   WHERE account_id=leg_check.account_id AND id<=leg_check.id;
+  IF leg_check.account_before_version IS DISTINCT FROM historic_version-1
+   OR leg_check.account_after_version IS DISTINCT FROM historic_version
+   OR historic_qty<0
+  THEN RAISE EXCEPTION 'OPS_A2_V2_HISTORIC_ENTRY_REVISION_OR_QUANTITY_INVALID'; END IF;
+ END LOOP;
+ -- Independently recompute the COMPLETE V2 digest (account identity,
+ -- serial/batch, entry ID, original revisions and ordered signed quantities).
+ -- Legacy seal.movement_sha256 is not an adequate substitute for this hash.
+ fact_v2:=hft.ops_a2_fact_v2(p_id);
+ IF fact_v2->>'movementSha256' IS DISTINCT FROM envelope.version_movement_sha256
+ OR outbox.canonical_event->'fact' IS DISTINCT FROM fact_v2
+ OR fact_v2->'command'->>'requestQuantity' IS DISTINCT FROM
+     hft.format_signed_micro_v2(c.quantity_micro)
+ THEN RAISE EXCEPTION 'OPS_A2_V2_FULL_MOVEMENT_FACT_DIGEST_INVALID'; END IF;
+ -- Assert the SEALED AVAILABLE post-state at the original command cutoff,
+ -- rather than comparing a historical seal with a mutable CURRENT balance.
+ SELECT * INTO available FROM hft.stock_account
+ WHERE id=seal.available_account_id;
+ expected_leaf:=CASE WHEN c.kind='RECEIVE' THEN c.ops_a2_destination_leaf
+  ELSE c.ops_a2_source_leaf END;
+ expected_available_id:=CASE
+  WHEN c.kind='RECEIVE' OR (c.kind='RETURN' AND
+     envelope.exact_payload->>'inspectedCondition'='GOOD')
+   THEN c.ops_a2_destination_account_id
+  WHEN c.kind IN('ISSUE','TRANSFER') THEN c.ops_a2_source_account_id
+  ELSE NULL END;
+ SELECT COALESCE(sum(qty_delta_micro),0),count(*)
+ INTO historic_qty,historic_version FROM hft.stock_entry
+ WHERE account_id=seal.available_account_id AND id<=cutoff_id;
+ IF available.id IS NULL OR available.account_kind<>'AVAILABLE'
+ OR available.condition<>'GOOD' OR available.custodian_employee_id<>''
+ OR available.legal_entity_id<>c.legal_entity_id OR available.site_id<>c.site_id
+ OR available.warehouse_id<>c.warehouse_id OR available.item_code<>c.item_code
+ OR available.product_version_code<>c.product_version_code
+ OR available.location_key<>expected_leaf
+ OR available.serial_key<>envelope.exact_payload->>'serialNo'
+ OR available.batch_key<>envelope.exact_payload->>'batchNo'
+ OR (expected_available_id IS NOT NULL
+   AND seal.available_account_id<>expected_available_id)
+ OR seal.available_after_micro IS DISTINCT FROM historic_qty
+ OR seal.available_after_version IS DISTINCT FROM historic_version
+ THEN RAISE EXCEPTION 'OPS_A2_V2_SEALED_AVAILABLE_HISTORIC_POSTSTATE_INVALID'; END IF;
  IF outbox.canonical_event->>'schema'<>'HFT_STOCK_EVENT_OPS_A2_V2'
  OR outbox.canonical_event->>'commandId'<>c.command_id
  OR outbox.canonical_event->>'productVersion'<>c.product_version_code
@@ -1571,9 +1767,36 @@ REVOKE EXECUTE ON FUNCTION hft.ops_a2_assert_command_seal_v2(uuid)
 
 -- V2 deferred commitment must have a real matching seal, outcome and audit.
 CREATE OR REPLACE FUNCTION hft.ops_a2_require_command_seal_v2()
-RETURNS trigger LANGUAGE plpgsql AS $verify$
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $verify$
+DECLARE changed record;account_current hft.stock_account%ROWTYPE;
+ derived_qty bigint;derived_revision bigint;
+ sealed hft.stock_command_seal%ROWTYPE;
 BEGIN
  PERFORM hft.ops_a2_assert_command_seal_v2(NEW.id);
+ -- Deferred COMMIT-only check: each stock account actually reached
+ -- its original signed post-state. Every balance equals ALL immutable legs.
+ FOR changed IN SELECT DISTINCT account_id FROM hft.stock_entry
+  WHERE command_id=NEW.id AND account_id IS NOT NULL
+ LOOP
+  SELECT * INTO account_current FROM hft.stock_account
+   WHERE id=changed.account_id;
+  SELECT COALESCE(sum(qty_delta_micro),0),count(*)
+    INTO derived_qty,derived_revision FROM hft.stock_entry
+   WHERE account_id=changed.account_id;
+  IF account_current.id IS NULL OR account_current.qty_micro<>derived_qty
+   OR account_current.version<>derived_revision
+   OR NOT EXISTS(SELECT 1 FROM hft.stock_entry AS leg
+      WHERE leg.command_id=NEW.id AND leg.account_id=changed.account_id
+       AND leg.account_after_version=account_current.version)
+  THEN RAISE EXCEPTION 'OPS_A2_V2_DEFERRED_POSTSTATE_QUANTITY_OR_REVISION_INVALID'; END IF;
+ END LOOP;
+ SELECT * INTO sealed FROM hft.stock_command_seal WHERE command_id=NEW.id;
+ SELECT * INTO account_current FROM hft.stock_account
+ WHERE id=sealed.available_account_id;
+ IF account_current.id IS NULL
+ OR sealed.available_after_micro<>account_current.qty_micro
+ OR sealed.available_after_version<>account_current.version
+ THEN RAISE EXCEPTION 'OPS_A2_V2_DEFERRED_AVAILABLE_SEAL_POSTSTATE_INVALID'; END IF;
  RETURN NULL;
 END $verify$;
 CREATE CONSTRAINT TRIGGER ops_a2_command_requires_seal_v2
@@ -1930,12 +2153,37 @@ BEGIN
     AND cu.returned_micro+qty<=cu.issued_micro;
   IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_RETURN_ORIGINAL_CUSTODY_MISMATCH'; END IF;
  ELSIF action='TRANSFER' THEN
+  -- Reserve a UNIQUE immutable link to this exact already-inserted command.
+  -- The BEFORE UPDATE trigger refuses a privileged counter-only operation,
+  -- and the deferred link trigger proves V2 seal, quantity and full chain.
+  INSERT INTO hft.ops_a2_transfer_counter_link(
+   command_uuid,transfer_document_id,quantity_micro,before_micro,after_micro)
+  SELECT cmd_uuid,doc.id,qty,doc.moved_micro,doc.moved_micro+qty
+  FROM hft.ops_a2_transfer_document AS doc
+  WHERE doc.id=(p->>'sourceDocumentId')::uuid
+   AND doc.legal_entity_id=e AND doc.site_id=site AND doc.warehouse_id=wh
+   AND doc.item_code=item AND doc.product_version_code=ver
+   AND doc.source_leaf=p->>'sourceLeafId'
+   AND doc.destination_leaf=p->>'destinationLeafId'
+   AND doc.batch_no=lot AND doc.serial_no=serial
+   AND doc.revision=(p->>'sourceRevision')::bigint
+   AND doc.approved_by=p->>'approvedBy'
+   AND doc.status IN('AUTHORIZED','PARTIALLY_MOVED')
+   AND doc.moved_micro+qty<=doc.authorized_micro
+  FOR UPDATE OF doc;
+  IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_COUNTER_LINK_AUTHORITY_DENIED'; END IF;
   UPDATE hft.ops_a2_transfer_document SET moved_micro=moved_micro+qty,
    status=CASE WHEN moved_micro+qty=authorized_micro THEN 'MOVED'
      ELSE 'PARTIALLY_MOVED' END
    WHERE id=(p->>'sourceDocumentId')::uuid
    AND legal_entity_id=e AND site_id=site AND warehouse_id=wh
-   AND product_version_code=ver
+   AND item_code=item AND product_version_code=ver
+   AND source_leaf=p->>'sourceLeafId'
+   AND destination_leaf=p->>'destinationLeafId'
+   AND batch_no=lot AND serial_no=serial
+   AND revision=(p->>'sourceRevision')::bigint
+   AND approved_by=p->>'approvedBy'
+   AND status IN('AUTHORIZED','PARTIALLY_MOVED')
    AND moved_micro+qty<=authorized_micro;
   IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_SOURCE_CEILING'; END IF;
  END IF;
@@ -2207,15 +2455,19 @@ BEGIN
   -- Persisted receipt_key + line_no, never an arbitrary browser action alias.
   OR p->>'grnId' !~ '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$'
   OR b.source_document_id<>pg_catalog.lower(p->>'grnId')
-  OR NOT EXISTS(SELECT 1 FROM hft.grn_partial_receipt AS r
-    WHERE r.grn_id::text=b.source_document_id
-    AND r.legal_entity_id=b.legal_entity_id
-    AND r.warehouse_id=b.warehouse_id
-    AND r.location_id=b.destination_leaf
-    AND r.receipt_key=p->>'receiptKey'
-    AND b.source_action_key=r.receipt_key||':'||r.line_no::text
-    AND r.ops_a2_item_code=b.item_code
-    AND r.ops_a2_product_version_code=b.product_version_code)
+  OR hft.ops_a2_resolve_signed_grn_line_v3(p,
+    pg_catalog.jsonb_build_object(
+      'sourceDocumentId',b.source_document_id,
+      'sourceActionKey',b.source_action_key,
+      'legalEntityId',b.legal_entity_id,'siteId',b.site_id,
+      'warehouseId',b.warehouse_id,'itemCode',b.item_code,
+      'productVersion',b.product_version_code,
+      'controlType',p->>'controlType','serialNo',p->>'serialNo',
+      'batchNo',p->>'batchNo',
+      'destinationLeafId',b.destination_leaf,
+      'inspectionEvidenceId',b.inspection_evidence_id,
+      'quantityMicro',b.authorized_micro::text))
+    IS DISTINCT FROM b.source_action_key
   OR b.destination_leaf<>p->>'leafLocationId'
   THEN RAISE EXCEPTION 'OPS_A2_GRN_QC_SOURCE_NOT_VERIFIED'; END IF;
  ELSIF p->>'kind'='OUT' THEN
@@ -2536,6 +2788,102 @@ ALTER FUNCTION hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)
 REVOKE ALL ON FUNCTION hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)
  FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
 
+-- SOURCE FIRST: enumerate every outstanding ISSUE custody record from the
+-- BASE table, without first joining audit/ACK/account tables. Every missing
+-- signed receipt must make the complete census fail, not silently disappear.
+CREATE OR REPLACE FUNCTION hft.ops_a2_assert_outstanding_custody_census_v3(q jsonb)
+RETURNS bigint LANGUAGE plpgsql STABLE
+SET search_path=pg_catalog,pg_temp AS $custody_census$
+DECLARE base_count bigint;qualified_count bigint;balance_mismatch bigint;
+BEGIN
+ IF pg_catalog.current_setting('transaction_read_only')<>'on'
+ OR q->>'intent'<>'CUSTODY' OR q->>'employeeId'=''
+ THEN RAISE EXCEPTION 'OPS_A2_CUSTODY_CENSUS_READ_ONLY_SCOPE_REQUIRED'; END IF;
+ SELECT count(*) INTO base_count FROM hft.employee_custody AS cu
+ JOIN hft.warehouse AS w ON w.legal_entity_id=cu.legal_entity_id
+  AND w.warehouse_id=cu.warehouse_id
+ WHERE cu.legal_entity_id=q->>'legalEntityId'
+  AND cu.warehouse_id=q->>'warehouseId'
+  AND w.site_id=q->>'siteId'
+  AND cu.employee_id=q->>'employeeId'
+  AND cu.issued_micro>cu.returned_micro
+  AND (q->>'itemCode'='' OR cu.item_code=q->>'itemCode')
+  AND (q->>'productVersion'='' OR cu.product_version_code=q->>'productVersion')
+  AND (q->>'leafLocationId'='' OR cu.location_id=q->>'leafLocationId');
+ -- Independent qualified count: no nullable left-side evidence can hide a
+ -- base ISSUE. Require original immutable command, exact P2 ISSUE fragment,
+ -- pending ACK record (including DISPUTED) and authentic audit and account.
+ SELECT count(*) INTO qualified_count
+ FROM hft.employee_custody AS cu
+ JOIN hft.warehouse AS w ON w.legal_entity_id=cu.legal_entity_id
+  AND w.warehouse_id=cu.warehouse_id
+ JOIN hft.stock_command AS original ON original.id=cu.issue_command_id
+ JOIN hft.posting_fragment AS fragment ON fragment.command_uuid=original.id
+ JOIN hft.custody_ack_pending AS pending ON
+  pending.issue_command_uuid=original.id
+  AND pending.legal_entity_id=cu.legal_entity_id
+  AND pending.employee_id=cu.employee_id
+ JOIN hft.custody_ack_status_v1 AS ack ON ack.issue_command_uuid=original.id
+  AND ack.legal_entity_id=cu.legal_entity_id
+  AND ack.employee_id=cu.employee_id
+ JOIN hft.audit_outbox AS audit ON audit.command_id=original.id
+ JOIN hft.stock_account AS acct ON
+  acct.legal_entity_id=cu.legal_entity_id
+  AND acct.site_id=w.site_id AND acct.warehouse_id=cu.warehouse_id
+  AND acct.item_code=cu.item_code
+  AND acct.product_version_code=cu.product_version_code
+  AND acct.location_key=cu.location_id
+  AND acct.account_kind='CUSTODY' AND acct.condition='GOOD'
+  AND acct.custodian_employee_id=cu.employee_id
+  AND acct.serial_key=cu.serial_no AND acct.batch_key=cu.batch_no
+ WHERE cu.legal_entity_id=q->>'legalEntityId'
+  AND cu.warehouse_id=q->>'warehouseId'
+  AND w.site_id=q->>'siteId'
+  AND cu.employee_id=q->>'employeeId'
+  AND cu.issued_micro>cu.returned_micro
+  AND (q->>'itemCode'='' OR cu.item_code=q->>'itemCode')
+  AND (q->>'productVersion'='' OR cu.product_version_code=q->>'productVersion')
+  AND (q->>'leafLocationId'='' OR cu.location_id=q->>'leafLocationId')
+  AND original.legal_entity_id=cu.legal_entity_id
+  AND original.site_id=w.site_id
+  AND original.warehouse_id=cu.warehouse_id
+  AND original.item_code=cu.item_code
+  AND original.product_version_code=cu.product_version_code
+  AND original.kind='ISSUE'
+  AND fragment.legal_entity_id=cu.legal_entity_id
+  AND fragment.kind='ISSUE' AND fragment.employee_id=cu.employee_id
+  AND fragment.quantity_micro=cu.issued_micro
+  AND ack.state IN('ACK_PENDING','ACKNOWLEDGED','DISPUTED')
+  AND audit.canonical_sha256~'^[0-9a-f]{64}$'
+  AND acct.qty_micro>=cu.issued_micro-cu.returned_micro;
+ IF qualified_count<>base_count THEN
+  RAISE EXCEPTION 'OPS_A2_CUSTODY_BASE_CENSUS_MISSING_ISSUE_ACK_AUDIT_FRAGMENT_OR_ACCOUNT'; END IF;
+ -- Aggregate custody account must equal the sum of ALL outstanding original
+ -- issues sharing the exact account identity, not the most recent ACK.
+ SELECT count(*) INTO balance_mismatch FROM hft.stock_account AS acct
+ WHERE acct.legal_entity_id=q->>'legalEntityId'
+ AND acct.site_id=q->>'siteId' AND acct.warehouse_id=q->>'warehouseId'
+ AND acct.account_kind='CUSTODY' AND acct.custodian_employee_id=q->>'employeeId'
+ AND (q->>'itemCode'='' OR acct.item_code=q->>'itemCode')
+ AND (q->>'productVersion'='' OR acct.product_version_code=q->>'productVersion')
+ AND (q->>'leafLocationId'='' OR acct.location_key=q->>'leafLocationId')
+ AND acct.qty_micro IS DISTINCT FROM (
+  SELECT COALESCE(sum(cu.issued_micro-cu.returned_micro),0)
+  FROM hft.employee_custody AS cu
+  WHERE cu.legal_entity_id=acct.legal_entity_id
+   AND cu.warehouse_id=acct.warehouse_id
+   AND cu.employee_id=acct.custodian_employee_id
+   AND cu.item_code=acct.item_code
+   AND cu.product_version_code=acct.product_version_code
+   AND cu.location_id=acct.location_key
+   AND cu.serial_no=acct.serial_key AND cu.batch_no=acct.batch_key);
+ IF balance_mismatch<>0 THEN
+  RAISE EXCEPTION 'OPS_A2_CUSTODY_CENSUS_ACCOUNT_OUTSTANDING_MISMATCH'; END IF;
+ RETURN base_count;
+END $custody_census$;
+REVOKE ALL ON FUNCTION hft.ops_a2_assert_outstanding_custody_census_v3(jsonb)
+ FROM PUBLIC,hft_r1_app_runtime;
+
 -- Readback test/source contract: the current P0 READ HMAC is verified
 -- in a REPEATABLE READ READ ONLY transaction. No nonce write or direct
 -- runtime table grants are permitted.
@@ -2635,6 +2983,9 @@ BEGIN
  IF pg_catalog.current_setting('transaction_read_only')<>'on'
  THEN RAISE EXCEPTION 'OPS_A2_READ_ONLY_TRANSACTION_REQUIRED'; END IF;
  actor:=hft.ops_a2_verify_readproof_v2(q,proof);
+ IF q->>'intent'='CUSTODY' THEN
+  PERFORM hft.ops_a2_assert_outstanding_custody_census_v3(q);
+ END IF;
  -- True original immutable account reconstruction precedes every response.
  FOR a IN SELECT id,qty_micro,version FROM hft.stock_account
   WHERE legal_entity_id=q->>'legalEntityId' AND site_id=q->>'siteId'
@@ -2718,9 +3069,15 @@ BEGIN
     cu.location_id,cu.employee_id,cu.serial_no,cu.batch_no,
     cu.issued_micro-cu.returned_micro AS outstanding_micro,
     a.version AS account_version,ack.state AS ack_state,
+    ack.signed_evidence_sha256 AS ack_evidence_sha256,
+    fragment.fragment_id AS original_fragment_id,
     audit.canonical_sha256 AS source_audit,issue.command_id AS original_issue_id
    FROM hft.employee_custody AS cu
    JOIN hft.stock_command AS issue ON issue.id=cu.issue_command_id
+   JOIN hft.posting_fragment AS fragment ON
+    fragment.command_uuid=issue.id AND fragment.kind='ISSUE'
+    AND fragment.legal_entity_id=cu.legal_entity_id
+    AND fragment.employee_id=cu.employee_id
    JOIN hft.custody_ack_status_v1 AS ack
     ON ack.issue_command_uuid=cu.issue_command_id
     AND ack.legal_entity_id=cu.legal_entity_id
@@ -2757,6 +3114,8 @@ BEGIN
     'accountVersion',c.account_version,
     'movementId','ISSUE-'||c.issue_command_id::text,
     'originalIssueId',c.original_issue_id,
+    'originalFragmentId',c.original_fragment_id,
+    'ackEvidenceSha256',COALESCE(c.ack_evidence_sha256,''),
     'auditSha256',c.source_audit,'humanAcknowledgement',c.ack_state));
   END LOOP;
  ELSE
@@ -2973,31 +3332,7 @@ BEGIN
    AND (q->>'employeeId'='' OR
     COALESCE(a.custodian_employee_id,COALESCE(e.employee_id,''))=q->>'employeeId');
  ELSIF q->>'intent'='CUSTODY' THEN
-  SELECT count(*) INTO expected_total
-  FROM hft.employee_custody AS cu
-  JOIN hft.stock_command AS issue ON issue.id=cu.issue_command_id
-  JOIN hft.custody_ack_status_v1 AS ack
-   ON ack.issue_command_uuid=cu.issue_command_id
-   AND ack.legal_entity_id=cu.legal_entity_id
-   AND ack.employee_id=cu.employee_id
-  JOIN hft.audit_outbox AS audit ON audit.command_id=cu.issue_command_id
-  JOIN hft.stock_account AS a
-   ON a.legal_entity_id=cu.legal_entity_id
-   AND a.site_id=issue.site_id AND a.warehouse_id=cu.warehouse_id
-   AND a.item_code=cu.item_code
-   AND a.product_version_code=cu.product_version_code
-   AND a.location_key=cu.location_id
-   AND a.account_kind='CUSTODY'
-   AND a.custodian_employee_id=cu.employee_id
-   AND a.serial_key=cu.serial_no AND a.batch_key=cu.batch_no
-  WHERE cu.legal_entity_id=q->>'legalEntityId'
-   AND issue.site_id=q->>'siteId'
-   AND cu.warehouse_id=q->>'warehouseId'
-   AND cu.employee_id=q->>'employeeId'
-   AND cu.issued_micro>cu.returned_micro
-   AND (q->>'itemCode'='' OR cu.item_code=q->>'itemCode')
-   AND (q->>'productVersion'='' OR cu.product_version_code=q->>'productVersion')
-   AND (q->>'leafLocationId'='' OR cu.location_id=q->>'leafLocationId');
+  expected_total:=hft.ops_a2_assert_outstanding_custody_census_v3(q);
  ELSE
   SELECT count(*) INTO expected_total FROM hft.stock_account AS a
   WHERE a.legal_entity_id=q->>'legalEntityId'
@@ -3067,9 +3402,15 @@ BEGIN
     cu.location_id,cu.employee_id,cu.serial_no,cu.batch_no,
     cu.issued_micro-cu.returned_micro AS outstanding_micro,
     a.version AS account_version,ack.state AS ack_state,
+    ack.signed_evidence_sha256 AS ack_evidence_sha256,
+    fragment.fragment_id AS original_fragment_id,
     audit.canonical_sha256 AS source_audit,issue.command_id AS original_issue_id
    FROM hft.employee_custody AS cu
    JOIN hft.stock_command AS issue ON issue.id=cu.issue_command_id
+   JOIN hft.posting_fragment AS fragment ON
+    fragment.command_uuid=issue.id AND fragment.kind='ISSUE'
+    AND fragment.legal_entity_id=cu.legal_entity_id
+    AND fragment.employee_id=cu.employee_id
    JOIN hft.custody_ack_status_v1 AS ack
     ON ack.issue_command_uuid=cu.issue_command_id
     AND ack.legal_entity_id=cu.legal_entity_id
@@ -3106,6 +3447,8 @@ BEGIN
     'accountVersion',c.account_version,
     'movementId','ISSUE-'||c.issue_command_id::text,
     'originalIssueId',c.original_issue_id,
+    'originalFragmentId',c.original_fragment_id,
+    'ackEvidenceSha256',COALESCE(c.ack_evidence_sha256,''),
     'auditSha256',c.source_audit,'humanAcknowledgement',c.ack_state));
   END LOOP;
  ELSE
@@ -3225,7 +3568,8 @@ END $ops_a2_acl_preflight$;
 GRANT SELECT,INSERT ON TABLE
  hft.ops_a2_source_binding,hft.ops_a2_command_envelope,
  hft.ops_a2_account_provision_receipt,
- hft.ops_a2_transfer_issuance_receipt
+ hft.ops_a2_transfer_issuance_receipt,
+ hft.ops_a2_transfer_counter_link
  TO hft_r1_posting_owner;
 GRANT SELECT ON TABLE
  hft.ops_a2_account_provision_order,
@@ -3241,14 +3585,14 @@ GRANT SELECT ON TABLE
  hft.ops_a2_source_binding,hft.ops_a2_command_envelope,
  hft.ops_a2_account_provision_order,hft.ops_a2_account_provision_receipt,
  hft.ops_a2_transfer_issuance_order,hft.ops_a2_transfer_issuance_receipt,
- hft.ops_a2_transfer_document
+ hft.ops_a2_transfer_document,hft.ops_a2_transfer_counter_link
  TO hft_r1_audit_verify;
 -- OPS-A and P0 objects were created AFTER the original P2 allowlist:
 -- do not assume P2's previous blanket grants cover future relations.
 GRANT SELECT ON TABLE
  hft.item_version_catalog,
  hft.item_version_photo_coverage_v1,
- hft.p0_location_kind
+ hft.p0_location_kind,hft.custody_ack_status_v1
  TO hft_r1_posting_owner;
 GRANT SELECT ON TABLE hft_secret.p0_stores_proof_key
  TO hft_r1_posting_owner;
@@ -3264,6 +3608,9 @@ GRANT EXECUTE ON FUNCTION
  hft.p0_resolve_count_leaf_v1(text,text,text),
  hft.ops_a2_verify_invocation_v2(jsonb,jsonb),
  hft.ops_a2_authorized_source_v2(jsonb),
+ hft.ops_a2_resolve_signed_grn_line_v3(jsonb,jsonb),
+ hft.ops_a2_assert_outstanding_custody_census_v3(jsonb),
+ hft.ops_a2_verify_transfer_counter_link_v3(),
  hft.ops_a2_return_payload_fields_v1(jsonb),
  hft.ops_a2_return_payload_sha256_v1(jsonb),
  hft.ops_a2_verify_return_proof_v1(jsonb,jsonb),
@@ -3355,6 +3702,8 @@ BEGIN
    OR pg_catalog.has_table_privilege(login.rolname,
     'hft.ops_a2_account_provision_order','INSERT,UPDATE,DELETE')
    OR pg_catalog.has_table_privilege(login.rolname,
+    'hft.ops_a2_transfer_counter_link','INSERT,UPDATE,DELETE')
+   OR pg_catalog.has_table_privilege(login.rolname,
     'hft.ops_a2_transfer_issuance_order','INSERT,UPDATE,DELETE')
    OR pg_catalog.has_table_privilege(login.rolname,
     'hft.stock_account','INSERT,UPDATE,DELETE')
@@ -3378,6 +3727,5 @@ END $ops_a2_check_final_acl$;
 
 -- ===== END POSTFLIGHT PROTECTED OWNER AND ACL CLOSURE =====
 
--- Protected-owner internal rights only. No ordinary-runtime DML, issuer
--- execution or production authority is installed.
+-- No runtime DML or protected SQL execution authority is installed.
 COMMIT;
