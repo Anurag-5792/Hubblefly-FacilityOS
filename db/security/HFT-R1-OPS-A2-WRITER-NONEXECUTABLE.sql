@@ -639,12 +639,37 @@ BEGIN
     AND cu.returned_micro+qty<=cu.issued_micro;
   IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_RETURN_ORIGINAL_CUSTODY_MISMATCH'; END IF;
  ELSIF action='TRANSFER' THEN
+  -- Reserve a UNIQUE immutable link to this exact already-inserted command.
+  -- The BEFORE UPDATE trigger refuses a privileged counter-only operation,
+  -- and the deferred link trigger proves V2 seal, quantity and full chain.
+  INSERT INTO hft.ops_a2_transfer_counter_link(
+   command_uuid,transfer_document_id,quantity_micro,before_micro,after_micro)
+  SELECT cmd_uuid,doc.id,qty,doc.moved_micro,doc.moved_micro+qty
+  FROM hft.ops_a2_transfer_document AS doc
+  WHERE doc.id=(p->>'sourceDocumentId')::uuid
+   AND doc.legal_entity_id=e AND doc.site_id=site AND doc.warehouse_id=wh
+   AND doc.item_code=item AND doc.product_version_code=ver
+   AND doc.source_leaf=p->>'sourceLeafId'
+   AND doc.destination_leaf=p->>'destinationLeafId'
+   AND doc.batch_no=lot AND doc.serial_no=serial
+   AND doc.revision=(p->>'sourceRevision')::bigint
+   AND doc.approved_by=p->>'approvedBy'
+   AND doc.status IN('AUTHORIZED','PARTIALLY_MOVED')
+   AND doc.moved_micro+qty<=doc.authorized_micro
+  FOR UPDATE OF doc;
+  IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_COUNTER_LINK_AUTHORITY_DENIED'; END IF;
   UPDATE hft.ops_a2_transfer_document SET moved_micro=moved_micro+qty,
    status=CASE WHEN moved_micro+qty=authorized_micro THEN 'MOVED'
      ELSE 'PARTIALLY_MOVED' END
    WHERE id=(p->>'sourceDocumentId')::uuid
    AND legal_entity_id=e AND site_id=site AND warehouse_id=wh
-   AND product_version_code=ver
+   AND item_code=item AND product_version_code=ver
+   AND source_leaf=p->>'sourceLeafId'
+   AND destination_leaf=p->>'destinationLeafId'
+   AND batch_no=lot AND serial_no=serial
+   AND revision=(p->>'sourceRevision')::bigint
+   AND approved_by=p->>'approvedBy'
+   AND status IN('AUTHORIZED','PARTIALLY_MOVED')
    AND moved_micro+qty<=authorized_micro;
   IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_SOURCE_CEILING'; END IF;
  END IF;
