@@ -65,8 +65,8 @@ CASES={
         "WITH result AS (SELECT hft.ops_a2_read_snapshot_page_v3("
         ":'query'::jsonb,:'proof'::jsonb) AS payload) "
         "SELECT CASE WHEN EXISTS (SELECT 1 FROM result,"
-        "LATERAL jsonb_array_elements(result.payload->'rows') AS r "
-        "WHERE r->>'entryId'='1') THEN 'PG_F07_ONE_DIGIT_ENTRY_PASS' "
+        "LATERAL jsonb_array_elements(result.payload->'rows') AS pgf_row(value) "
+        "WHERE pgf_row.value->>'entryId'='1') THEN 'PG_F07_ONE_DIGIT_ENTRY_PASS' "
         "ELSE 'PG_F07_ONE_DIGIT_ENTRY_MISSING' END;\nROLLBACK;",
   "expect_output":"PG_F07_ONE_DIGIT_ENTRY_PASS"},
  "PG-F08":{
@@ -105,7 +105,8 @@ def run_case(case_id,values,env):
   "DO $preflight$ BEGIN "
   "IF current_database() !~ '^hft_r1_disposable_[a-z0-9_]{6,40}$' "
   "OR current_setting('server_version_num')::integer < 180000 "
-  "OR current_setting('server_version_num')::integer >= 190000 "
+  "OR current_setting('server_version_num')::integer >= 190000 "+
+  "OR session_user !~ '^hft_r1_(qa|review)_[a-z0-9_]{3,32}$' "
   "THEN RAISE EXCEPTION 'PG063_DISPOSABLE_PG18_REQUIRED'; END IF; "
   "END $preflight$;\n"+spec["sql"]+"\n")
  argv=["psql","-X","-v","ON_ERROR_STOP=1","-A","-t"]
