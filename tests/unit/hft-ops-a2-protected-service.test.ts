@@ -26,19 +26,22 @@ const env={NODE_ENV:'test',HFT_ENVIRONMENT:'test',HFT_AUTH_SOURCE:'verified',
  PGHOST:'127.0.0.1',PGPORT:'54329',HFT_APPROVED_PG_PORT:'54329',
  PGDATABASE:'hft_r1_disposable_synthetic',HFT_TEST_PG_DATABASE:'hft_r1_disposable_synthetic',
  PGUSER:'hft_r1_testlogin',HFT_P2_RUNTIME_LOGIN:'hft_r1_testlogin'};
+const GRN='A123E456-E89B-42D3-A456-426614174001';
+const ISSUE='B123E456-E89B-42D3-A456-426614174002';
+const TRANSFER='C123E456-E89B-42D3-A456-426614174003';
 const receipt={contractVersion:'HFT-R1-STORES-P0-PREPARE-V1',
  requestId:'11111111-1111-4111-8111-111111111111',kind:'IN',
  legalEntityId:'HFT',siteId:'SITE1',warehouseId:'WH1',
  itemCode:'ITEM1',productVersion:'PV1',controlType:'NONE',
  quantity:'3',uom:'PCS',serialNo:'',batchNo:'',
- leafLocationId:'BIN1',grnId:'GRN1',receiptKey:'RECEIPT1',
+ leafLocationId:'BIN1',grnId:GRN,receiptKey:'RECEIPT1',
  supplierId:'SUP1',invoiceNumber:'INV001',qcState:'ACCEPTED',qcEvidenceId:'QC1'};
 const issue={...receipt,kind:'OUT',employeeId:'EMP1',
- issueDocumentId:'ISSUE1',fragmentId:'FRAG1',workOrderId:'',
+ issueDocumentId:ISSUE,fragmentId:'FRAG1',workOrderId:'',
  purpose:'Materials issued to employee'};
 deleteMany(issue,'grnId','receiptKey','supplierId','invoiceNumber','qcState','qcEvidenceId');
 const transfer={...receipt,kind:'TRANSFER',sourceLeafId:'BIN1',
- destinationLeafId:'BIN2',transferDocumentId:'MOVE1',
+ destinationLeafId:'BIN2',transferDocumentId:TRANSFER,
  reason:'Approved transfer of material'};
 deleteMany(transfer,'leafLocationId','grnId','receiptKey','supplierId',
  'invoiceNumber','qcState','qcEvidenceId');
@@ -61,8 +64,8 @@ function doc(op:typeof receipt|typeof issue|typeof transfer):VersionedCommand{
   expectedSourceAccountVersion:kind==='RECEIVE'?null:2,
   expectedDestinationAccountVersion:kind==='ISSUE'?0:1,
   employeeId:kind==='ISSUE'?'EMP1':'',originalIssueId:'',
-  sourceDocumentId:kind==='RECEIVE'?'GRN1':kind==='ISSUE'?'ISSUE1':'MOVE1',
-  sourceActionKey:kind==='RECEIVE'?'RECEIPT1':'FRAG1',
+  sourceDocumentId:kind==='RECEIVE'?GRN.toLowerCase():kind==='ISSUE'?ISSUE.toLowerCase():TRANSFER.toLowerCase(),
+  sourceActionKey:kind==='RECEIVE'?'RECEIPT1:1':'FRAG1',
   fragmentId:kind==='RECEIVE'?'':'FRAG1',
   sourceRevision:1,approvalId:'APP1',approvalRevision:1,
   policyGeneration:1,approvedBy:'CHECKER1',actorSubject:'STORE1',
