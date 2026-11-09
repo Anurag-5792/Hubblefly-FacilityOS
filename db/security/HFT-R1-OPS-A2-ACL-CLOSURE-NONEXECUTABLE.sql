@@ -32,6 +32,10 @@ BEGIN
  THEN RAISE EXCEPTION 'OPS_A2_ACL_OWNER_AND_ROLE_ISOLATION_REQUIRED'; END IF;
 END $ops_a2_acl_preflight$;
 
+-- Installation of this KEY TABLE definition (not key enrollment) requires
+-- a separately authorized hft_secret schema grant. The consolidated guarded
+-- migration revokes it before COMMIT; this postflight enforces closure.
+REVOKE CREATE ON SCHEMA hft_secret FROM hft_engineering;
 -- These are source-only internal owner privileges. Never grant table DML to
 -- the app runtime. Account and transfer orders remain independently enrolled:
 -- NO INSERT/UPDATE/DELETE grants to any governed source-order issuer here.
@@ -40,6 +44,12 @@ GRANT SELECT,INSERT ON TABLE
  hft.ops_a2_account_provision_receipt,
  hft.ops_a2_transfer_issuance_receipt,
  hft.ops_a2_transfer_counter_link
+ TO hft_r1_posting_owner;
+GRANT SELECT ON TABLE hft.ops_a2_independent_scope_v1,
+ hft.ops_a2_recovery_reviewer_entitlement_v1,
+ hft.ops_a2_recovery_reviewer_revocation_v1
+ TO hft_r1_posting_owner;
+GRANT SELECT ON TABLE hft_secret.ops_a2_scope_key_v1
  TO hft_r1_posting_owner;
 GRANT SELECT ON TABLE
  hft.ops_a2_account_provision_order,
@@ -55,7 +65,10 @@ GRANT SELECT ON TABLE
  hft.ops_a2_source_binding,hft.ops_a2_command_envelope,
  hft.ops_a2_account_provision_order,hft.ops_a2_account_provision_receipt,
  hft.ops_a2_transfer_issuance_order,hft.ops_a2_transfer_issuance_receipt,
- hft.ops_a2_transfer_document,hft.ops_a2_transfer_counter_link
+ hft.ops_a2_transfer_document,hft.ops_a2_transfer_counter_link,
+ hft.ops_a2_independent_scope_v1,
+ hft.ops_a2_recovery_reviewer_entitlement_v1,
+ hft.ops_a2_recovery_reviewer_revocation_v1
  TO hft_r1_audit_verify;
 -- OPS-A and P0 objects were created AFTER the original P2 allowlist:
 -- do not assume P2's previous blanket grants cover future relations.
@@ -79,6 +92,7 @@ GRANT EXECUTE ON FUNCTION
  hft.ops_a2_verify_invocation_v2(jsonb,jsonb),
  hft.ops_a2_authorized_source_v2(jsonb),
  hft.ops_a2_resolve_signed_grn_line_v3(jsonb,jsonb),
+ hft.ops_a2_assert_independent_scope_v1(text,uuid,jsonb,text,text,bigint,text,text,text[]),
  hft.ops_a2_assert_outstanding_custody_census_v3(jsonb),
  hft.ops_a2_verify_transfer_counter_link_v3(),
  hft.ops_a2_return_payload_fields_v1(jsonb),
@@ -113,6 +127,8 @@ REVOKE CREATE ON SCHEMA hft FROM hft_r1_posting_owner;
 DO $ops_a2_check_final_acl$
 DECLARE f text; login record;
 BEGIN
+ IF pg_catalog.has_schema_privilege('hft_engineering','hft_secret','CREATE')
+ THEN RAISE EXCEPTION 'OPS_A2_067_TRUST_SCHEMA_TEMP_CREATE_NOT_REVOKED'; END IF;
  IF pg_catalog.has_schema_privilege('hft_r1_posting_owner','hft','CREATE')
  OR pg_catalog.pg_has_role('hft_r1_app_runtime','hft_r1_posting_owner','MEMBER')
  OR pg_catalog.pg_has_role('hft_r1_app_runtime','hft_r1_governance_issuer','MEMBER')
@@ -167,6 +183,16 @@ BEGIN
     oid,'hft_r1_app_runtime'::pg_catalog.regrole,'MEMBER'))
  LOOP
   IF pg_catalog.has_schema_privilege(login.rolname,'hft','CREATE')
+   OR pg_catalog.has_table_privilege(login.rolname,
+    'hft.ops_a2_independent_scope_v1','SELECT,INSERT,UPDATE,DELETE')
+   OR pg_catalog.has_table_privilege(login.rolname,
+    'hft.ops_a2_recovery_reviewer_entitlement_v1','SELECT,INSERT,UPDATE,DELETE')
+   OR pg_catalog.has_table_privilege(login.rolname,
+    'hft.ops_a2_recovery_reviewer_revocation_v1','SELECT,INSERT,UPDATE,DELETE')
+   OR pg_catalog.has_table_privilege(login.rolname,
+    'hft_secret.ops_a2_scope_key_v1','SELECT,INSERT,UPDATE,DELETE')
+   OR pg_catalog.has_function_privilege(login.rolname,
+    'hft.ops_a2_assert_independent_scope_v1(text,uuid,jsonb,text,text,bigint,text,text,text[])','EXECUTE')
    OR pg_catalog.has_table_privilege(login.rolname,
     'hft.ops_a2_source_binding','INSERT,UPDATE,DELETE')
    OR pg_catalog.has_table_privilege(login.rolname,
