@@ -502,7 +502,7 @@ REVOKE ALL ON hft.ops_a2_account_provision_order,
 -- mandatory for every extra identity dimension. No keys are enrolled here.
 -- A separate technical key-custody approval is REQUIRED before installation.
 CREATE TABLE hft_secret.ops_a2_scope_key_v1(
- purpose text NOT NULL CHECK(purpose IN('ACCOUNT_ZERO','TRANSFER_ISSUE')),
+ purpose text NOT NULL CHECK(purpose IN('ACCOUNT_ZERO','TRANSFER_ISSUE','RECOVERY_REVIEW')),
  key_version integer NOT NULL CHECK(key_version>0),
  key_bytes bytea NOT NULL CHECK(pg_catalog.octet_length(key_bytes)>=32),
  not_before timestamptz NOT NULL,not_after timestamptz NOT NULL,
@@ -517,7 +517,7 @@ REVOKE ALL ON hft_secret.ops_a2_scope_key_v1 FROM
 -- NOT by the account/transfer issuer executing this function. No role receives
 -- INSERT from this migration. The original signer/key custody remain external.
 CREATE TABLE hft.ops_a2_independent_scope_v1(
- purpose text NOT NULL CHECK(purpose IN('ACCOUNT_ZERO','TRANSFER_ISSUE')),
+ purpose text NOT NULL CHECK(purpose IN('ACCOUNT_ZERO','TRANSFER_ISSUE','RECOVERY_REVIEW')),
  order_id uuid NOT NULL,
  legal_entity_id text NOT NULL,
  approval_id text NOT NULL,approval_revision bigint NOT NULL CHECK(approval_revision>0),
@@ -560,7 +560,7 @@ DECLARE
  now_epoch bigint;
 BEGIN
  IF pg_catalog.current_setting('transaction_isolation')<>'serializable'
- OR p_purpose NOT IN('ACCOUNT_ZERO','TRANSFER_ISSUE')
+ OR p_purpose NOT IN('ACCOUNT_ZERO','TRANSFER_ISSUE','RECOVERY_REVIEW')
  OR pg_catalog.jsonb_typeof(p_scope)<>'object'
  THEN RAISE EXCEPTION 'OPS_A2_067_SCOPE_PROTECTED_TRANSACTION_REQUIRED'; END IF;
  SELECT * INTO att FROM hft.ops_a2_independent_scope_v1
