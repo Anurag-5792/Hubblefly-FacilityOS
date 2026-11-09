@@ -14,6 +14,14 @@ BEGIN
  OR NOT pg_catalog.pg_has_role('hft_engineering','hft_r1_posting_owner','MEMBER')
  OR pg_catalog.pg_has_role('hft_r1_app_runtime','hft_r1_posting_owner','MEMBER')
  OR pg_catalog.pg_has_role('hft_r1_app_runtime','hft_r1_governance_issuer','MEMBER')
+ OR pg_catalog.pg_has_role('hft_r1_governance_issuer','hft_r1_posting_owner','MEMBER')
+ OR pg_catalog.pg_has_role('hft_r1_posting_owner','hft_r1_governance_issuer','MEMBER')
+ OR EXISTS(SELECT 1 FROM pg_catalog.pg_roles AS person_login
+   WHERE person_login.rolcanlogin
+   AND pg_catalog.pg_has_role(person_login.oid,
+    'hft_r1_governance_issuer'::pg_catalog.regrole,'MEMBER')
+   AND pg_catalog.pg_has_role(person_login.oid,
+    'hft_r1_posting_owner'::pg_catalog.regrole,'MEMBER'))
  OR NOT pg_catalog.has_schema_privilege('hft_r1_posting_owner','hft','CREATE')
  THEN RAISE EXCEPTION 'OPS_A2_ACL_OWNER_AND_ROLE_ISOLATION_REQUIRED'; END IF;
 END $ops_a2_acl_preflight$;
