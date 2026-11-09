@@ -158,15 +158,19 @@ BEGIN
   -- Persisted receipt_key + line_no, never an arbitrary browser action alias.
   OR p->>'grnId' !~ '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$'
   OR b.source_document_id<>pg_catalog.lower(p->>'grnId')
-  OR NOT EXISTS(SELECT 1 FROM hft.grn_partial_receipt AS r
-    WHERE r.grn_id::text=b.source_document_id
-    AND r.legal_entity_id=b.legal_entity_id
-    AND r.warehouse_id=b.warehouse_id
-    AND r.location_id=b.destination_leaf
-    AND r.receipt_key=p->>'receiptKey'
-    AND b.source_action_key=r.receipt_key||':'||r.line_no::text
-    AND r.ops_a2_item_code=b.item_code
-    AND r.ops_a2_product_version_code=b.product_version_code)
+  OR hft.ops_a2_resolve_signed_grn_line_v3(p,
+    pg_catalog.jsonb_build_object(
+      'sourceDocumentId',b.source_document_id,
+      'sourceActionKey',b.source_action_key,
+      'legalEntityId',b.legal_entity_id,'siteId',b.site_id,
+      'warehouseId',b.warehouse_id,'itemCode',b.item_code,
+      'productVersion',b.product_version_code,
+      'controlType',p->>'controlType','serialNo',p->>'serialNo',
+      'batchNo',p->>'batchNo',
+      'destinationLeafId',b.destination_leaf,
+      'inspectionEvidenceId',b.inspection_evidence_id,
+      'quantityMicro',b.authorized_micro::text))
+    IS DISTINCT FROM b.source_action_key
   OR b.destination_leaf<>p->>'leafLocationId'
   THEN RAISE EXCEPTION 'OPS_A2_GRN_QC_SOURCE_NOT_VERIFIED'; END IF;
  ELSIF p->>'kind'='OUT' THEN
