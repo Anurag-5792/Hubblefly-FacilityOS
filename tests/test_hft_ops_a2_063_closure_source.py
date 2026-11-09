@@ -92,7 +92,8 @@ class Source063(unittest.TestCase):
   self.assertIn("hft.ops_a2_resolve_signed_grn_line_v3(p,",READ)
   self.assertIn("source.sourceDocumentId!==op.grnId.toLowerCase()",STORE)
   self.assertIn("source.sourceActionKey.startsWith(op.receiptKey+':')",STORE)
-  self.assertIn("originalIssueId",STORE)
+  return_bridge=(ROOT/"lib/hft/persistence/ops-a2-return-source.ts").read_text()
+  self.assertIn("c.originalIssueId!==req.originalIssueId",return_bridge)
 
  def test_f04_transfer_counter_must_have_one_original_command_and_ledger(self):
   guard=FOUND.split("CREATE OR REPLACE FUNCTION hft.ops_a2_protect_transfer_document_v2",1)[1]
