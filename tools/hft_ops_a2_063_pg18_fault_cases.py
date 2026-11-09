@@ -7,6 +7,9 @@ See hft_ops_a2_067_qualification_catalog.py for the exact NON-EQUIVALENCE
 crosswalk. All PostgreSQL cases remain NOT_TESTED.
 """
 import sys
+from pathlib import Path
+TOOLS=Path(__file__).resolve().parent
+if str(TOOLS) not in sys.path:sys.path.insert(0,str(TOOLS))
 from hft_ops_a2_067_qualification_catalog import CASES,CROSSWALK,HF17_ORIGINAL,A2_ORIGINAL
 from hft_ops_a2_067_pg18_harness import main as admitted_main
 
