@@ -62,7 +62,7 @@ GRANT SELECT ON TABLE
 GRANT SELECT ON TABLE
  hft.item_version_catalog,
  hft.item_version_photo_coverage_v1,
- hft.p0_location_kind
+ hft.p0_location_kind,hft.custody_ack_status_v1
  TO hft_r1_posting_owner;
 GRANT SELECT ON TABLE hft_secret.p0_stores_proof_key
  TO hft_r1_posting_owner;
@@ -78,6 +78,9 @@ GRANT EXECUTE ON FUNCTION
  hft.p0_resolve_count_leaf_v1(text,text,text),
  hft.ops_a2_verify_invocation_v2(jsonb,jsonb),
  hft.ops_a2_authorized_source_v2(jsonb),
+ hft.ops_a2_resolve_signed_grn_line_v3(jsonb,jsonb),
+ hft.ops_a2_assert_outstanding_custody_census_v3(jsonb),
+ hft.ops_a2_verify_transfer_counter_link_v3(),
  hft.ops_a2_return_payload_fields_v1(jsonb),
  hft.ops_a2_return_payload_sha256_v1(jsonb),
  hft.ops_a2_verify_return_proof_v1(jsonb,jsonb),
