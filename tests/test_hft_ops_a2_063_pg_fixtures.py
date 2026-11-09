@@ -76,6 +76,7 @@ class Diagnostic067(unittest.TestCase):
   with self.assertRaisesRegex(ValueError,"REAL_SQLSTATE"):
    evidence_complete(result,receipt,c)
   result["sqlstate"]="P0001"
+  result["negative_phase"]="DEFERRED_COMMIT"
   with self.assertRaisesRegex(ValueError,"RESULT_PROVENANCE_ABSENT"):
    evidence_complete(result,receipt,c)
  def test_no_substring_only_success_path(self):
