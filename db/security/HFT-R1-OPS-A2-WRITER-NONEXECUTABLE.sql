@@ -100,6 +100,9 @@ DECLARE
  outcome hft.stock_command_outcome%ROWTYPE;
  nlegs bigint;delta bigint;missing bigint;
  ledger_digest text;
+ fact_v2 jsonb;leg_check record; available hft.stock_account%ROWTYPE;
+ historic_qty bigint;historic_version bigint;cutoff_id bigint;
+ expected_available_id uuid;expected_leaf text;
 BEGIN
  SELECT * INTO c FROM hft.stock_command WHERE id=p_id;
  SELECT * INTO seal FROM hft.stock_command_seal WHERE command_id=p_id;
@@ -185,6 +188,60 @@ BEGIN
  INTO ledger_digest FROM hft.stock_entry leg WHERE leg.command_id=p_id;
  IF ledger_digest IS DISTINCT FROM seal.movement_sha256
  THEN RAISE EXCEPTION 'OPS_A2_V2_IMMUTABLE_MOVEMENT_SHA_DRIFT'; END IF;
+ -- Source-history invariant is independent of CURRENT balances: old
+ -- legitimate seals must remain verifiable after later stock transactions.
+ -- Revision zero is created only by the governed zero-account provisioner.
+ SELECT pg_catalog.max(id) INTO cutoff_id FROM hft.stock_entry WHERE command_id=p_id;
+ FOR leg_check IN SELECT id,account_id,account_before_version,
+    account_after_version FROM hft.stock_entry
+   WHERE command_id=p_id AND account_id IS NOT NULL
+ LOOP
+  SELECT COALESCE(sum(qty_delta_micro),0),count(*)
+    INTO historic_qty,historic_version
+    FROM hft.stock_entry
+   WHERE account_id=leg_check.account_id AND id<=leg_check.id;
+  IF leg_check.account_before_version IS DISTINCT FROM historic_version-1
+   OR leg_check.account_after_version IS DISTINCT FROM historic_version
+   OR historic_qty<0
+  THEN RAISE EXCEPTION 'OPS_A2_V2_HISTORIC_ENTRY_REVISION_OR_QUANTITY_INVALID'; END IF;
+ END LOOP;
+ -- Independently recompute the COMPLETE V2 digest (account identity,
+ -- serial/batch, entry ID, original revisions and ordered signed quantities).
+ -- Legacy seal.movement_sha256 is not an adequate substitute for this hash.
+ fact_v2:=hft.ops_a2_fact_v2(p_id);
+ IF fact_v2->>'movementSha256' IS DISTINCT FROM envelope.version_movement_sha256
+ OR outbox.canonical_event->'fact' IS DISTINCT FROM fact_v2
+ OR fact_v2->'command'->>'requestQuantity' IS DISTINCT FROM
+     hft.format_signed_micro_v2(c.quantity_micro)
+ THEN RAISE EXCEPTION 'OPS_A2_V2_FULL_MOVEMENT_FACT_DIGEST_INVALID'; END IF;
+ -- Assert the SEALED AVAILABLE post-state at the original command cutoff,
+ -- rather than comparing a historical seal with a mutable CURRENT balance.
+ SELECT * INTO available FROM hft.stock_account
+ WHERE id=seal.available_account_id;
+ expected_leaf:=CASE WHEN c.kind='RECEIVE' THEN c.ops_a2_destination_leaf
+  ELSE c.ops_a2_source_leaf END;
+ expected_available_id:=CASE
+  WHEN c.kind='RECEIVE' OR (c.kind='RETURN' AND
+     envelope.exact_payload->>'inspectedCondition'='GOOD')
+   THEN c.ops_a2_destination_account_id
+  WHEN c.kind IN('ISSUE','TRANSFER') THEN c.ops_a2_source_account_id
+  ELSE NULL END;
+ SELECT COALESCE(sum(qty_delta_micro),0),count(*)
+ INTO historic_qty,historic_version FROM hft.stock_entry
+ WHERE account_id=seal.available_account_id AND id<=cutoff_id;
+ IF available.id IS NULL OR available.account_kind<>'AVAILABLE'
+ OR available.condition<>'GOOD' OR available.custodian_employee_id<>''
+ OR available.legal_entity_id<>c.legal_entity_id OR available.site_id<>c.site_id
+ OR available.warehouse_id<>c.warehouse_id OR available.item_code<>c.item_code
+ OR available.product_version_code<>c.product_version_code
+ OR available.location_key<>expected_leaf
+ OR available.serial_key<>envelope.exact_payload->>'serialNo'
+ OR available.batch_key<>envelope.exact_payload->>'batchNo'
+ OR (expected_available_id IS NOT NULL
+   AND seal.available_account_id<>expected_available_id)
+ OR seal.available_after_micro IS DISTINCT FROM historic_qty
+ OR seal.available_after_version IS DISTINCT FROM historic_version
+ THEN RAISE EXCEPTION 'OPS_A2_V2_SEALED_AVAILABLE_HISTORIC_POSTSTATE_INVALID'; END IF;
  IF outbox.canonical_event->>'schema'<>'HFT_STOCK_EVENT_OPS_A2_V2'
  OR outbox.canonical_event->>'commandId'<>c.command_id
  OR outbox.canonical_event->>'productVersion'<>c.product_version_code
@@ -196,9 +253,36 @@ REVOKE EXECUTE ON FUNCTION hft.ops_a2_assert_command_seal_v2(uuid)
 
 -- V2 deferred commitment must have a real matching seal, outcome and audit.
 CREATE OR REPLACE FUNCTION hft.ops_a2_require_command_seal_v2()
-RETURNS trigger LANGUAGE plpgsql AS $verify$
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $verify$
+DECLARE changed record;account_current hft.stock_account%ROWTYPE;
+ derived_qty bigint;derived_revision bigint;
+ sealed hft.stock_command_seal%ROWTYPE;
 BEGIN
  PERFORM hft.ops_a2_assert_command_seal_v2(NEW.id);
+ -- Deferred COMMIT-only check: each stock account actually reached
+ -- its original signed post-state. Every balance equals ALL immutable legs.
+ FOR changed IN SELECT DISTINCT account_id FROM hft.stock_entry
+  WHERE command_id=NEW.id AND account_id IS NOT NULL
+ LOOP
+  SELECT * INTO account_current FROM hft.stock_account
+   WHERE id=changed.account_id;
+  SELECT COALESCE(sum(qty_delta_micro),0),count(*)
+    INTO derived_qty,derived_revision FROM hft.stock_entry
+   WHERE account_id=changed.account_id;
+  IF account_current.id IS NULL OR account_current.qty_micro<>derived_qty
+   OR account_current.version<>derived_revision
+   OR NOT EXISTS(SELECT 1 FROM hft.stock_entry AS leg
+      WHERE leg.command_id=NEW.id AND leg.account_id=changed.account_id
+       AND leg.account_after_version=account_current.version)
+  THEN RAISE EXCEPTION 'OPS_A2_V2_DEFERRED_POSTSTATE_QUANTITY_OR_REVISION_INVALID'; END IF;
+ END LOOP;
+ SELECT * INTO sealed FROM hft.stock_command_seal WHERE command_id=NEW.id;
+ SELECT * INTO account_current FROM hft.stock_account
+ WHERE id=sealed.available_account_id;
+ IF account_current.id IS NULL
+ OR sealed.available_after_micro<>account_current.qty_micro
+ OR sealed.available_after_version<>account_current.version
+ THEN RAISE EXCEPTION 'OPS_A2_V2_DEFERRED_AVAILABLE_SEAL_POSTSTATE_INVALID'; END IF;
  RETURN NULL;
 END $verify$;
 CREATE CONSTRAINT TRIGGER ops_a2_command_requires_seal_v2
