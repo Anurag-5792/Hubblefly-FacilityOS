@@ -1,60 +1,90 @@
-"""Tests for the offline, gated PG-F01..PG-F08 fixture runner. No psql calls."""
+"""067: verify OPS063 diagnostic IDs, non-equivalence and nonexecution gates.
+
+No psql, Docker, migration, fault SQL, secrets or trust-root enrollment.
+"""
 import importlib.util
+import io
+from contextlib import redirect_stdout,redirect_stderr
 from pathlib import Path
 import unittest
 from unittest.mock import patch
-import subprocess
 
 ROOT=Path(__file__).resolve().parents[1]
-file=ROOT/"tools/hft_ops_a2_063_pg18_fault_cases.py"
-spec=importlib.util.spec_from_file_location("pg063_fault_cases",file)
+TOOL=ROOT/"tools/hft_ops_a2_063_pg18_fault_cases.py"
+spec=importlib.util.spec_from_file_location("ops063_wrapper",TOOL)
 assert spec is not None and spec.loader is not None
 m=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
+from hft_ops_a2_067_pg18_harness import _catalog,admit,evidence_complete,verify_fixture
 
-class PG063Manifest(unittest.TestCase):
- def test_eight_declared_fixtures_and_no_execution_by_default(self):
-  self.assertEqual(tuple(m.CASES),tuple("PG-F%02d"%i for i in range(1,9)))
-  self.assertIn("pgf_row.value->>'entryId'='1'",m.CASES["PG-F07"]["sql"])
-  self.assertIn("OR session_user !~",file.read_text())
-  for name,c in m.CASES.items():
-   with self.subTest(case=name):
-    self.assertIn("purpose",c)
-    self.assertIn("variables",c)
-    self.assertIn("BEGIN ISOLATION LEVEL",c["sql"])
-    self.assertIn("ROLLBACK;",c["sql"])
-    self.assertTrue(c.get("expect") or c.get("expect_output"))
-  with patch.object(m,"subprocess") as calls:
-   self.assertEqual(m.main(["--list"]),0)
-   calls.run.assert_not_called()
-
- def test_denies_missing_authority_production_db_and_stale_source_hash(self):
-  base={"HFT_OPS_A2_PG063_TECHNICAL_AUTHORITY":"INDEPENDENT_EXPLICIT_063",
-    "HFT_APPROVED_SOURCE_SHA":"a"*40,
-    "PGDATABASE":"hft_r1_disposable_063tests",
-    "PGUSER":"hft_r1_qa_review"}
-  with patch.object(m,"head",return_value="a"*40):
-   m.qualify_env(base)
-   for changes in ({"PGDATABASE":"production"},
-    {"PGUSER":"postgres"},
-    {"HFT_OPS_A2_PG063_TECHNICAL_AUTHORITY":"SELF_APPROVED"},
-    {"HFT_APPROVED_SOURCE_SHA":"b"*40}):
-    with self.subTest(changes=changes),self.assertRaises(ValueError):
-     m.qualify_env({**base,**changes})
-
- def test_positive_and_negative_cases_only_pass_expected_db_evidence(self):
-  fixture={"cmd":"123e4567-e89b-42d3-a456-426614174000"}
-  result=subprocess.CompletedProcess([],3,"","ERROR: OPS_A2_V2_UNBALANCED_OR_INCOMPLETE_MOVEMENTS")
-  with patch.object(m.subprocess,"run",return_value=result) as mock:
-   self.assertEqual(m.run_case("PG-F01",fixture,{"PGDATABASE":"hft_r1_disposable_063tests"})["result"],"PASS")
-   self.assertIn("BEGIN ISOLATION LEVEL",mock.call_args.kwargs["input"])
-   self.assertNotIn("shell",mock.call_args.kwargs)
-  with patch.object(m.subprocess,"run",return_value=subprocess.CompletedProcess([],0,"","")):
-   self.assertEqual(m.run_case("PG-F01",fixture,{})["result"],"FAIL")
-  with patch.object(m.subprocess,"run",return_value=subprocess.CompletedProcess([],0,
-    "PG_F07_ONE_DIGIT_ENTRY_PASS","")):
-   self.assertEqual(m.run_case("PG-F07",{"query":"{}","proof":"{}"}, {})["result"],"PASS")
-  with self.assertRaises(ValueError):
-   m.run_case("PG-F06",{"document":"test"}, {})
+class Diagnostic067(unittest.TestCase):
+ def test_exact_independent_qa_fixture_namespaces(self):
+  self.assertEqual(tuple(m.CASES),tuple("OPS063-F%02d"%i for i in range(1,9)))
+  self.assertEqual(m.HF17_ORIGINAL,tuple("HF17-PG-F%02d"%i for i in range(1,9)))
+  self.assertEqual(m.A2_ORIGINAL,tuple("A2-PG-%02d"%i for i in range(1,17)))
+  self.assertTrue(all(x.status=="NOT_TESTED" for x in m.CASES.values()))
+  self.assertTrue(all(not v for v in m.CROSSWALK["hf17_to_ops063"].values()))
+  self.assertEqual(m.CROSSWALK["all_original_postgres_results"],"NOT_TESTED")
+  self.assertEqual(m.CROSSWALK["all_ops063_postgres_results"],"NOT_TESTED")
+ def test_no_authority_means_no_execution_and_no_false_pass(self):
+  with patch("hft_ops_a2_067_pg18_harness.subprocess.run") as called:
+   with redirect_stdout(io.StringIO()):
+    self.assertEqual(m.main(["--list"]),0)
+   called.assert_not_called()
+  with patch("hft_ops_a2_067_pg18_harness.subprocess.run") as called:
+   with redirect_stderr(io.StringIO()):
+    self.assertEqual(m.main(["--execute","--admission","/missing/admission.json",
+                              "--fixture-receipts","/missing/fixtures.json"]),2)
+   called.assert_not_called()
+ def test_bare_environment_claims_are_not_approval(self):
+  env={"PGUSER":"hft_r1_qa_review","PGHOST":"database.example",
+       "PGPORT":"5432","PGDATABASE":"hft_r1_disposable_067tests",
+       "PGSSLMODE":"verify-full","PGCHANNELBINDING":"require"}
+  payload={"approved_source_sha":"a"*40}
+  with patch("hft_ops_a2_067_pg18_harness.head_clean",return_value="b"*40):
+   with self.assertRaisesRegex(ValueError,"SOURCE_SHA_NOT_APPROVED"):
+    admit(payload,env,m.CASES)
+ def test_missing_positive_control_or_adverse_construction_is_denied(self):
+  c=_catalog().CASES["OPS063-F01"]
+  values={"admission_id":"A"*36,"case_id":c.id,
+   "fixture_id":"123e4567-e89b-42d3-a456-426614174000",
+   "db_project_id":"fake-project-reference-synthetic",
+   "db_branch_id":"fake-branch-reference-synthetic",
+   "prestate_sha256":"a"*64,"positive_evidence_sha256":"b"*64,
+   "adverse_evidence_sha256":"c"*64,"independent_witness_sha256":"d"*64,
+   "constructor_source_sha256":"e"*64,
+   "positive_control_committed":False,"adverse_established":True,
+   "source_identities":dict.fromkeys(
+    ("command_uuid","source_document_id","source_revision","item_code",
+     "product_version","legal_entity_id","site_id","warehouse_id",
+     "original_nonce","source_account_id","destination_account_id"),"synthetic"),
+   "prestate_assertions":list(c.required_prestate)}
+  admission={"record_id":"A"*36,"project_id":"fake-project-reference-synthetic",
+             "project_branch_id":"fake-branch-reference-synthetic"}
+  with self.assertRaisesRegex(ValueError,"POSITIVE_OR_GENUINE_ADVERSE_STATE"):
+   verify_fixture(values,admission,c.id)
+  values["positive_control_committed"]=True
+  values["adverse_established"]=False
+  with self.assertRaisesRegex(ValueError,"POSITIVE_OR_GENUINE_ADVERSE_STATE"):
+   verify_fixture(values,admission,c.id)
+ def test_rejected_transaction_cannot_pass_without_real_sqlstate_and_reconstruction(self):
+  c=_catalog().CASES["OPS063-F01"]
+  receipt={"fixture_id":"123e4567-e89b-42d3-a456-426614174000"}
+  result={"fixture_id":receipt["fixture_id"],"case_id":c.id,
+   "protected_rejection":c.expected_negative_code,
+   "sqlstate":"42501"}
+  with self.assertRaisesRegex(ValueError,"REAL_SQLSTATE"):
+   evidence_complete(result,receipt,c)
+  result["sqlstate"]="P0001"
+  with self.assertRaisesRegex(ValueError,"RESULT_PROVENANCE_ABSENT"):
+   evidence_complete(result,receipt,c)
+ def test_no_substring_only_success_path(self):
+  tool=(ROOT/"tools/hft_ops_a2_067_pg18_harness.py").read_text()
+  old=(ROOT/"tools/hft_ops_a2_063_pg18_fault_cases.py").read_text()
+  self.assertNotIn("result.returncode!=0 and",old)
+  self.assertIn("067_REAL_SQLSTATE_NOT_OBSERVED",tool)
+  self.assertIn("067_NEGATIVE_TRANSACTION_MUTATED_COMMITTED_FACTS",tool)
+  self.assertIn("067_PINNED_ED25519_VERIFIER_NOT_INSTALLED",tool)
+  self.assertIn("DISPOSABLE_FAULT_GATEWAY_AND_INDEPENDENT_OBSERVER_NOT_YET_QUALIFIED",tool)
 
 if __name__=="__main__":unittest.main()
