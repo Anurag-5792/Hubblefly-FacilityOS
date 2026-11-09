@@ -38,7 +38,8 @@ END $ops_a2_acl_preflight$;
 GRANT SELECT,INSERT ON TABLE
  hft.ops_a2_source_binding,hft.ops_a2_command_envelope,
  hft.ops_a2_account_provision_receipt,
- hft.ops_a2_transfer_issuance_receipt
+ hft.ops_a2_transfer_issuance_receipt,
+ hft.ops_a2_transfer_counter_link
  TO hft_r1_posting_owner;
 GRANT SELECT ON TABLE
  hft.ops_a2_account_provision_order,
@@ -54,7 +55,7 @@ GRANT SELECT ON TABLE
  hft.ops_a2_source_binding,hft.ops_a2_command_envelope,
  hft.ops_a2_account_provision_order,hft.ops_a2_account_provision_receipt,
  hft.ops_a2_transfer_issuance_order,hft.ops_a2_transfer_issuance_receipt,
- hft.ops_a2_transfer_document
+ hft.ops_a2_transfer_document,hft.ops_a2_transfer_counter_link
  TO hft_r1_audit_verify;
 -- OPS-A and P0 objects were created AFTER the original P2 allowlist:
 -- do not assume P2's previous blanket grants cover future relations.
@@ -167,6 +168,8 @@ BEGIN
     'hft.ops_a2_source_binding','INSERT,UPDATE,DELETE')
    OR pg_catalog.has_table_privilege(login.rolname,
     'hft.ops_a2_account_provision_order','INSERT,UPDATE,DELETE')
+   OR pg_catalog.has_table_privilege(login.rolname,
+    'hft.ops_a2_transfer_counter_link','INSERT,UPDATE,DELETE')
    OR pg_catalog.has_table_privilege(login.rolname,
     'hft.ops_a2_transfer_issuance_order','INSERT,UPDATE,DELETE')
    OR pg_catalog.has_table_privilege(login.rolname,
