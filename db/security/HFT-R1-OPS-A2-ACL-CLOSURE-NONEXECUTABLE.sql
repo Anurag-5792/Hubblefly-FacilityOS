@@ -34,6 +34,14 @@ GRANT SELECT ON TABLE
 -- immutable transfer identity is enforced by the guarded trigger.
 GRANT SELECT,INSERT,UPDATE ON TABLE hft.ops_a2_transfer_document
  TO hft_r1_posting_owner;
+-- Independent audit may READ immutable provenance and source authority,
+-- never issue approvals, provision accounts, mutate transfers or post stock.
+GRANT SELECT ON TABLE
+ hft.ops_a2_source_binding,hft.ops_a2_command_envelope,
+ hft.ops_a2_account_provision_order,hft.ops_a2_account_provision_receipt,
+ hft.ops_a2_transfer_issuance_order,hft.ops_a2_transfer_issuance_receipt,
+ hft.ops_a2_transfer_document
+ TO hft_r1_audit_verify;
 -- OPS-A and P0 objects were created AFTER the original P2 allowlist:
 -- do not assume P2's previous blanket grants cover future relations.
 GRANT SELECT ON TABLE
@@ -112,6 +120,17 @@ BEGIN
     AND proc.prosecdef)
   THEN RAISE EXCEPTION 'OPS_A2_SECURITY_DEFINER_OWNER_NOT_QUALIFIED:%',f; END IF;
  END LOOP;
+ IF NOT pg_catalog.has_table_privilege(
+  'hft_r1_audit_verify','hft.ops_a2_source_binding','SELECT')
+ OR NOT pg_catalog.has_table_privilege(
+  'hft_r1_audit_verify','hft.ops_a2_account_provision_receipt','SELECT')
+ OR NOT pg_catalog.has_table_privilege(
+  'hft_r1_audit_verify','hft.ops_a2_transfer_document','SELECT')
+ OR pg_catalog.has_table_privilege(
+  'hft_r1_audit_verify','hft.ops_a2_source_binding','INSERT,UPDATE,DELETE')
+ OR pg_catalog.has_table_privilege(
+  'hft_r1_audit_verify','hft.ops_a2_transfer_document','INSERT,UPDATE,DELETE')
+ THEN RAISE EXCEPTION 'OPS_A2_INDEPENDENT_AUDIT_ACL_INVALID'; END IF;
  FOR login IN
   SELECT rolname FROM pg_catalog.pg_roles
   WHERE rolname='hft_r1_app_runtime'
