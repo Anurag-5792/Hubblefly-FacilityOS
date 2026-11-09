@@ -462,6 +462,49 @@ ALTER FUNCTION hft.ops_a2_reconcile_original_attempt_private_v3(jsonb,jsonb)
  OWNER TO hft_r1_posting_owner;
 REVOKE ALL ON FUNCTION hft.ops_a2_reconcile_original_attempt_private_v3(jsonb,jsonb)
  FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
+-- 067: cross-actor historical verification requires a separately signed
+-- CURRENT exact-scope recovery entitlement. It is NOT inferred from a
+-- warehouse read grant or possession of the original posting proof.
+-- Separate approved original issuer/key custody is externally qualified.
+CREATE TABLE hft.ops_a2_recovery_reviewer_entitlement_v1(
+ grant_id uuid PRIMARY KEY,
+ legal_entity_id text NOT NULL,site_id text NOT NULL,warehouse_id text NOT NULL,
+ item_code text NOT NULL,product_version_code text NOT NULL,
+ original_command_id text NOT NULL,original_actor_subject text NOT NULL,
+ original_payload_sha256 text NOT NULL
+ CHECK(original_payload_sha256~'^[0-9a-f]{64}$'),
+ original_nonce text NOT NULL CHECK(original_nonce~'^[0-9a-f]{48}$'),
+ reviewer_subject text NOT NULL,reviewer_person_id text NOT NULL,
+ approval_id text NOT NULL,approval_revision bigint NOT NULL
+ CHECK(approval_revision>0),
+ policy_generation bigint NOT NULL CHECK(policy_generation>0),
+ decision_evidence_sha256 text NOT NULL
+ CHECK(decision_evidence_sha256~'^[0-9a-f]{64}$'),
+ valid_from timestamptz NOT NULL,valid_until timestamptz NOT NULL,
+ CHECK(valid_from<valid_until),
+ CHECK(reviewer_subject<>original_actor_subject),
+ FOREIGN KEY(legal_entity_id,warehouse_id,site_id)
+ REFERENCES hft.warehouse(legal_entity_id,warehouse_id,site_id),
+ FOREIGN KEY(legal_entity_id,reviewer_person_id)
+ REFERENCES hft.approval_human(legal_entity_id,person_id),
+ FOREIGN KEY(legal_entity_id,approval_id,approval_revision)
+ REFERENCES hft.protected_stock_approval(legal_entity_id,approval_id,approval_revision)
+);
+CREATE TABLE hft.ops_a2_recovery_reviewer_revocation_v1(
+ grant_id uuid PRIMARY KEY REFERENCES hft.ops_a2_recovery_reviewer_entitlement_v1(grant_id),
+ revoked_by text NOT NULL,reason text NOT NULL,
+ revoked_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()
+);
+CREATE TRIGGER immutable_ops_a2_recovery_entitlement
+ BEFORE UPDATE OR DELETE ON hft.ops_a2_recovery_reviewer_entitlement_v1
+ FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+CREATE TRIGGER immutable_ops_a2_recovery_reviewer_revocation
+ BEFORE UPDATE OR DELETE ON hft.ops_a2_recovery_reviewer_revocation_v1
+ FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+REVOKE ALL ON hft.ops_a2_recovery_reviewer_entitlement_v1,
+ hft.ops_a2_recovery_reviewer_revocation_v1
+ FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
+
 CREATE OR REPLACE FUNCTION hft.ops_a2_reconcile_post_v3(
  p jsonb,original_proof jsonb,q jsonb,fresh_read_proof jsonb)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
