@@ -14,7 +14,10 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
+import ssl
 import stat
+import struct
 import subprocess
 import sys
 import time
@@ -238,6 +241,36 @@ def evidence_complete(result,receipt,c):
  # This only marks evidence ready for INDEPENDENT QA, not a release PASS.
  return "EXECUTED_EVIDENCE_PENDING_INDEPENDENT_REVIEW"
 
+def verify_postgres_tls_peer(admission,env):
+ # PostgreSQL STARTTLS/SSLRequest protocol, not HTTPS. The wrapped socket
+ # performs normal CA-chain and DNS hostname verification AND the separately
+ # signed exact certificate SHA-256 pin check. No SQL or login occurs here.
+ endpoint=admission.get("endpoint",{})
+ host=endpoint.get("host")
+ try:
+  port=int(endpoint.get("port"))
+  if not isinstance(host,str) or not host or not 1<=port<=65535:
+   raise ValueError("067_TLS_PINNED_ENDPOINT_INVALID")
+  cert=Path(env["PGSSLROOTCERT"])
+  if checksum(cert)!=endpoint["sslrootcert_sha256"]:
+   raise ValueError("067_TLS_APPROVED_CA_CHANGED")
+  context=ssl.create_default_context(cafile=str(cert))
+  context.check_hostname=True
+  context.verify_mode=ssl.CERT_REQUIRED
+  with socket.create_connection((host,port),timeout=8) as sock:
+   sock.sendall(struct.pack("!II",8,80877103))
+   if sock.recv(1)!=b"S":
+    raise ValueError("067_POSTGRES_SSL_REQUEST_REJECTED")
+   with context.wrap_socket(sock,server_hostname=host) as secure:
+    certificate=secure.getpeercert(binary_form=True)
+    if not certificate or hashlib.sha256(certificate).hexdigest()!=endpoint["tls_peer_sha256"]:
+     raise ValueError("067_TLS_PEER_SHA256_NOT_APPROVED")
+    if secure.version() not in ("TLSv1.2","TLSv1.3"):
+     raise ValueError("067_TLS_PROTOCOL_UNQUALIFIED")
+  return True
+ except (OSError,ssl.SSLError,ValueError,KeyError,TypeError) as exc:
+  raise ValueError("067_PG_ENDPOINT_TLS_IDENTITY_UNVERIFIED") from exc
+
 def _qa_sql(env,sql):
  # The QA login may SELECT only prequalified observer and narrow disposable
  # gateway functions; it must never run raw UPDATE/DDL or CREATE credentials.
@@ -375,6 +408,7 @@ def main(argv=None):
    print(json.dumps({"status":"EXECUTED_EVIDENCE_PENDING_INDEPENDENT_REVIEW",
     "results":results,"all_postgres_gate_results":"NOT_ACCEPTED"},sort_keys=True))
    return 0
+  verify_postgres_tls_peer(admission,os.environ)
   qualify_live_gateway(admission,os.environ)
   for cid,receipt in verified.items():
    before=_call_gateway(cid,receipt["fixture_id"],os.environ,False)
