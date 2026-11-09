@@ -110,6 +110,9 @@ class BoundedAclClosure(unittest.TestCase):
    "TO hft_r1_posting_owner;",
   ):
    with self.subTest(right=required):self.assertIn(required,s)
+  self.assertIn("TO hft_r1_audit_verify;",s)
+  self.assertIn("OPS_A2_INDEPENDENT_AUDIT_ACL_INVALID",s)
+  self.assertNotIn("GRANT INSERT ON TABLE hft.ops_a2_source_binding TO hft_r1_audit_verify",s)
   self.assertNotRegex(s,re.compile(r"GRANT\s+(?:SELECT|INSERT|UPDATE|DELETE)\s+ON\s+TABLE[\s\S]*?TO\s+hft_r1_app_runtime\s*;",re.I))
 
  def test_runtime_inheritance_and_executable_helpers_fail_closed(self):
