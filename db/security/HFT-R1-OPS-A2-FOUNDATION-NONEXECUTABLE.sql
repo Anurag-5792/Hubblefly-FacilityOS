@@ -838,6 +838,33 @@ CREATE TABLE hft.ops_a2_transfer_issuance_order(
  batch_no text NOT NULL DEFAULT '',serial_no text NOT NULL DEFAULT '',
  authorized_micro bigint NOT NULL CHECK(authorized_micro>0),
  revision bigint NOT NULL CHECK(revision>0),
+ approval_id text NOT NULL,approval_revision bigint NOT NULL
+ CHECK(approval_revision>0),
+ source_action_key text NOT NULL,
+ approved_scope_sha256 text NOT NULL
+ CHECK(approved_scope_sha256~'^[0-9a-f]{64} text NOT NULL,prepared_session_id text NOT NULL,
+ checked_subject text NOT NULL,checked_session_id text NOT NULL,
+ approved_subject text NOT NULL,approved_session_id text NOT NULL,
+ approved_at timestamptz NOT NULL,
+ decision_evidence_sha256 text NOT NULL
+ CHECK(decision_evidence_sha256~'^[0-9a-f]{64}$'),
+ policy_generation bigint NOT NULL CHECK(policy_generation>0),
+ status text NOT NULL CHECK(status='AUTHORIZED'),
+ FOREIGN KEY(legal_entity_id,approval_id,approval_revision)
+ REFERENCES hft.protected_stock_approval(legal_entity_id,approval_id,approval_revision),
+ FOREIGN KEY(legal_entity_id,warehouse_id,site_id)
+ REFERENCES hft.warehouse(legal_entity_id,warehouse_id,site_id),
+ FOREIGN KEY(legal_entity_id,item_code,product_version_code)
+ REFERENCES hft.item_version_catalog(legal_entity_id,item_code,version_code),
+ FOREIGN KEY(legal_entity_id,warehouse_id,source_leaf)
+ REFERENCES hft.location(legal_entity_id,warehouse_id,location_id),
+ FOREIGN KEY(legal_entity_id,warehouse_id,destination_leaf)
+ REFERENCES hft.location(legal_entity_id,warehouse_id,location_id),
+ CHECK(source_leaf<>destination_leaf),
+ CHECK(prepared_subject<>checked_subject AND
+ prepared_subject<>approved_subject AND checked_subject<>approved_subject)
+);
+),
  prepared_subject text NOT NULL,prepared_session_id text NOT NULL,
  checked_subject text NOT NULL,checked_session_id text NOT NULL,
  approved_subject text NOT NULL,approved_session_id text NOT NULL,
@@ -922,6 +949,8 @@ BEGIN
  SELECT * INTO a FROM hft.protected_stock_approval AS approved
  WHERE approved.legal_entity_id=o.legal_entity_id
  AND approved.document_id=o.document_id::text
+ AND approved.approval_id=o.approval_id
+ AND approved.approval_revision=o.approval_revision
  AND approved.kind='TRANSFER'
  AND approved.document_revision=o.revision FOR SHARE;
  IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_067_TRANSFER_ORIGINAL_APPROVAL_MISSING'; END IF;
@@ -932,6 +961,8 @@ BEGIN
  IF d.approval_id IS NULL OR NOT a.approved
  OR a.site_id<>o.site_id OR a.warehouse_id<>o.warehouse_id
  OR a.item_code<>o.item_code OR a.location_id<>o.source_leaf
+ OR a.source_action_key<>o.source_action_key
+ OR a.approved_scope_sha256<>o.approved_scope_sha256
  OR a.condition<>'GOOD' OR a.batch_no<>o.batch_no
  OR a.serial_no<>o.serial_no OR a.quantity_micro<>o.authorized_micro
  OR a.actor_subject IS NULL
@@ -978,17 +1009,6 @@ BEGIN
  OR NOT latest_policy.require_checker
  OR NOT latest_policy.require_independent_approver
  THEN RAISE EXCEPTION 'OPS_A2_067_TRANSFER_LATEST_POLICY_REJECTED'; END IF;
- -- Original legacy filter is not sufficient: independent latest policy
- -- above is the binding gate. The following check is harmless redundancy.
- PERFORM 1 FROM hft.posting_action_policy AS pol
- WHERE pol.legal_entity_id=o.legal_entity_id AND pol.site_id=o.site_id
- AND pol.warehouse_id=o.warehouse_id AND pol.action_kind='TRANSFER'
- AND pol.require_preparer AND pol.require_checker
- AND pol.require_independent_approver
- AND pg_catalog.clock_timestamp()>=pol.valid_from
- AND pg_catalog.clock_timestamp()<pol.valid_until
- ORDER BY pol.policy_revision DESC LIMIT 1 FOR SHARE;
- IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_CURRENT_POLICY_MISSING'; END IF;
  PERFORM 1 FROM hft.stock_hold AS hold WHERE hold.active
  AND hold.legal_entity_id=o.legal_entity_id
  AND hold.site_id=o.site_id AND hold.warehouse_id=o.warehouse_id
@@ -1024,6 +1044,9 @@ BEGIN
   'sourceRevision',o.revision,'policyGeneration',o.policy_generation,
   'policyRevision',latest_policy.policy_revision,
   'approvalId',a.approval_id,'approvalRevision',a.approval_revision,
+  'originalOrderApprovalId',o.approval_id,
+  'originalOrderApprovalRevision',o.approval_revision,
+  'originalOrderApprovedScopeSha256',o.approved_scope_sha256,
   'approvedPayloadSha256',a.payload_sha256,
   'approvedScopeSha256',a.approved_scope_sha256,
   'decisionSha256',d.decision_evidence_sha256,
