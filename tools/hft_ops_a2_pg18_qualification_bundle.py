@@ -34,12 +34,21 @@ TESTS=[
  "tests/test_hft_ops_a2_060_controls.py",
  "tests/test_hft_ops_a2_061_source.py",
  "tests/test_hft_ops_a2_061_acl_closure.py",
+ "tests/test_hft_ops_a2_063_closure_source.py",
+ "tests/test_hft_ops_a2_063_pg_fixtures.py",
  "tests/test_hft_ops_a2_061_v2_vectors.py",
  "tests/test_hft_ops_a2_061_manifest.py",
  "tests/unit/hft-ops-a2-protected-service.test.ts",
  "tests/unit/hft-ops-a2-return-proof.test.ts",
  "tests/unit/hft-ops-a2-complete-snapshot.test.ts",
  "tests/unit/hft-ops-a2-v2-golden-parity.test.ts",
+ "tests/unit/hft-ops-a2-grn-source-identity.test.ts",
+ "tests/unit/hft-ops-a2-readback.test.ts",
+ "tests/unit/hft-ops-a-versioned-evidence.test.ts",
+ "lib/hft/persistence/ops-a2-grn-source-identity.ts",
+ "lib/hft/persistence/ops-a2-stores-readback.ts",
+ "lib/hft/persistence/ops-a2-stores-source.ts",
+ "tools/hft_ops_a2_063_pg18_fault_cases.py",
 ]
 MATRIX=[f"A2-PG-{n:02d}" for n in range(1,17)]
 STOP="OPS_A2_PROTECTED_SQL_EXECUTION_NOT_AUTHORIZED"
