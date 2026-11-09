@@ -36,12 +36,14 @@ TESTS=[
  "tests/test_hft_ops_a2_061_acl_closure.py",
  "tests/test_hft_ops_a2_063_closure_source.py",
  "tests/test_hft_ops_a2_063_pg_fixtures.py",
+ "tests/test_hft_ops_a2_067_source.py",
  "tests/test_hft_ops_a2_061_v2_vectors.py",
  "tests/test_hft_ops_a2_061_manifest.py",
  "tests/unit/hft-ops-a2-protected-service.test.ts",
  "tests/unit/hft-ops-a2-return-proof.test.ts",
  "tests/unit/hft-ops-a2-complete-snapshot.test.ts",
  "tests/unit/hft-ops-a2-v2-golden-parity.test.ts",
+ "tests/unit/hft-ops-a2-067-good-return.test.ts",
  "tests/unit/hft-ops-a2-grn-source-identity.test.ts",
  "tests/unit/hft-ops-a2-readback.test.ts",
  "tests/unit/hft-ops-a-versioned-evidence.test.ts",
@@ -49,6 +51,8 @@ TESTS=[
  "lib/hft/persistence/ops-a2-stores-readback.ts",
  "lib/hft/persistence/ops-a2-stores-source.ts",
  "tools/hft_ops_a2_063_pg18_fault_cases.py",
+ "tools/hft_ops_a2_067_qualification_catalog.py",
+ "tools/hft_ops_a2_067_pg18_harness.py",
 ]
 MATRIX=[f"A2-PG-{n:02d}" for n in range(1,17)]
 STOP="OPS_A2_PROTECTED_SQL_EXECUTION_NOT_AUTHORIZED"
@@ -84,6 +88,13 @@ def create_manifest(expected_head:str)->dict:
   "protected_sql_installation":"HOLD",
   "gate_r":"HOLD","gate_a":"HOLD","production":"NO-GO",
   "source_files":blobs,
+  "hf17_original_fixtures":[{"id":f"HF17-PG-F{i:02d}",
+   "result":"NOT_TESTED","alias_to_ops063":None} for i in range(1,9)],
+  "ops063_diagnostics":[{"id":f"OPS063-F{i:02d}",
+   "result":"NOT_TESTED","original_hf17_mapping":"UNVERIFIED"} for i in range(1,9)],
+  "fixture_equivalence":"NONE_ASSERTED_UNTIL_INDEPENDENT_HF17_SOURCE_IS_AVAILABLE",
+  "protected_scope_key_enrollment":"NOT_AUTHORIZED_NOT_EXECUTED",
+  "external_pg18_admission":"ED25519_SIGNED_EXTERNAL_ROOT_REQUIRED",
   "test_matrix":[{"id":case,"result":"NOT_EXECUTED",
                   "requires":"independent qualified disposable PostgreSQL 18.6 evidence"}
                  for case in MATRIX],
@@ -96,7 +107,11 @@ def create_manifest(expected_head:str)->dict:
    "Separate human approval/issuer identity, stable corporate people and audit evidence",
    "Multi-session SQL parse, race, rollback, lost-COMMIT and readback tests witnessed by Chat 17",
    "Independent Chat 10 and Chat 11 V2 security/governance delta acceptance",
-   "Protected execution gate satisfied before any SQL is installed"
+   "Protected execution gate satisfied before any SQL is installed",
+   "Independent Ed25519 technical admission and original HQ17 fixture mapping",
+   "Separate zero-account / transfer scope-signing keys, review and revocation custody",
+   "External approved disposable-only fault constructor and independently witnessed QA gateway",
+   "Independently reconstructed pre/post committed facts and actual SQLSTATE provenance"
   ]
  }
 
