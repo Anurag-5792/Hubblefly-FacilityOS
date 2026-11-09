@@ -67,6 +67,31 @@ class Diagnostic067(unittest.TestCase):
   values["adverse_established"]=False
   with self.assertRaisesRegex(ValueError,"POSITIVE_OR_GENUINE_ADVERSE_STATE"):
    verify_fixture(values,admission,c.id)
+ def test_independent_case_sequence_and_distinct_actual_transactions_are_required(self):
+  c=_catalog().CASES["OPS063-F02"]
+  record={"admission_id":"A"*36,"case_id":c.id,
+   "fixture_id":"123e4567-e89b-42d3-a456-426614174000",
+   "db_project_id":"fake-project-reference-synthetic",
+   "db_branch_id":"fake-branch-reference-synthetic",
+   "prestate_sha256":"a"*64,"positive_evidence_sha256":"b"*64,
+   "adverse_evidence_sha256":"c"*64,"independent_witness_sha256":"d"*64,
+   "constructor_source_sha256":"e"*64,
+   "positive_control_committed":True,"adverse_established":True,
+   "source_identities":dict.fromkeys(
+    ("command_uuid","source_document_id","source_revision","item_code",
+     "product_version","legal_entity_id","site_id","warehouse_id",
+     "original_nonce","source_account_id","destination_account_id"),"synthetic"),
+   "prestate_assertions":list(c.required_prestate)}
+  auth={"record_id":"A"*36,"project_id":"fake-project-reference-synthetic",
+        "project_branch_id":"fake-branch-reference-synthetic"}
+  with self.assertRaisesRegex(ValueError,"TRANSACTION_SEQUENCE"):
+   verify_fixture(record,auth,c.id)
+  record["transaction_sequence"]=list(_catalog().CASE_SEQUENCES[c.id])
+  with self.assertRaisesRegex(ValueError,"POSITIVE_AND_ADVERSE_TX_IDENTITIES"):
+   verify_fixture(record,auth,c.id)
+  record["positive_control_transaction_id"]="tx-positive-synthetic"
+  record["fault_constructor_transaction_id"]="tx-fault-synthetic"
+  self.assertTrue(verify_fixture(record,auth,c.id))
  def test_rejected_transaction_cannot_pass_without_real_sqlstate_and_reconstruction(self):
   c=_catalog().CASES["OPS063-F01"]
   receipt={"fixture_id":"123e4567-e89b-42d3-a456-426614174000"}
