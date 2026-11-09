@@ -150,7 +150,7 @@ def admit(payload,env,allowed_cases):
    raise ValueError("067_PROTECTED_PROJECT_BACKUP_OR_WITNESS_EVIDENCE_MISSING")
  roles=payload.get("roles",{})
  expected={"qa","fault_constructor","migration_installer",
-           "independent_verifier","witness"}
+           "independent_verifier","witness","positive_posting_actor"}
  if set(roles)!=expected or len(set(roles.values()))!=len(expected):
   raise ValueError("067_SEPARATE_TEST_AUTHORITY_NOT_ESTABLISHED")
  if any(r=="hft_r1_posting_owner" for r in roles.values()):
@@ -199,6 +199,14 @@ def verify_fixture(receipt,admission,case_id):
   raise ValueError("067_FIXTURE_EXACT_SOURCE_IDENTITIES_MISSING")
  if set(receipt.get("prestate_assertions",[])) != set(c.required_prestate):
   raise ValueError("067_FIXTURE_ADVERSE_PRESTATE_COVERAGE_INCOMPLETE")
+ if tuple(receipt.get("transaction_sequence",[])) != cat.CASE_SEQUENCES[case_id]:
+  raise ValueError("067_CASE_TRANSACTION_SEQUENCE_NOT_INDEPENDENTLY_ATTESTED")
+ if any(not isinstance(receipt.get(k),str) or len(receipt[k])<8
+  for k in ("positive_control_transaction_id",
+            "fault_constructor_transaction_id")):
+  raise ValueError("067_INDEPENDENT_POSITIVE_AND_ADVERSE_TX_IDENTITIES_ABSENT")
+ if any(not isinstance(v,str) for v in receipt["source_identities"].values()):
+  raise ValueError("067_SOURCE_IDENTITY_NOT_CANONICAL_TEXT")
  return True
 
 def evidence_complete(result,receipt,c):
@@ -214,10 +222,8 @@ def evidence_complete(result,receipt,c):
  if c.expected_negative_code is not None and (
   result.get("protected_rejection")!=c.expected_negative_code):
   raise ValueError("067_UNRELATED_CONTROL_OR_PERMISSION_FAILURE")
- if c.expected_negative_code is not None and (
-  result.get("negative_phase")!="DEFERRED_COMMIT" and c.id in {
-   "OPS063-F01","OPS063-F02","OPS063-F03"}):
-  raise ValueError("067_NOT_A_DEFERRED_COMMIT_FAILURE")
+ if result.get("negative_phase")!=_catalog().CASE_NEGATIVE_PHASE[c.id]:
+  raise ValueError("067_WRONG_TEST_CONTROL_OR_TRANSACTION_PHASE")
  for k in ("backend_pid","transaction_id","server_version_num",
            "session_user","current_user","started_epoch","finished_epoch",
            "positive_control_evidence","prestate","poststate",
@@ -384,7 +390,9 @@ def main(argv=None):
  cat=_catalog()
  if args.list:
   print(json.dumps({"status":"NOT_TESTED","cases":list(cat.CASES),
-   "crosswalk":cat.CROSSWALK},indent=2,sort_keys=True))
+   "crosswalk":cat.CROSSWALK,
+   "case_sequences":cat.CASE_SEQUENCES,
+   "separate_authorities":cat.CASE_AUTHORITIES},indent=2,sort_keys=True))
   return 0
  if not args.execute or not args.admission or not args.fixture_receipts:
   p.error("067_SOURCE_ONLY_OR_INDEPENDENT_ADMISSION_ABSENT")
