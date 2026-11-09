@@ -84,7 +84,8 @@ test('OPS-A2 versioned balance rejects negative quantity or forged account versi
 test('OPS-A2 custody read requires exact employee, state and acknowledgement',()=>{
  const q={...query,intent:'CUSTODY',employeeId:'EMP1'};
  const item={...row,accountKind:'CUSTODY',
-  employeeId:'EMP1',originalIssueId:'ISSUE1',humanAcknowledgement:'ACK_PENDING'};
+  employeeId:'EMP1',originalIssueId:'ISSUE1',originalFragmentId:'FRAG1',
+  ackEvidenceSha256:'',humanAcknowledgement:'ACK_PENDING'};
  const resp={...valid,intent:'CUSTODY',rows:[item]};
  assert.equal(checkOpsA2Readback(resp,q).rows[0].employeeId,'EMP1');
  assert.throws(()=>checkOpsA2Readback({...resp,rows:[{
@@ -92,10 +93,18 @@ test('OPS-A2 custody read requires exact employee, state and acknowledgement',()
  assert.throws(()=>checkOpsA2Readback({...resp,rows:[{
   ...item,employeeId:'EMP2'}]},q),/FILTER_NOT_ENFORCED/);
  const disputed={...item,movementId:'ISSUE2',originalIssueId:'ISSUE2',
+  originalFragmentId:'FRAG2',ackEvidenceSha256:'b'.repeat(64),
   humanAcknowledgement:'DISPUTED'};
  assert.equal(checkOpsA2Readback({...resp,rows:[item,disputed]},q).rows[1].humanAcknowledgement,'DISPUTED');
  assert.throws(()=>checkOpsA2Readback({...resp,rows:[{...item,originalIssueId:''}]},q),
   /CUSTODY_ACK_INVALID/);
+ assert.throws(()=>checkOpsA2Readback({...resp,rows:[{...item,originalFragmentId:''}]},q),
+  /CUSTODY_ACK_INVALID/);
+ assert.throws(()=>checkOpsA2Readback({...resp,rows:[{
+  ...disputed,ackEvidenceSha256:''}]},q),/CUSTODY_ACK_INVALID/);
+ assert.throws(()=>checkOpsA2Readback({...resp,rows:[{
+  ...item,ackEvidenceSha256:'a'.repeat(64)}]},q),/CUSTODY_ACK_INVALID/);
+
 });
 test('OPS-A2 source rejects duplicate location/version/serial/custody row',()=>{
  assert.throws(()=>checkOpsA2Readback({...valid,rows:[row,row]},query),
@@ -114,7 +123,7 @@ test('OPS-A2 incorrect serial/lot and invalid account state fail',()=>{
 test('OPS-A2 movement read admits signed deltas but rejects zero movements',()=>{
  const q={...query,intent:'MOVEMENTS',itemCode:'',productVersion:'',leafLocationId:''};
  const movement={...row,quantity:'-3',accountVersion:2,
-  commandUuid:'CMD01',entryId:'ENTRY01',
+  commandUuid:'CMD01',entryId:'1',
   accountBeforeVersion:1,accountAfterVersion:2};
  const resp={...valid,intent:'MOVEMENTS',rows:[movement]};
  assert.equal(checkOpsA2Readback(resp,q).rows[0].quantity,'-3');
@@ -122,12 +131,20 @@ test('OPS-A2 movement read admits signed deltas but rejects zero movements',()=>
   /ZERO_MOVEMENT/);
  const external={...movement,accountKind:'EXTERNAL',quantity:'-3',
   accountVersion:0,accountBeforeVersion:null,accountAfterVersion:null,
-  movementId:'ENTRY-EXTERNAL',entryId:'ENTRY02'};
+  movementId:'ENTRY-EXTERNAL',entryId:'2'};
  assert.equal(checkOpsA2Readback({...resp,rows:[external,movement]},q).rows[0].accountKind,'EXTERNAL');
  assert.throws(()=>checkOpsA2Readback({...resp,
   rows:[{...movement,accountAfterVersion:4}]},q),/HISTORICAL_MOVEMENT_REVISION_INVALID/);
  assert.throws(()=>checkOpsA2Readback({...resp,
   rows:[{...external,accountBeforeVersion:0}]},q),/HISTORICAL_MOVEMENT_REVISION_INVALID/);
+ assert.equal(checkOpsA2Readback({...resp,rows:[movement]},q).rows[0].entryId,'1');
+ assert.throws(()=>checkOpsA2Readback({...resp,rows:[{...movement,entryId:'0'}]},q),
+  /HISTORICAL_MOVEMENT_REVISION_INVALID/);
+ assert.throws(()=>checkOpsA2Readback({...resp,rows:[{...movement,entryId:'BAD'}]},q),
+  /HISTORICAL_MOVEMENT_REVISION_INVALID/);
+ assert.throws(()=>checkOpsA2Readback({...resp,rows:[{...movement,entryId:'9223372036854775808'}]},q),
+  /HISTORICAL_MOVEMENT_REVISION_INVALID/);
+
 });
 test('OPS-A2 missing signer, cross-scope actor or forbidden environment denies before DB',async()=>{
  for(const e of [{NODE_ENV:'production'},{HFT_OPS_A2_SOURCE_MODE:'ACTIVE'},
