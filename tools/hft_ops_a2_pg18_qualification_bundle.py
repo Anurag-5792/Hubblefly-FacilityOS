@@ -25,6 +25,7 @@ CANDIDATES=[
  "db/security/HFT-R1-OPS-A2-PROOF-AUTHORITY-NONEXECUTABLE.sql",
  "db/security/HFT-R1-OPS-A2-WRITER-NONEXECUTABLE.sql",
  "db/security/HFT-R1-OPS-A2-RESOLVER-READ-NONEXECUTABLE.sql",
+ "db/security/HFT-R1-OPS-A2-ACL-CLOSURE-NONEXECUTABLE.sql",
  "db/security/HFT-R1-OPS-A2-PG18-CONSOLIDATED-FORWARD-NONEXECUTABLE.sql",
 ]
 TESTS=[
@@ -32,6 +33,7 @@ TESTS=[
  "tests/test_hft_ops_a2_pg18_consolidated.py",
  "tests/test_hft_ops_a2_060_controls.py",
  "tests/test_hft_ops_a2_061_source.py",
+ "tests/test_hft_ops_a2_061_acl_closure.py",
  "tests/test_hft_ops_a2_061_v2_vectors.py",
  "tests/test_hft_ops_a2_061_manifest.py",
  "tests/unit/hft-ops-a2-protected-service.test.ts",
