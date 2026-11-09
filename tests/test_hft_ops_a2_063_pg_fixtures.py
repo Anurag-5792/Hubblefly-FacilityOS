@@ -15,7 +15,7 @@ spec=importlib.util.spec_from_file_location("ops063_wrapper",TOOL)
 assert spec is not None and spec.loader is not None
 m=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-from hft_ops_a2_067_pg18_harness import _catalog,admit,evidence_complete,verify_fixture
+from hft_ops_a2_067_pg18_harness import _catalog,admit,evidence_complete,verify_fixture,qualify_live_gateway,_qa_sql,verify_independent_results
 
 class Diagnostic067(unittest.TestCase):
  def test_exact_independent_qa_fixture_namespaces(self):
@@ -85,6 +85,21 @@ class Diagnostic067(unittest.TestCase):
   self.assertIn("067_REAL_SQLSTATE_NOT_OBSERVED",tool)
   self.assertIn("067_NEGATIVE_TRANSACTION_MUTATED_COMMITTED_FACTS",tool)
   self.assertIn("067_PINNED_ED25519_VERIFIER_NOT_INSTALLED",tool)
-  self.assertIn("DISPOSABLE_FAULT_GATEWAY_AND_INDEPENDENT_OBSERVER_NOT_YET_QUALIFIED",tool)
+  self.assertIn("067_PROTECTED_GATEWAY_EXACT_SOURCE_NOT_ADMITTED",tool)
+  self.assertIn("067_ACTUAL_ADVERSE_PRESTATE_OR_POSITIVE_CONTROL_MISSING",tool)
+  self.assertIn("EXECUTED_UNVERIFIED_NO_PASS",tool)
+  self.assertIn("EXECUTED_EVIDENCE_PENDING_INDEPENDENT_REVIEW",tool)
+ def test_unpinned_gateway_is_denied_before_psql_and_never_directly_updates(self):
+  with patch("hft_ops_a2_067_pg18_harness.subprocess.run") as run:
+   with self.assertRaisesRegex(ValueError,"GATEWAY_EXACT_SOURCE_NOT_ADMITTED"):
+    qualify_live_gateway({}, {})
+   run.assert_not_called()
+   with self.assertRaisesRegex(ValueError,"QA_DIRECT_DATABASE_MUTATION_DENIED"):
+    _qa_sql({},"UPDATE hft.stock_account SET qty_micro=10")
+   run.assert_not_called()
+ def test_independent_post_reconstruction_requires_all_eight_signed_case_results(self):
+  with self.assertRaisesRegex(ValueError,"ALL_EIGHT_INDEPENDENT_RESULT"):
+   verify_independent_results({}, {}, {"record_id":"fake"}, {})
+
 
 if __name__=="__main__":unittest.main()
