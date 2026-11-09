@@ -218,7 +218,14 @@ BEGIN
  -- rather than comparing a historical seal with a mutable CURRENT balance.
  SELECT * INTO available FROM hft.stock_account
  WHERE id=seal.available_account_id;
- expected_leaf:=CASE WHEN c.kind='RECEIVE' THEN c.ops_a2_destination_leaf
+ -- A successfully inspected GOOD RETURN credits the destination AVAILABLE
+ -- leaf, which may differ from the employee's original custody source leaf.
+ -- Damaged/quarantined returns retain the pre-existing protected source-side
+ -- AVAILABLE seal path; never reclassify them as GOOD.
+ expected_leaf:=CASE
+  WHEN c.kind='RECEIVE' OR (c.kind='RETURN' AND
+   envelope.exact_payload->>'inspectedCondition'='GOOD')
+   THEN c.ops_a2_destination_leaf
   ELSE c.ops_a2_source_leaf END;
  expected_available_id:=CASE
   WHEN c.kind='RECEIVE' OR (c.kind='RETURN' AND
