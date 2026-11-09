@@ -496,6 +496,118 @@ CREATE TRIGGER immutable_ops_a2_account_receipt
 REVOKE ALL ON hft.ops_a2_account_provision_order,
  hft.ops_a2_account_provision_receipt FROM PUBLIC,hft_r1_app_runtime;
 
+-- 067: the original P2 approval does NOT authorize an arbitrary zero
+-- account or new transfer solely because its document ID matches an order.
+-- Independently protected, cryptographically scoped ORIGINAL authorization is
+-- mandatory for every extra identity dimension. No keys are enrolled here.
+-- A separate technical key-custody approval is REQUIRED before installation.
+CREATE TABLE hft_secret.ops_a2_scope_key_v1(
+ purpose text NOT NULL CHECK(purpose IN('ACCOUNT_ZERO','TRANSFER_ISSUE')),
+ key_version integer NOT NULL CHECK(key_version>0),
+ key_bytes bytea NOT NULL CHECK(pg_catalog.octet_length(key_bytes)>=32),
+ not_before timestamptz NOT NULL,not_after timestamptz NOT NULL,
+ revoked_at timestamptz,
+ PRIMARY KEY(purpose,key_version),CHECK(not_before<not_after)
+);
+ALTER TABLE hft_secret.ops_a2_scope_key_v1 OWNER TO hft_r1_posting_owner;
+REVOKE ALL ON hft_secret.ops_a2_scope_key_v1 FROM
+ PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer,hft_r1_audit_verify;
+
+-- These facts are issued by a separately protected ORIGINAL scope authority,
+-- NOT by the account/transfer issuer executing this function. No role receives
+-- INSERT from this migration. The original signer/key custody remain external.
+CREATE TABLE hft.ops_a2_independent_scope_v1(
+ purpose text NOT NULL CHECK(purpose IN('ACCOUNT_ZERO','TRANSFER_ISSUE')),
+ order_id uuid NOT NULL,
+ legal_entity_id text NOT NULL,
+ approval_id text NOT NULL,approval_revision bigint NOT NULL CHECK(approval_revision>0),
+ approved_scope jsonb NOT NULL CHECK(pg_catalog.jsonb_typeof(approved_scope)='object'),
+ scope_sha256 text NOT NULL CHECK(scope_sha256~'^[0-9a-f]{64}$'),
+ original_decision_sha256 text NOT NULL CHECK(original_decision_sha256~'^[0-9a-f]{64}$'),
+ signer_subject text NOT NULL,signer_session_id text NOT NULL,
+ signer_person_id text NOT NULL,
+ key_version integer NOT NULL CHECK(key_version>0),
+ nonce text NOT NULL CHECK(nonce~'^[0-9a-f]{48}$'),
+ issued_epoch bigint NOT NULL CHECK(issued_epoch>0),
+ expires_epoch bigint NOT NULL CHECK(expires_epoch>issued_epoch),
+ mac_sha256 text NOT NULL CHECK(mac_sha256~'^[0-9a-f]{64}$'),
+ PRIMARY KEY(purpose,order_id),
+ UNIQUE(purpose,key_version,nonce),
+ FOREIGN KEY(legal_entity_id,approval_id,approval_revision)
+ REFERENCES hft.protected_stock_approval(legal_entity_id,approval_id,approval_revision),
+ FOREIGN KEY(legal_entity_id,signer_person_id)
+ REFERENCES hft.approval_human(legal_entity_id,person_id),
+ FOREIGN KEY(purpose,key_version)
+ REFERENCES hft_secret.ops_a2_scope_key_v1(purpose,key_version)
+);
+CREATE TRIGGER immutable_ops_a2_independent_scope
+ BEFORE UPDATE OR DELETE ON hft.ops_a2_independent_scope_v1
+ FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+REVOKE ALL ON hft.ops_a2_independent_scope_v1
+ FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
+
+CREATE OR REPLACE FUNCTION hft.ops_a2_assert_independent_scope_v1(
+ p_purpose text,p_order uuid,p_scope jsonb,p_entity text,
+ p_approval text,p_revision bigint,p_decision_sha text,
+ p_kind text,p_prohibited_people text[])
+RETURNS void LANGUAGE plpgsql VOLATILE
+SET search_path=pg_catalog,pg_temp AS $scope067$
+DECLARE
+ att hft.ops_a2_independent_scope_v1%ROWTYPE;
+ signed_key hft_secret.ops_a2_scope_key_v1%ROWTYPE;
+ scoped_hash text; signer_person text;
+ expected bytea;claimed bytea;diff integer:=0;i integer;
+ now_epoch bigint;
+BEGIN
+ IF pg_catalog.current_setting('transaction_isolation')<>'serializable'
+ OR p_purpose NOT IN('ACCOUNT_ZERO','TRANSFER_ISSUE')
+ OR pg_catalog.jsonb_typeof(p_scope)<>'object'
+ THEN RAISE EXCEPTION 'OPS_A2_067_SCOPE_PROTECTED_TRANSACTION_REQUIRED'; END IF;
+ SELECT * INTO att FROM hft.ops_a2_independent_scope_v1
+ WHERE purpose=p_purpose AND order_id=p_order
+ AND legal_entity_id=p_entity AND approval_id=p_approval
+ AND approval_revision=p_revision FOR SHARE;
+ scoped_hash:=pg_catalog.encode(hft_crypto.digest(
+  pg_catalog.convert_to(p_scope::text,'UTF8'),'sha256'),'hex');
+ IF att.order_id IS NULL OR att.approved_scope IS DISTINCT FROM p_scope
+ OR att.scope_sha256 IS DISTINCT FROM scoped_hash
+ OR att.original_decision_sha256 IS DISTINCT FROM p_decision_sha
+ OR att.mac_sha256 !~ '^[0-9a-f]{64}$'
+ THEN RAISE EXCEPTION 'OPS_A2_067_ORIGINAL_SIGNED_SCOPE_NOT_BOUND'; END IF;
+ SELECT * INTO signed_key FROM hft_secret.ops_a2_scope_key_v1
+ WHERE purpose=att.purpose AND key_version=att.key_version FOR SHARE;
+ now_epoch:=pg_catalog.floor(
+  pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp()))::bigint;
+ IF signed_key.key_version IS NULL OR signed_key.revoked_at IS NOT NULL
+ OR pg_catalog.clock_timestamp()<signed_key.not_before
+ OR pg_catalog.clock_timestamp()>=signed_key.not_after
+ OR att.issued_epoch>now_epoch+30 OR att.expires_epoch<=now_epoch
+ OR att.expires_epoch-att.issued_epoch>300
+ THEN RAISE EXCEPTION 'OPS_A2_067_ORIGINAL_SCOPE_KEY_OR_WINDOW_INVALID'; END IF;
+ signer_person:=hft.p2_qualified_human_v1(p_entity,
+  att.signer_subject,att.signer_session_id,p_kind,'APPROVER',
+  pg_catalog.clock_timestamp());
+ IF signer_person IS NULL OR signer_person<>att.signer_person_id
+ OR att.signer_person_id=ANY(p_prohibited_people)
+ THEN RAISE EXCEPTION 'OPS_A2_067_SIGNER_NOT_INDEPENDENT_CORPORATE_PERSON'; END IF;
+ expected:=hft_crypto.hmac(hft.p2_length_prefixed_v1(ARRAY[
+  'HFT-OPS-A2-ORIGINAL-SCOPE-HMAC-V1',att.purpose,att.order_id::text,
+  att.legal_entity_id,att.approval_id,att.approval_revision::text,
+  att.approved_scope::text,att.scope_sha256,att.original_decision_sha256,
+  att.signer_subject,att.signer_session_id,att.signer_person_id,
+  att.key_version::text,att.nonce,att.issued_epoch::text,
+  att.expires_epoch::text]),signed_key.key_bytes,'sha256');
+ claimed:=pg_catalog.decode(att.mac_sha256,'hex');
+ FOR i IN 0..31 LOOP
+  diff:=diff | (pg_catalog.get_byte(expected,i) # pg_catalog.get_byte(claimed,i));
+ END LOOP;
+ IF diff<>0 THEN
+  RAISE EXCEPTION 'OPS_A2_067_ORIGINAL_SIGNED_SCOPE_MAC_INVALID'; END IF;
+END $scope067$;
+REVOKE ALL ON FUNCTION hft.ops_a2_assert_independent_scope_v1(
+ text,uuid,jsonb,text,text,bigint,text,text,text[])
+ FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
+
 -- Caller is independently controlled governance, not a posting operator.
 -- Zero balance, reserved quantity and revision are CONSTANTS, not parameters.
 CREATE OR REPLACE FUNCTION hft.ops_a2_provision_zero_account_v2(p_order uuid)
