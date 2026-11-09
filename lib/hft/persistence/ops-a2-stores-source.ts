@@ -92,8 +92,10 @@ function matching(op:StoreOp,source:Resolution,actor:VerifiedRequestOperator):vo
  if(op.kind==='IN'){
   if(source.command.kind!=='RECEIVE'||source.command.sourceLeafId!==''||
    source.command.destinationLeafId!==op.leafLocationId||
-   source.sourceDocumentId!==op.grnId||
-   source.sourceActionKey!==op.receiptKey||
+   source.sourceDocumentId!==op.grnId.toLowerCase()||
+   !/^[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}$/.test(op.grnId)||
+   !source.sourceActionKey.startsWith(op.receiptKey+':')||
+   !/^[1-9][0-9]*$/.test(source.sourceActionKey.slice(op.receiptKey.length+1))||
    source.command.inspectionEvidenceId!==op.qcEvidenceId||
    source.command.employeeId!==''||source.sourceAccountId!=='')
    throw Error('OPS_A2_RECEIVE_SOURCE_INVALID');
@@ -103,7 +105,8 @@ function matching(op:StoreOp,source:Resolution,actor:VerifiedRequestOperator):vo
    source.command.destinationLeafId!==''||
    source.command.employeeId!==op.employeeId||
    source.command.fragmentId!==op.fragmentId||
-   source.sourceDocumentId!==op.issueDocumentId||
+   source.sourceDocumentId!==op.issueDocumentId.toLowerCase()||
+   !/^[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}$/.test(op.issueDocumentId)||
    source.sourceActionKey!==op.fragmentId||
    !source.sourceAccountId)
    throw Error('OPS_A2_ISSUE_SOURCE_INVALID');
@@ -111,7 +114,8 @@ function matching(op:StoreOp,source:Resolution,actor:VerifiedRequestOperator):vo
   if(source.command.kind!=='TRANSFER'||
    source.command.sourceLeafId!==op.sourceLeafId||
    source.command.destinationLeafId!==op.destinationLeafId||
-   source.sourceDocumentId!==op.transferDocumentId||
+   source.sourceDocumentId!==op.transferDocumentId.toLowerCase()||
+   !/^[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}$/.test(op.transferDocumentId)||
    source.sourceAccountId===source.destinationAccountId||
    !source.sourceAccountId)
    throw Error('OPS_A2_TRANSFER_SOURCE_INVALID');
