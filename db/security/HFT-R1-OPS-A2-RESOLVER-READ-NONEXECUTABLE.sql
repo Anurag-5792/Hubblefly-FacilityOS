@@ -487,6 +487,102 @@ ALTER FUNCTION hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)
 REVOKE ALL ON FUNCTION hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)
  FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
 
+-- SOURCE FIRST: enumerate every outstanding ISSUE custody record from the
+-- BASE table, without first joining audit/ACK/account tables. Every missing
+-- signed receipt must make the complete census fail, not silently disappear.
+CREATE OR REPLACE FUNCTION hft.ops_a2_assert_outstanding_custody_census_v3(q jsonb)
+RETURNS bigint LANGUAGE plpgsql STABLE
+SET search_path=pg_catalog,pg_temp AS $custody_census$
+DECLARE base_count bigint;qualified_count bigint;balance_mismatch bigint;
+BEGIN
+ IF pg_catalog.current_setting('transaction_read_only')<>'on'
+ OR q->>'intent'<>'CUSTODY' OR q->>'employeeId'=''
+ THEN RAISE EXCEPTION 'OPS_A2_CUSTODY_CENSUS_READ_ONLY_SCOPE_REQUIRED'; END IF;
+ SELECT count(*) INTO base_count FROM hft.employee_custody AS cu
+ JOIN hft.warehouse AS w ON w.legal_entity_id=cu.legal_entity_id
+  AND w.warehouse_id=cu.warehouse_id
+ WHERE cu.legal_entity_id=q->>'legalEntityId'
+  AND cu.warehouse_id=q->>'warehouseId'
+  AND w.site_id=q->>'siteId'
+  AND cu.employee_id=q->>'employeeId'
+  AND cu.issued_micro>cu.returned_micro
+  AND (q->>'itemCode'='' OR cu.item_code=q->>'itemCode')
+  AND (q->>'productVersion'='' OR cu.product_version_code=q->>'productVersion')
+  AND (q->>'leafLocationId'='' OR cu.location_id=q->>'leafLocationId');
+ -- Independent qualified count: no nullable left-side evidence can hide a
+ -- base ISSUE. Require original immutable command, exact P2 ISSUE fragment,
+ -- pending ACK record (including DISPUTED) and authentic audit and account.
+ SELECT count(*) INTO qualified_count
+ FROM hft.employee_custody AS cu
+ JOIN hft.warehouse AS w ON w.legal_entity_id=cu.legal_entity_id
+  AND w.warehouse_id=cu.warehouse_id
+ JOIN hft.stock_command AS original ON original.id=cu.issue_command_id
+ JOIN hft.posting_fragment AS fragment ON fragment.command_uuid=original.id
+ JOIN hft.custody_ack_pending AS pending ON
+  pending.issue_command_uuid=original.id
+  AND pending.legal_entity_id=cu.legal_entity_id
+  AND pending.employee_id=cu.employee_id
+ JOIN hft.custody_ack_status_v1 AS ack ON ack.issue_command_uuid=original.id
+  AND ack.legal_entity_id=cu.legal_entity_id
+  AND ack.employee_id=cu.employee_id
+ JOIN hft.audit_outbox AS audit ON audit.command_id=original.id
+ JOIN hft.stock_account AS acct ON
+  acct.legal_entity_id=cu.legal_entity_id
+  AND acct.site_id=w.site_id AND acct.warehouse_id=cu.warehouse_id
+  AND acct.item_code=cu.item_code
+  AND acct.product_version_code=cu.product_version_code
+  AND acct.location_key=cu.location_id
+  AND acct.account_kind='CUSTODY' AND acct.condition='GOOD'
+  AND acct.custodian_employee_id=cu.employee_id
+  AND acct.serial_key=cu.serial_no AND acct.batch_key=cu.batch_no
+ WHERE cu.legal_entity_id=q->>'legalEntityId'
+  AND cu.warehouse_id=q->>'warehouseId'
+  AND w.site_id=q->>'siteId'
+  AND cu.employee_id=q->>'employeeId'
+  AND cu.issued_micro>cu.returned_micro
+  AND (q->>'itemCode'='' OR cu.item_code=q->>'itemCode')
+  AND (q->>'productVersion'='' OR cu.product_version_code=q->>'productVersion')
+  AND (q->>'leafLocationId'='' OR cu.location_id=q->>'leafLocationId')
+  AND original.legal_entity_id=cu.legal_entity_id
+  AND original.site_id=w.site_id
+  AND original.warehouse_id=cu.warehouse_id
+  AND original.item_code=cu.item_code
+  AND original.product_version_code=cu.product_version_code
+  AND original.kind='ISSUE'
+  AND fragment.legal_entity_id=cu.legal_entity_id
+  AND fragment.kind='ISSUE' AND fragment.employee_id=cu.employee_id
+  AND fragment.quantity_micro=cu.issued_micro
+  AND ack.state IN('ACK_PENDING','ACKNOWLEDGED','DISPUTED')
+  AND audit.canonical_sha256~'^[0-9a-f]{64}$'
+  AND acct.qty_micro>=cu.issued_micro-cu.returned_micro;
+ IF qualified_count<>base_count THEN
+  RAISE EXCEPTION 'OPS_A2_CUSTODY_BASE_CENSUS_MISSING_ISSUE_ACK_AUDIT_FRAGMENT_OR_ACCOUNT'; END IF;
+ -- Aggregate custody account must equal the sum of ALL outstanding original
+ -- issues sharing the exact account identity, not the most recent ACK.
+ SELECT count(*) INTO balance_mismatch FROM hft.stock_account AS acct
+ WHERE acct.legal_entity_id=q->>'legalEntityId'
+ AND acct.site_id=q->>'siteId' AND acct.warehouse_id=q->>'warehouseId'
+ AND acct.account_kind='CUSTODY' AND acct.custodian_employee_id=q->>'employeeId'
+ AND (q->>'itemCode'='' OR acct.item_code=q->>'itemCode')
+ AND (q->>'productVersion'='' OR acct.product_version_code=q->>'productVersion')
+ AND (q->>'leafLocationId'='' OR acct.location_key=q->>'leafLocationId')
+ AND acct.qty_micro IS DISTINCT FROM (
+  SELECT COALESCE(sum(cu.issued_micro-cu.returned_micro),0)
+  FROM hft.employee_custody AS cu
+  WHERE cu.legal_entity_id=acct.legal_entity_id
+   AND cu.warehouse_id=acct.warehouse_id
+   AND cu.employee_id=acct.custodian_employee_id
+   AND cu.item_code=acct.item_code
+   AND cu.product_version_code=acct.product_version_code
+   AND cu.location_id=acct.location_key
+   AND cu.serial_no=acct.serial_key AND cu.batch_no=acct.batch_key);
+ IF balance_mismatch<>0 THEN
+  RAISE EXCEPTION 'OPS_A2_CUSTODY_CENSUS_ACCOUNT_OUTSTANDING_MISMATCH'; END IF;
+ RETURN base_count;
+END $custody_census$;
+REVOKE ALL ON FUNCTION hft.ops_a2_assert_outstanding_custody_census_v3(jsonb)
+ FROM PUBLIC,hft_r1_app_runtime;
+
 -- Readback test/source contract: the current P0 READ HMAC is verified
 -- in a REPEATABLE READ READ ONLY transaction. No nonce write or direct
 -- runtime table grants are permitted.
@@ -586,6 +682,9 @@ BEGIN
  IF pg_catalog.current_setting('transaction_read_only')<>'on'
  THEN RAISE EXCEPTION 'OPS_A2_READ_ONLY_TRANSACTION_REQUIRED'; END IF;
  actor:=hft.ops_a2_verify_readproof_v2(q,proof);
+ IF q->>'intent'='CUSTODY' THEN
+  PERFORM hft.ops_a2_assert_outstanding_custody_census_v3(q);
+ END IF;
  -- True original immutable account reconstruction precedes every response.
  FOR a IN SELECT id,qty_micro,version FROM hft.stock_account
   WHERE legal_entity_id=q->>'legalEntityId' AND site_id=q->>'siteId'
@@ -924,31 +1023,7 @@ BEGIN
    AND (q->>'employeeId'='' OR
     COALESCE(a.custodian_employee_id,COALESCE(e.employee_id,''))=q->>'employeeId');
  ELSIF q->>'intent'='CUSTODY' THEN
-  SELECT count(*) INTO expected_total
-  FROM hft.employee_custody AS cu
-  JOIN hft.stock_command AS issue ON issue.id=cu.issue_command_id
-  JOIN hft.custody_ack_status_v1 AS ack
-   ON ack.issue_command_uuid=cu.issue_command_id
-   AND ack.legal_entity_id=cu.legal_entity_id
-   AND ack.employee_id=cu.employee_id
-  JOIN hft.audit_outbox AS audit ON audit.command_id=cu.issue_command_id
-  JOIN hft.stock_account AS a
-   ON a.legal_entity_id=cu.legal_entity_id
-   AND a.site_id=issue.site_id AND a.warehouse_id=cu.warehouse_id
-   AND a.item_code=cu.item_code
-   AND a.product_version_code=cu.product_version_code
-   AND a.location_key=cu.location_id
-   AND a.account_kind='CUSTODY'
-   AND a.custodian_employee_id=cu.employee_id
-   AND a.serial_key=cu.serial_no AND a.batch_key=cu.batch_no
-  WHERE cu.legal_entity_id=q->>'legalEntityId'
-   AND issue.site_id=q->>'siteId'
-   AND cu.warehouse_id=q->>'warehouseId'
-   AND cu.employee_id=q->>'employeeId'
-   AND cu.issued_micro>cu.returned_micro
-   AND (q->>'itemCode'='' OR cu.item_code=q->>'itemCode')
-   AND (q->>'productVersion'='' OR cu.product_version_code=q->>'productVersion')
-   AND (q->>'leafLocationId'='' OR cu.location_id=q->>'leafLocationId');
+  expected_total:=hft.ops_a2_assert_outstanding_custody_census_v3(q);
  ELSE
   SELECT count(*) INTO expected_total FROM hft.stock_account AS a
   WHERE a.legal_entity_id=q->>'legalEntityId'
