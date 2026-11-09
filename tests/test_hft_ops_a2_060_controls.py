@@ -63,9 +63,11 @@ class SecurityGov060(unittest.TestCase):
   read=(SEC/'HFT-R1-OPS-A2-RESOLVER-READ-NONEXECUTABLE.sql').read_text()
   for source in ('grnId','issueDocumentId','transferDocumentId'):
    self.assertIn("pg_catalog.lower(p->>'"+source+"')",read)
-  self.assertIn("b.source_action_key=r.receipt_key||':'||r.line_no::text",read)
-  self.assertIn("r.receipt_key=p->>'receiptKey'",read)
-  self.assertIn("r.ops_a2_product_version_code=b.product_version_code",read)
+  bridge=(SEC/'HFT-R1-OPS-A2-FOUNDATION-NONEXECUTABLE.sql').read_text()
+  self.assertIn("hft.ops_a2_resolve_signed_grn_line_v3(p,",read)
+  self.assertIn("max(r.receipt_key||':'||r.line_no::text)",bridge)
+  self.assertIn("r.receipt_key=p0->>'receiptKey'",bridge)
+  self.assertIn("r.ops_a2_product_version_code=p2->>'productVersion'",bridge)
   self.assertIn("p->>'grnId' !~ '^[0-9A-F]",read)
   self.assertIn("p->>'transferDocumentId' !~ '^[0-9A-F]",read)
 
