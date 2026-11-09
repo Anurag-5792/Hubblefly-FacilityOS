@@ -768,9 +768,15 @@ BEGIN
     cu.location_id,cu.employee_id,cu.serial_no,cu.batch_no,
     cu.issued_micro-cu.returned_micro AS outstanding_micro,
     a.version AS account_version,ack.state AS ack_state,
+    ack.signed_evidence_sha256 AS ack_evidence_sha256,
+    fragment.fragment_id AS original_fragment_id,
     audit.canonical_sha256 AS source_audit,issue.command_id AS original_issue_id
    FROM hft.employee_custody AS cu
    JOIN hft.stock_command AS issue ON issue.id=cu.issue_command_id
+   JOIN hft.posting_fragment AS fragment ON
+    fragment.command_uuid=issue.id AND fragment.kind='ISSUE'
+    AND fragment.legal_entity_id=cu.legal_entity_id
+    AND fragment.employee_id=cu.employee_id
    JOIN hft.custody_ack_status_v1 AS ack
     ON ack.issue_command_uuid=cu.issue_command_id
     AND ack.legal_entity_id=cu.legal_entity_id
@@ -807,6 +813,8 @@ BEGIN
     'accountVersion',c.account_version,
     'movementId','ISSUE-'||c.issue_command_id::text,
     'originalIssueId',c.original_issue_id,
+    'originalFragmentId',c.original_fragment_id,
+    'ackEvidenceSha256',COALESCE(c.ack_evidence_sha256,''),
     'auditSha256',c.source_audit,'humanAcknowledgement',c.ack_state));
   END LOOP;
  ELSE
@@ -1093,9 +1101,15 @@ BEGIN
     cu.location_id,cu.employee_id,cu.serial_no,cu.batch_no,
     cu.issued_micro-cu.returned_micro AS outstanding_micro,
     a.version AS account_version,ack.state AS ack_state,
+    ack.signed_evidence_sha256 AS ack_evidence_sha256,
+    fragment.fragment_id AS original_fragment_id,
     audit.canonical_sha256 AS source_audit,issue.command_id AS original_issue_id
    FROM hft.employee_custody AS cu
    JOIN hft.stock_command AS issue ON issue.id=cu.issue_command_id
+   JOIN hft.posting_fragment AS fragment ON
+    fragment.command_uuid=issue.id AND fragment.kind='ISSUE'
+    AND fragment.legal_entity_id=cu.legal_entity_id
+    AND fragment.employee_id=cu.employee_id
    JOIN hft.custody_ack_status_v1 AS ack
     ON ack.issue_command_uuid=cu.issue_command_id
     AND ack.legal_entity_id=cu.legal_entity_id
@@ -1132,6 +1146,8 @@ BEGIN
     'accountVersion',c.account_version,
     'movementId','ISSUE-'||c.issue_command_id::text,
     'originalIssueId',c.original_issue_id,
+    'originalFragmentId',c.original_fragment_id,
+    'ackEvidenceSha256',COALESCE(c.ack_evidence_sha256,''),
     'auditSha256',c.source_audit,'humanAcknowledgement',c.ack_state));
   END LOOP;
  ELSE
