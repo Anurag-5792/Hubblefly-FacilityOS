@@ -761,6 +761,63 @@ ALTER FUNCTION hft.ops_a2_issue_transfer_document_v2(uuid)
 REVOKE ALL ON FUNCTION hft.ops_a2_issue_transfer_document_v2(uuid)
  FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
 
+-- Independently derive one unambiguous typed GRN receipt-line identity from
+-- the ORIGINAL signed P0 fields, not an arbitrary client-provided alias.
+-- Multiple legitimate GRN lines work when each has its own receiptKey. A
+-- repeated receiptKey with identical signed scope is ambiguous and DENIED.
+CREATE OR REPLACE FUNCTION hft.ops_a2_resolve_signed_grn_line_v3(
+ p0 jsonb,p2 jsonb)
+RETURNS text LANGUAGE plpgsql STABLE
+SET search_path=pg_catalog,pg_temp AS $grn_bridge$
+DECLARE typed_line text;matches bigint;
+BEGIN
+ IF p0->>'kind'<>'IN'
+ OR p0->>'grnId' !~ '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$'
+ OR p2->>'sourceDocumentId'<>pg_catalog.lower(p0->>'grnId')
+ OR p0->>'qcState'<>'ACCEPTED'
+ OR p0->>'legalEntityId' IS DISTINCT FROM p2->>'legalEntityId'
+ OR p0->>'siteId' IS DISTINCT FROM p2->>'siteId'
+ OR p0->>'warehouseId' IS DISTINCT FROM p2->>'warehouseId'
+ OR p0->>'itemCode' IS DISTINCT FROM p2->>'itemCode'
+ OR p0->>'productVersion' IS DISTINCT FROM p2->>'productVersion'
+ OR p0->>'leafLocationId' IS DISTINCT FROM p2->>'destinationLeafId'
+ OR p0->>'controlType' IS DISTINCT FROM p2->>'controlType'
+ OR p0->>'serialNo' IS DISTINCT FROM p2->>'serialNo'
+ OR p0->>'batchNo' IS DISTINCT FROM p2->>'batchNo'
+ OR p0->>'qcEvidenceId' IS DISTINCT FROM p2->>'inspectionEvidenceId'
+ OR (p0->>'quantity')::numeric*1000000<>(p2->>'quantityMicro')::bigint
+ THEN RAISE EXCEPTION 'OPS_A2_GRN_SIGNED_RAW_CANONICAL_SOURCE_MISMATCH'; END IF;
+ SELECT count(*),max(r.receipt_key||':'||r.line_no::text)
+ INTO matches,typed_line
+ FROM hft.grn_partial_receipt AS r
+ JOIN hft.grn AS g ON g.id=r.grn_id
+ JOIN hft.grn_line AS gl ON gl.grn_id=r.grn_id AND gl.line_no=r.line_no
+ JOIN hft.supplier_invoice AS inv ON inv.id=g.invoice_id
+ WHERE g.id::text=pg_catalog.lower(p0->>'grnId')
+ AND g.legal_entity_id=p2->>'legalEntityId'
+ AND g.warehouse_id=p2->>'warehouseId'
+ AND g.supplier_id=p0->>'supplierId'
+ AND g.invoice_key=p0->>'invoiceNumber'
+ AND g.status IN('AUTHORIZED','PARTIALLY_RECEIVED')
+ AND inv.legal_entity_id=g.legal_entity_id AND inv.supplier_id=g.supplier_id
+ AND inv.invoice_key=g.invoice_key AND inv.status='VERIFIED'
+ AND r.legal_entity_id=g.legal_entity_id AND r.warehouse_id=g.warehouse_id
+ AND r.receipt_key=p0->>'receiptKey'
+ AND r.location_id=p2->>'destinationLeafId'
+ AND r.ops_a2_item_code=p2->>'itemCode'
+ AND r.ops_a2_product_version_code=p2->>'productVersion'
+ AND r.batch_no=p2->>'batchNo' AND r.serial_no=p2->>'serialNo'
+ AND r.qc_state='ACCEPTED' AND r.evidence_reference=p0->>'qcEvidenceId'
+ AND r.accepted_micro>=(p2->>'quantityMicro')::bigint
+ AND gl.legal_entity_id=g.legal_entity_id
+ AND gl.item_code=p2->>'itemCode';
+ IF matches<>1 OR typed_line IS DISTINCT FROM p2->>'sourceActionKey'
+ THEN RAISE EXCEPTION 'OPS_A2_GRN_RAW_RECEIPT_LINE_AMBIGUOUS_OR_FORGED'; END IF;
+ RETURN typed_line;
+END $grn_bridge$;
+REVOKE ALL ON FUNCTION hft.ops_a2_resolve_signed_grn_line_v3(jsonb,jsonb)
+ FROM PUBLIC,hft_r1_app_runtime;
+
 -- Independently authorized SOURCE BINDING issuance. Reads a genuine P0 HMAC,
 -- P2 payload and immutable human approval/decision records. It cannot CREATE
 -- an approval or provision stock or use a browser-provided approver.
@@ -826,20 +883,8 @@ BEGIN
  OR p2->>'destinationLeafId'<>destination_leaf
  THEN RAISE EXCEPTION 'OPS_A2_ISSUER_PHYSICAL_LEAF_MISMATCH'; END IF;
  IF source_kind='RECEIVE' THEN
-  IF p0->>'qcState'<>'ACCEPTED'
-  OR p2->>'inspectionEvidenceId'<>p0->>'qcEvidenceId'
-  OR NOT EXISTS(
-   SELECT 1 FROM hft.grn_partial_receipt AS r
-   WHERE r.grn_id::text=pg_catalog.lower(doc)
-    AND r.legal_entity_id=p2->>'legalEntityId'
-    AND r.warehouse_id=p2->>'warehouseId'
-    AND r.receipt_key=p0->>'receiptKey'
-    AND r.receipt_key||':'||r.line_no::text=p2->>'sourceActionKey'
-    AND r.location_id=destination_leaf
-    AND r.ops_a2_item_code=p2->>'itemCode'
-    AND r.ops_a2_product_version_code=p2->>'productVersion'
-    AND r.qc_state='ACCEPTED'
-    AND r.evidence_reference=p0->>'qcEvidenceId')
+  IF hft.ops_a2_resolve_signed_grn_line_v3(p0,p2)
+    IS DISTINCT FROM p2->>'sourceActionKey'
   THEN RAISE EXCEPTION 'OPS_A2_ISSUER_GRN_RECEIPT_LINE_NOT_AUTHORIZED'; END IF;
  ELSIF source_kind='ISSUE' THEN
   IF p2->>'sourceActionKey'<>p0->>'fragmentId'
