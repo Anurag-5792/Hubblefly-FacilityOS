@@ -22,6 +22,12 @@ BEGIN
     'hft_r1_governance_issuer'::pg_catalog.regrole,'MEMBER')
    AND pg_catalog.pg_has_role(person_login.oid,
     'hft_r1_posting_owner'::pg_catalog.regrole,'MEMBER'))
+ OR EXISTS(SELECT 1 FROM pg_catalog.pg_roles AS protected_role
+  WHERE protected_role.rolname IN('hft_r1_posting_owner',
+   'hft_r1_governance_issuer','hft_r1_audit_verify','hft_r1_app_runtime')
+   AND (protected_role.rolsuper OR protected_role.rolbypassrls
+    OR protected_role.rolcanlogin OR protected_role.rolcreaterole
+    OR protected_role.rolcreatedb))
  OR NOT pg_catalog.has_schema_privilege('hft_r1_posting_owner','hft','CREATE')
  THEN RAISE EXCEPTION 'OPS_A2_ACL_OWNER_AND_ROLE_ISOLATION_REQUIRED'; END IF;
 END $ops_a2_acl_preflight$;
@@ -106,6 +112,17 @@ BEGIN
  IF pg_catalog.has_schema_privilege('hft_r1_posting_owner','hft','CREATE')
  OR pg_catalog.pg_has_role('hft_r1_app_runtime','hft_r1_posting_owner','MEMBER')
  OR pg_catalog.pg_has_role('hft_r1_app_runtime','hft_r1_governance_issuer','MEMBER')
+ OR EXISTS(SELECT 1 FROM pg_catalog.pg_roles AS protected_role
+  WHERE protected_role.rolname IN('hft_r1_posting_owner',
+   'hft_r1_governance_issuer','hft_r1_audit_verify','hft_r1_app_runtime')
+   AND (protected_role.rolsuper OR protected_role.rolbypassrls
+    OR protected_role.rolcanlogin OR protected_role.rolcreaterole
+    OR protected_role.rolcreatedb))
+ OR EXISTS(SELECT 1 FROM pg_catalog.pg_roles AS operator_login
+  WHERE operator_login.rolcanlogin
+  AND pg_catalog.pg_has_role(operator_login.oid,
+   'hft_r1_app_runtime'::pg_catalog.regrole,'MEMBER')
+  AND (operator_login.rolsuper OR operator_login.rolbypassrls))
  THEN RAISE EXCEPTION 'OPS_A2_POST_OWNER_SCHEMA_OR_INHERITANCE_BYPASS'; END IF;
  FOREACH f IN ARRAY ARRAY[
   'ops_a2_post_stock_command_v2',
