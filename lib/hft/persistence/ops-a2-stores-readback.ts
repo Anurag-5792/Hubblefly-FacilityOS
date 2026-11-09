@@ -15,6 +15,9 @@ import type {PgPool,IsolatedPgEnvironment} from './isolated-pg-transaction.ts';
 
 const id=/^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/;
 const sha=/^[0-9a-f]{64}$/;
+// PostgreSQL GENERATED ALWAYS AS IDENTITY bigint may be a single digit.
+// Never reuse this numeric entry validator for corporate/item/employee IDs.
+const pgEntryId=/^[1-9][0-9]{0,18}$/;
 const sourceMode='OPS_A2_SYNTHETIC_PG_CLIENT_ONLY';
 export type VersionedReadRow=Readonly<{
  legalEntityId:string;siteId:string;warehouseId:string;
@@ -24,6 +27,7 @@ export type VersionedReadRow=Readonly<{
  serialNo:string;batchNo:string;employeeId:string;
  quantity:string;accountVersion:number;movementId:string;
  auditSha256:string;humanAcknowledgement:string;originalIssueId?:string;
+ originalFragmentId?:string;ackEvidenceSha256?:string;
  accountBeforeVersion?:number|null;accountAfterVersion?:number|null;
  commandUuid?:string;entryId?:string;
 }>;
@@ -101,7 +105,8 @@ export function checkOpsA2Readback(input:unknown,query:unknown):OpsA2ReadResult{
    throw Error('OPS_A2_READ_ZERO_MOVEMENT');
   if(q.intent==='MOVEMENTS'&&(
     typeof r.commandUuid!=='string'||!id.test(r.commandUuid)||
-    typeof r.entryId!=='string'||!id.test(r.entryId)||
+    typeof r.entryId!=='string'||!pgEntryId.test(r.entryId)||
+    BigInt(r.entryId)>9223372036854775807n||
     r.accountKind==='EXTERNAL'&&(
       r.accountBeforeVersion!==null||r.accountAfterVersion!==null)||
     r.accountKind!=='EXTERNAL'&&(
@@ -113,7 +118,11 @@ export function checkOpsA2Readback(input:unknown,query:unknown):OpsA2ReadResult{
   if(q.intent==='CUSTODY'&&
    (r.accountKind!=='CUSTODY'||
     !['ACK_PENDING','ACKNOWLEDGED','DISPUTED'].includes(r.humanAcknowledgement as string)||
-    typeof r.originalIssueId!=='string'||!id.test(r.originalIssueId)))
+    typeof r.originalIssueId!=='string'||!id.test(r.originalIssueId)||
+    typeof r.originalFragmentId!=='string'||!id.test(r.originalFragmentId)||
+    typeof r.ackEvidenceSha256!=='string'||
+    (r.humanAcknowledgement==='ACK_PENDING'?r.ackEvidenceSha256!=='':
+     !sha.test(r.ackEvidenceSha256))))
    throw Error('OPS_A2_READ_CUSTODY_ACK_INVALID');
   const cursorKey=JSON.stringify([r.legalEntityId,r.siteId,r.warehouseId,
    r.itemCode,r.productVersion,r.leafLocationId,r.accountKind,
