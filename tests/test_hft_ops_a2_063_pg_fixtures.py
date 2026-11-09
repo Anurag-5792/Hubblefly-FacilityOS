@@ -15,6 +15,8 @@ spec.loader.exec_module(m)
 class PG063Manifest(unittest.TestCase):
  def test_eight_declared_fixtures_and_no_execution_by_default(self):
   self.assertEqual(tuple(m.CASES),tuple("PG-F%02d"%i for i in range(1,9)))
+  self.assertIn("pgf_row.value->>'entryId'='1'",m.CASES["PG-F07"]["sql"])
+  self.assertIn("OR session_user !~",file.read_text())
   for name,c in m.CASES.items():
    with self.subTest(case=name):
     self.assertIn("purpose",c)
