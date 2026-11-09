@@ -617,8 +617,9 @@ DECLARE
  o hft.ops_a2_account_provision_order%ROWTYPE;
  a hft.protected_stock_approval%ROWTYPE;
  d hft.protected_approval_decision%ROWTYPE;
+ pol hft.posting_action_policy%ROWTYPE;
  maker text;checker text;approver text;
- leaf_name text;
+ leaf_name text;track_type text;original_exists boolean;scope_payload jsonb;
 BEGIN
  IF pg_catalog.current_setting('transaction_isolation')<>'serializable'
  OR NOT pg_catalog.pg_has_role(session_user,'hft_r1_governance_issuer','MEMBER')
@@ -645,6 +646,18 @@ BEGIN
  FOR SHARE;
  IF a.approval_id IS NULL OR d.approval_id IS NULL OR NOT a.approved
  OR a.kind<>o.action_kind OR a.document_id<>o.source_document_id
+ OR a.approver_subject<>o.approved_subject
+ OR a.condition<>o.condition
+ OR a.serial_no<>o.serial_no OR a.batch_no<>o.batch_no
+ OR (o.account_kind='CUSTODY' AND a.employee_id<>o.custodian_employee_id)
+ OR a.approved_scope_sha256 !~ '^[0-9a-f]{64}$'
+ OR a.payload_sha256 IS DISTINCT FROM d.payload_sha256
+ OR a.policy_revision IS DISTINCT FROM d.policy_revision
+ OR d.source_revision<>o.source_revision
+ OR pg_catalog.clock_timestamp()<a.valid_from
+ OR pg_catalog.clock_timestamp()>=a.valid_until
+ OR d.recorded_at<a.valid_from OR d.recorded_at>=a.valid_until
+ OR o.approved_at<a.valid_from OR o.approved_at>=a.valid_until
  OR a.document_revision<>o.source_revision OR
  a.policy_generation<>o.policy_generation OR
  a.legal_entity_id<>o.legal_entity_id OR a.site_id<>o.site_id
@@ -674,6 +687,20 @@ BEGIN
  IF maker IS NULL OR checker IS NULL OR approver IS NULL OR maker=checker
   OR maker=approver OR checker=approver
  THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_CORPORATE_PERSON_SEPARATION_DENIED'; END IF;
+ -- The latest policy revision must be selected BEFORE any validity/flag
+ -- filtering; an older permissive policy must never regain authority.
+ SELECT * INTO pol FROM hft.posting_action_policy AS p
+ WHERE p.legal_entity_id=o.legal_entity_id AND p.site_id=o.site_id
+ AND p.warehouse_id=o.warehouse_id AND p.action_kind=o.action_kind
+ ORDER BY p.policy_revision DESC LIMIT 1 FOR SHARE;
+ IF pol.policy_revision IS NULL OR pol.policy_revision<>a.policy_revision
+ OR pol.policy_revision<>d.policy_revision
+ OR pg_catalog.clock_timestamp()<pol.valid_from
+ OR pg_catalog.clock_timestamp()>=pol.valid_until
+ OR d.recorded_at<pol.valid_from OR d.recorded_at>=pol.valid_until
+ OR NOT pol.require_preparer OR NOT pol.require_checker
+ OR NOT pol.require_independent_approver
+ THEN RAISE EXCEPTION 'OPS_A2_067_ACCOUNT_LATEST_POLICY_OR_APPROVAL_EXPIRED'; END IF;
  PERFORM 1 FROM hft.posting_policy_epoch AS policy
  WHERE policy.legal_entity_id=o.legal_entity_id
  AND policy.site_id=o.site_id AND policy.warehouse_id=o.warehouse_id
@@ -696,6 +723,38 @@ BEGIN
  IF FOUND THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_PARENT_HOLD_ACTIVE'; END IF;
  SELECT hft.p0_resolve_count_leaf_v1(
   o.legal_entity_id,o.warehouse_id,o.leaf_location_id) INTO leaf_name;
+ -- A legitimate approval must still resolve to a real current typed source.
+ original_exists:=CASE o.action_kind
+  WHEN 'RECEIVE' THEN EXISTS(
+   SELECT 1 FROM hft.grn AS g WHERE g.id::text=o.source_document_id
+    AND g.legal_entity_id=o.legal_entity_id
+    AND g.warehouse_id=o.warehouse_id
+    AND g.authorization_revision=o.source_revision
+    AND g.status IN('AUTHORIZED','PARTIALLY_RECEIVED'))
+  WHEN 'ISSUE' THEN EXISTS(
+   SELECT 1 FROM hft.material_issue AS i
+   WHERE i.id::text=o.source_document_id
+    AND i.legal_entity_id=o.legal_entity_id
+    AND i.warehouse_id=o.warehouse_id
+    AND i.authorization_revision=o.source_revision
+    AND i.status IN('AUTHORIZED','ISSUED'))
+  WHEN 'RETURN' THEN EXISTS(
+   SELECT 1 FROM hft.material_return AS mr
+   WHERE mr.id::text=o.source_document_id
+    AND mr.legal_entity_id=o.legal_entity_id
+    AND mr.warehouse_id=o.warehouse_id
+    AND mr.authorization_revision=o.source_revision
+    AND mr.status IN('AUTHORIZED','RETURNED'))
+  WHEN 'TRANSFER' THEN EXISTS(
+   SELECT 1 FROM hft.ops_a2_transfer_document AS x
+   WHERE x.id::text=o.source_document_id
+    AND x.legal_entity_id=o.legal_entity_id
+    AND x.site_id=o.site_id AND x.warehouse_id=o.warehouse_id
+    AND x.revision=o.source_revision
+    AND x.status IN('AUTHORIZED','PARTIALLY_MOVED'))
+  ELSE false END;
+ IF NOT original_exists THEN
+  RAISE EXCEPTION 'OPS_A2_067_ACCOUNT_TYPED_SOURCE_REVISION_NOT_AUTHORIZED'; END IF;
  PERFORM 1 FROM hft.item_version_catalog AS v
  JOIN hft.item AS i ON i.legal_entity_id=v.legal_entity_id
   AND i.item_code=v.item_code
@@ -711,6 +770,13 @@ BEGIN
    AND employee.site_id=o.site_id AND employee.active FOR SHARE;
   IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_CUSTODIAN_NOT_ACTIVE'; END IF;
  END IF;
+ SELECT i.control_type INTO track_type FROM hft.item AS i
+ WHERE i.legal_entity_id=o.legal_entity_id AND i.item_code=o.item_code
+ AND i.active FOR SHARE;
+ IF track_type IS NULL OR (track_type='NONE' AND (o.serial_no<>'' OR o.batch_no<>''))
+ OR (track_type='SERIAL' AND (o.serial_no='' OR o.batch_no<>''))
+ OR (track_type='BATCH' AND (o.batch_no='' OR o.serial_no<>''))
+ THEN RAISE EXCEPTION 'OPS_A2_067_ACCOUNT_TRACEABILITY_NOT_AUTHORIZED'; END IF;
  IF o.serial_no<>'' AND EXISTS(SELECT 1 FROM hft.serial_registry AS serial
   WHERE serial.legal_entity_id=o.legal_entity_id
    AND serial.item_code=o.item_code AND serial.serial_no=o.serial_no
@@ -721,6 +787,30 @@ BEGIN
    AND other.item_code=o.item_code AND other.serial_key=o.serial_no
    AND other.product_version_code<>o.product_version_code)
  THEN RAISE EXCEPTION 'OPS_A2_ACCOUNT_CROSS_VERSION_ACCOUNT_DENIED'; END IF;
+ -- Order fields cannot confer authority. Compare the entire account
+ -- identity, source, policy and original approval digest to a separate
+ -- HMAC-authenticated original record from independent signing custody.
+ scope_payload:=pg_catalog.jsonb_build_object(
+  'contract','HFT-OPS-A2-ACCOUNT-ZERO-SCOPE-067-V1',
+  'orderId',o.order_id::text,'accountId',o.account_id::text,
+  'legalEntityId',o.legal_entity_id,'siteId',o.site_id,
+  'warehouseId',o.warehouse_id,'itemCode',o.item_code,
+  'productVersion',o.product_version_code,'leaf',o.leaf_location_id,
+  'accountKind',o.account_kind,'condition',o.condition,
+  'serialNo',o.serial_no,'batchNo',o.batch_no,'controlType',track_type,
+  'custodianEmployeeId',o.custodian_employee_id,'actionKind',o.action_kind,
+  'sourceDocumentId',o.source_document_id,'sourceRevision',o.source_revision,
+  'approvalId',o.approval_id,'approvalRevision',o.approval_revision,
+  'approvedPayloadSha256',a.payload_sha256,
+  'approvedScopeSha256',a.approved_scope_sha256,
+  'decisionSha256',d.decision_evidence_sha256,
+  'policyRevision',pol.policy_revision,'policyGeneration',o.policy_generation,
+  'makerPerson',maker,'checkerPerson',checker,'approverPerson',approver,
+  'approvedAt',pg_catalog.extract(epoch FROM o.approved_at)::bigint);
+ PERFORM hft.ops_a2_assert_independent_scope_v1(
+  'ACCOUNT_ZERO',o.order_id,scope_payload,o.legal_entity_id,
+  o.approval_id,o.approval_revision,d.decision_evidence_sha256,
+  o.action_kind,ARRAY[maker,checker,approver]);
  INSERT INTO hft.stock_account(id,legal_entity_id,site_id,warehouse_id,
   item_code,product_version_code,location_key,account_kind,condition,
   custodian_employee_id,serial_key,batch_key,qty_micro,reserved_micro,version)
