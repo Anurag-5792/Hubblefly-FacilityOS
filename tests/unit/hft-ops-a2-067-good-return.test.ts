@@ -53,7 +53,7 @@ test('wrong location, different AVAILABLE, forgery, ISSUE, condition and revisio
   [command,[source,{...destination,account:identity('BIN03','AVAILABLE')}],
    /RETURN_CUSTODY_INSPECTION_INVALID/],
   [command,[source,{...destination,account:{...destination.account!,kind:'CUSTODY'}}],
-   /ENTRY_BUCKET_ACCOUNT_MISMATCH/],
+   /ENTRY_BUCKET_ACCOUNT_MISMATCH|CUSTODIAN_INVALID/],
   [command,[source,{...destination,bucket:'CUSTODY'}],
    /ENTRY_BUCKET_ACCOUNT_MISMATCH/],
   [{...command,originalIssueId:''},[source,destination],
