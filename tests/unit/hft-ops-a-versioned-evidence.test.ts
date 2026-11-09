@@ -373,3 +373,35 @@ test('OPS-A current P0 SQL rejecting stubs and P2 V1 payload must remain blocked
  assert.doesNotMatch(p2,/['"]productVersion['"],?/);
  assert.match(p0,/P0_TRANSFER_REQUIRES_P2_SINGLE_WRITER_EXTENSION/);
 });
+
+test('063 balanced but wrong-magnitude TRANSFER with recomputed digest fails signed quantity',()=>{
+ const {facts}=fresh(),original=facts[3];
+ const forged=sealed(original.command,[
+  {...original.movements[0],signedQuantity:'-2'},
+  {...original.movements[1],signedQuantity:'2'}]);
+ fail(forged,/UNBALANCED_COMMAND/);
+});
+test('063 forged historical entry revision after re-sealing is refused',()=>{
+ const {facts}=fresh(),x=facts[3];
+ const forged=sealed(x.command,[x.movements[0],{
+  ...x.movements[1],accountBeforeVersion:8,accountAfterVersion:9}]);
+ fail(forged,/STALE_AUTHORIZED_ACCOUNT_REVISION/);
+});
+test('063 tampered poststate balance and version never pass complete ledger reconstruction',()=>{
+ const {readback}=fresh();
+ const wrongBalance=mutable(readback);
+ wrongBalance.accounts[0]={...wrongBalance.accounts[0],persistedQuantity:'4'};
+ assert.throws(()=>verifyVersionedLedgerReadback(wrongBalance),
+  /ACCOUNT_LEDGER_RECONSTRUCTION_MISMATCH/);
+ const wrongRevision=mutable(readback);
+ wrongRevision.accounts[0]={...wrongRevision.accounts[0],persistedVersion:7};
+ assert.throws(()=>verifyVersionedLedgerReadback(wrongRevision),
+  /ACCOUNT_VERSION|REVISION/);
+});
+test('063 changing full movement digest or audit fact while preserving two legs is rejected',()=>{
+ const {facts}=fresh(),x=facts[3];
+ assert.throws(()=>verifyVersionedImmutableFact({...x,
+  movementSha256:'f'.repeat(64)}),/MOVEMENT_SEAL_MISMATCH/);
+ assert.throws(()=>verifyVersionedImmutableFact({...x,
+  auditCanonicalText:'forged-but-balanced'}),/IMMUTABLE_AUDIT_MISMATCH/);
+});
