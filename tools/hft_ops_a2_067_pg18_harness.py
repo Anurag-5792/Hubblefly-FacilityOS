@@ -238,12 +238,115 @@ def evidence_complete(result,receipt,c):
  # This only marks evidence ready for INDEPENDENT QA, not a release PASS.
  return "EXECUTED_EVIDENCE_PENDING_INDEPENDENT_REVIEW"
 
+def _qa_sql(env,sql):
+ # The QA login may SELECT only prequalified observer and narrow disposable
+ # gateway functions; it must never run raw UPDATE/DDL or CREATE credentials.
+ if "ALTER " in sql or "GRANT " in sql or "INSERT " in sql or "UPDATE " in sql or (
+  "DELETE " in sql):
+  raise ValueError("067_QA_DIRECT_DATABASE_MUTATION_DENIED")
+ argv=["psql","-X","-q","-A","-t","-v","ON_ERROR_STOP=1"]
+ result=subprocess.run(argv,input=sql,text=True,capture_output=True,
+                       env=env,check=False)
+ if result.returncode!=0:
+  # A permission error, missing gateway, or unrelated SQLSTATE is NEVER PASS.
+  raise ValueError("067_POSTGRES_OBSERVER_OR_GATEWAY_FAILED_NOT_PASS")
+ raw=result.stdout.strip()
+ if not raw or "\n" in raw:
+  raise ValueError("067_DATABASE_RESPONSE_NON_SINGULAR")
+ try:
+  return json.loads(raw)
+ except json.JSONDecodeError as e:
+  raise ValueError("067_DATABASE_RESPONSE_NOT_CANONICAL_JSON") from e
+
+def qualify_live_gateway(admission,env):
+ # This can be called only AFTER pinned independent technical admission.
+ # It NEVER installs hft_qa067 functions or grants.
+ expected=admission.get("qualified_gateway",{})
+ if not isinstance(expected,dict) or set(expected)!={
+  "exercise_sha256","observe_sha256","installer_evidence_sha256",
+  "isolation_boundary_evidence_sha256"} or any(
+   not re.fullmatch("[0-9a-f]{64}",str(v)) for v in expected.values()):
+  raise ValueError("067_PROTECTED_GATEWAY_EXACT_SOURCE_NOT_ADMITTED")
+ sql="""SELECT row_to_json(x)::text FROM (
+ SELECT current_database() AS db_name,session_user AS db_login,
+ current_user AS db_role,current_setting('server_version_num')::integer AS pg_version,
+ inet_server_addr()::text AS backend_ip,inet_server_port() AS backend_port,
+ ssl.ssl AS tls_active,ssl.version AS tls_version,
+ r.rolsuper AS qa_super,r.rolbypassrls AS qa_bypassrls,
+ pg_catalog.pg_has_role(session_user,'hft_r1_posting_owner','MEMBER')
+  AS qa_owner_member,
+ pg_catalog.pg_has_role(session_user,'hft_r1_governance_issuer','MEMBER')
+  AS qa_issuer_member,
+ pg_catalog.pg_has_role(session_user,'hft_r1_fault_constructor','MEMBER')
+  AS qa_fault_ctor_member,
+ pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
+  pg_catalog.pg_get_functiondef(
+   pg_catalog.to_regprocedure('hft_qa067.exercise_case_v1(text,uuid)')),
+  'UTF8')),'hex') AS exercise_sha256,
+ pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
+  pg_catalog.pg_get_functiondef(
+   pg_catalog.to_regprocedure('hft_qa067.observe_case_v1(text,uuid)')),
+  'UTF8')),'hex') AS observe_sha256
+ FROM pg_catalog.pg_roles r
+ JOIN pg_catalog.pg_stat_ssl ssl ON ssl.pid=pg_catalog.pg_backend_pid()
+ WHERE r.rolname=session_user
+ ) AS x;"""
+ result=_qa_sql(env,sql)
+ endpoint=admission["endpoint"]
+ if result.get("db_name")!=endpoint["database"] or (
+  result.get("db_login")!=admission["roles"]["qa"]) or (
+  result.get("db_role")!=result.get("db_login")) or (
+  result.get("pg_version")!=VERSION) or not result.get("tls_active") or (
+  result.get("qa_super")) or result.get("qa_bypassrls") or (
+  result.get("qa_owner_member")) or result.get("qa_issuer_member") or (
+  result.get("qa_fault_ctor_member")) or (
+  result.get("backend_port")!=endpoint["port"]):
+  raise ValueError("067_LIVE_PG18_QA_TLS_ROLE_OR_SERVER_BOUNDARY_DENIED")
+ if result.get("exercise_sha256")!=expected["exercise_sha256"] or (
+  result.get("observe_sha256")!=expected["observe_sha256"]):
+  raise ValueError("067_LIVE_GATEWAY_FUNCTION_SHA_MISMATCH")
+ return result
+
+def _fixture_id(value):
+ if not isinstance(value,str) or not re.fullmatch(
+  "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",value):
+  raise ValueError("067_EXACT_UUID_FIXTURE_REQUIRED")
+ return value
+
+def _call_gateway(case,fixture,env,execute):
+ # Input is ONLY one canonical catalog ID and one validated fixture UUID,
+ # never a browser-supplied SQL fragment, condition or table identifier.
+ if case not in _catalog().CASES:
+  raise ValueError("067_UNKNOWN_DIAGNOSTIC_CASE")
+ identity=_fixture_id(fixture)
+ function="exercise_case_v1" if execute else "observe_case_v1"
+ return _qa_sql(env,(
+  "SELECT pg_catalog.row_to_json(v)::text FROM ("
+  f"SELECT hft_qa067.{function}('{case}'::text,"
+  f"'{identity}'::uuid) AS evidence) AS v;"))
+
+def verify_independent_results(result_envelopes,trust,admission,receipts):
+ # All independent post-observation receipts must be signed by a qualified
+ # verifier AND separate human witness. Nothing self-certifies Gate A.
+ cat=_catalog();results={}
+ if set(result_envelopes)!=set(cat.CASES):
+  raise ValueError("067_ALL_EIGHT_INDEPENDENT_RESULT_RECEIPTS_REQUIRED")
+ for name,c in cat.CASES.items():
+  proof=signed_record(result_envelopes[name],trust,
+   {"independent_verifier","witness"}, "HFT-OPS-A2-067-INDEPENDENT-CASE-EVIDENCE-V1")
+  if proof.get("admission_id")!=admission["record_id"]:
+   raise ValueError("067_RESULT_ADMISSION_MISMATCH")
+  results[name]=evidence_complete(proof,receipts[name],c)
+ return results
+
 def main(argv=None):
  p=argparse.ArgumentParser(description=__doc__)
  p.add_argument("--list",action="store_true")
  p.add_argument("--execute",action="store_true")
  p.add_argument("--admission",type=Path)
  p.add_argument("--fixture-receipts",type=Path)
+ p.add_argument("--verify-results",type=Path,
+  help="independently signed poststate receipts; never self-certifies")
  args=p.parse_args(argv)
  cat=_catalog()
  if args.list:
@@ -260,15 +363,33 @@ def main(argv=None):
   receipts=json.loads(args.fixture_receipts.read_text(encoding="utf8"))
   if set(receipts)!=set(cat.CASES):
    raise ValueError("067_ALL_EIGHT_FIXTURE_RECEIPTS_REQUIRED")
-  # Actual PG18 execution is delegated to a SEPARATELY installed, restricted
-  # hft_qa067 gateway and independent observer. No QA owner DML or bypass
-  # is implemented here. Until those trusted role/endpoint functions are
-  # independently qualified, fail closed (no psql, no mutation).
+  verified={}
   for cid in cat.CASES:
    record=signed_record(Path(receipts[cid]),trust,
     {"fault_constructor","independent_verifier"},RECEIPT)
    verify_fixture(record,admission,cid)
-  raise ValueError("067_DISPOSABLE_FAULT_GATEWAY_AND_INDEPENDENT_OBSERVER_NOT_YET_QUALIFIED")
+   verified[cid]=record
+  if args.verify_results is not None:
+   paths=json.loads(args.verify_results.read_text(encoding="utf8"))
+   results=verify_independent_results(paths,trust,admission,verified)
+   print(json.dumps({"status":"EXECUTED_EVIDENCE_PENDING_INDEPENDENT_REVIEW",
+    "results":results,"all_postgres_gate_results":"NOT_ACCEPTED"},sort_keys=True))
+   return 0
+  qualify_live_gateway(admission,os.environ)
+  for cid,receipt in verified.items():
+   before=_call_gateway(cid,receipt["fixture_id"],os.environ,False)
+   if before.get("evidence",{}).get("prestate_sha256")!=receipt["prestate_sha256"] or (
+    before.get("evidence",{}).get("positive_control_committed") is not True) or (
+    before.get("evidence",{}).get("adverse_established") is not True):
+    raise ValueError("067_ACTUAL_ADVERSE_PRESTATE_OR_POSITIVE_CONTROL_MISSING")
+   outcome=_call_gateway(cid,receipt["fixture_id"],os.environ,True)
+   after=_call_gateway(cid,receipt["fixture_id"],os.environ,False)
+   print(json.dumps({"case":cid,"status":"EXECUTED_UNVERIFIED_NO_PASS",
+    "fixture_id":receipt["fixture_id"],"gateway_result":outcome,
+    "post_observation":after,
+    "next":"INDEPENDENT_SIGNED_RECONSTRUCTION_AND_HUMAN_WITNESS_REQUIRED"},
+    sort_keys=True))
+  return 3
  except (OSError,ValueError,KeyError,TypeError,json.JSONDecodeError) as e:
   print("OPS067_TECHNICAL_GATE_DENIED:"+str(e),file=sys.stderr)
   return 2
