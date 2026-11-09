@@ -15,7 +15,7 @@ spec=importlib.util.spec_from_file_location("ops063_wrapper",TOOL)
 assert spec is not None and spec.loader is not None
 m=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-from hft_ops_a2_067_pg18_harness import _catalog,admit,evidence_complete,verify_fixture,qualify_live_gateway,_qa_sql,verify_independent_results
+from hft_ops_a2_067_pg18_harness import _catalog,admit,evidence_complete,verify_fixture,qualify_live_gateway,_qa_sql,verify_independent_results,verify_postgres_tls_peer
 
 class Diagnostic067(unittest.TestCase):
  def test_exact_independent_qa_fixture_namespaces(self):
@@ -98,6 +98,19 @@ class Diagnostic067(unittest.TestCase):
    with self.assertRaisesRegex(ValueError,"QA_DIRECT_DATABASE_MUTATION_DENIED"):
     _qa_sql({},"UPDATE hft.stock_account SET qty_micro=10")
    run.assert_not_called()
+ def test_actual_pg_starttls_peer_pin_is_mandatory_before_gateway(self):
+  claim={"endpoint":{"host":"db.example.invalid","port":5432,
+    "sslrootcert_sha256":"a"*64,"tls_peer_sha256":"b"*64}}
+  with patch("hft_ops_a2_067_pg18_harness.socket.create_connection") as dial:
+   with self.assertRaisesRegex(ValueError,"TLS_IDENTITY_UNVERIFIED"):
+    verify_postgres_tls_peer(claim,{"PGSSLROOTCERT":"/nonexistent/qa-root.pem"})
+   dial.assert_not_called()
+  source=(ROOT/"tools/hft_ops_a2_067_pg18_harness.py").read_text()
+  for control in ("struct.pack(\"!II\",8,80877103)",
+    "context.check_hostname=True","ssl.CERT_REQUIRED",
+    "endpoint[\"tls_peer_sha256\"]",
+    "verify_postgres_tls_peer(admission,os.environ)"):
+   self.assertIn(control,source)
  def test_independent_post_reconstruction_requires_all_eight_signed_case_results(self):
   with self.assertRaisesRegex(ValueError,"ALL_EIGHT_INDEPENDENT_RESULT"):
    verify_independent_results({}, {}, {"record_id":"fake"}, {})
