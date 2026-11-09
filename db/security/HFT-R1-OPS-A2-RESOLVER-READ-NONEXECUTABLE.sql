@@ -510,6 +510,11 @@ CREATE OR REPLACE FUNCTION hft.ops_a2_reconcile_post_v3(
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path=pg_catalog,pg_temp AS $reconcile_v3$
 DECLARE authenticated_actor text;
+ grant hft.ops_a2_recovery_reviewer_entitlement_v1%ROWTYPE;
+ original_approval hft.protected_stock_approval%ROWTYPE;
+ original_decision hft.protected_approval_decision%ROWTYPE;
+ reviewer_person text;original_person text;policy_epoch bigint;
+ signed_scope jsonb;
 BEGIN
  IF pg_catalog.current_setting('transaction_read_only')<>'on'
  OR NOT pg_catalog.pg_has_role(session_user,'hft_r1_app_runtime','MEMBER')
@@ -518,15 +523,99 @@ BEGIN
  authenticated_actor:=hft.ops_a2_verify_readproof_v2(q,fresh_read_proof);
  IF authenticated_actor IS NULL OR q->>'intent'<>'MOVEMENTS'
  OR q->>'cursor'<>''
- OR q->>'legalEntityId'<>p->>'legalEntityId'
- OR q->>'siteId'<>p->>'siteId'
- OR q->>'warehouseId'<>p->>'warehouseId'
- OR q->>'itemCode'<>p->>'itemCode'
- OR q->>'productVersion'<>p->>'productVersion'
+ OR q->>'legalEntityId' IS DISTINCT FROM p->>'legalEntityId'
+ OR q->>'siteId' IS DISTINCT FROM p->>'siteId'
+ OR q->>'warehouseId' IS DISTINCT FROM p->>'warehouseId'
+ OR q->>'itemCode' IS DISTINCT FROM p->>'itemCode'
+ OR q->>'productVersion' IS DISTINCT FROM p->>'productVersion'
  OR q->>'leafLocationId'<>''
  OR q->>'employeeId'<>''
  OR q->>'limit'<>'1'
  THEN RAISE EXCEPTION 'OPS_A2_RECOVERY_NEW_ACTOR_SOURCE_SCOPE_MISMATCH'; END IF;
+ IF authenticated_actor IS DISTINCT FROM p->>'actorSubject' THEN
+  -- A stolen original posting proof and ordinary warehouse READ grant are
+  -- insufficient. The new actor requires a current separately SIGNED
+  -- recovery entitlement bound to this exact original command and nonce.
+  SELECT * INTO grant FROM hft.ops_a2_recovery_reviewer_entitlement_v1 AS g
+  WHERE g.legal_entity_id=q->>'legalEntityId'
+  AND g.site_id=q->>'siteId' AND g.warehouse_id=q->>'warehouseId'
+  AND g.item_code=p->>'itemCode'
+  AND g.product_version_code=p->>'productVersion'
+  AND g.original_command_id=p->>'commandId'
+  AND g.original_actor_subject=p->>'actorSubject'
+  AND g.original_payload_sha256=hft.ops_a_payload_digest_v2(p)
+  AND g.original_nonce=original_proof->>'nonce'
+  AND g.reviewer_subject=authenticated_actor
+  AND g.approval_id=p->>'approvalId'
+  AND g.approval_revision=(p->>'approvalRevision')::bigint
+  AND pg_catalog.clock_timestamp()>=g.valid_from
+  AND pg_catalog.clock_timestamp()<g.valid_until
+  AND NOT EXISTS(SELECT 1 FROM hft.ops_a2_recovery_reviewer_revocation_v1 AS revoked
+   WHERE revoked.grant_id=g.grant_id);
+  IF grant.grant_id IS NULL
+  THEN RAISE EXCEPTION 'OPS_A2_067_DIFFERENT_ACTOR_RECOVERY_ENTITLEMENT_REQUIRED'; END IF;
+  SELECT reviewer.person_id INTO reviewer_person
+  FROM hft.approval_human_login AS reviewer
+  JOIN hft.approval_human AS human
+    ON human.legal_entity_id=reviewer.legal_entity_id
+    AND human.person_id=reviewer.person_id
+  WHERE reviewer.legal_entity_id=grant.legal_entity_id
+   AND reviewer.actor_subject=authenticated_actor
+   AND human.revoked_at IS NULL
+   AND human.valid_from<=pg_catalog.clock_timestamp()
+   AND human.valid_until>pg_catalog.clock_timestamp()
+   AND NOT EXISTS(SELECT 1 FROM hft.approval_human_revocation AS r
+     WHERE r.legal_entity_id=human.legal_entity_id
+     AND r.person_id=human.person_id);
+  SELECT original.person_id INTO original_person
+  FROM hft.approval_human_login AS original
+  WHERE original.legal_entity_id=grant.legal_entity_id
+    AND original.actor_subject=grant.original_actor_subject;
+  SELECT generation INTO policy_epoch FROM hft.posting_policy_epoch
+  WHERE legal_entity_id=grant.legal_entity_id AND site_id=grant.site_id
+    AND warehouse_id=grant.warehouse_id;
+  SELECT * INTO original_approval FROM hft.protected_stock_approval
+  WHERE legal_entity_id=grant.legal_entity_id
+  AND approval_id=grant.approval_id
+  AND approval_revision=grant.approval_revision;
+  SELECT * INTO original_decision FROM hft.protected_approval_decision
+  WHERE legal_entity_id=grant.legal_entity_id
+  AND approval_id=grant.approval_id
+  AND approval_revision=grant.approval_revision;
+  IF reviewer_person IS NULL OR original_person IS NULL
+  OR reviewer_person<>grant.reviewer_person_id
+  OR reviewer_person=original_person
+  OR policy_epoch IS NULL OR policy_epoch<>grant.policy_generation
+  OR original_approval.approval_id IS NULL OR original_decision.approval_id IS NULL
+  OR original_approval.kind<>p->>'kind'
+  OR original_approval.document_id<>p->>'sourceDocumentId'
+  OR original_decision.decision_evidence_sha256<>grant.decision_evidence_sha256
+  THEN RAISE EXCEPTION 'OPS_A2_067_RECOVERY_REVIEW_PERSON_POLICY_OR_SOURCE_INVALID'; END IF;
+  signed_scope:=pg_catalog.jsonb_build_object(
+   'contract','HFT-OPS-A2-RECOVERY-REVIEW-SCOPE-067-V1',
+   'grantId',grant.grant_id::text,
+   'legalEntityId',grant.legal_entity_id,'siteId',grant.site_id,
+   'warehouseId',grant.warehouse_id,'itemCode',grant.item_code,
+   'productVersion',grant.product_version_code,
+   'originalCommandId',grant.original_command_id,
+   'originalActor',grant.original_actor_subject,
+   'originalPayloadSha256',grant.original_payload_sha256,
+   'originalNonce',grant.original_nonce,
+   'reviewerSubject',grant.reviewer_subject,
+   'reviewerPerson',reviewer_person,'originalPerson',original_person,
+   'originalApprovalId',grant.approval_id,
+   'originalApprovalRevision',grant.approval_revision,
+   'policyGeneration',grant.policy_generation,
+   'decisionSha256',grant.decision_evidence_sha256,
+   'validFromEpoch',pg_catalog.extract(epoch FROM grant.valid_from)::bigint,
+   'validUntilEpoch',pg_catalog.extract(epoch FROM grant.valid_until)::bigint);
+  PERFORM hft.ops_a2_assert_independent_scope_v1('RECOVERY_REVIEW',
+   grant.grant_id,signed_scope,grant.legal_entity_id,
+   grant.approval_id,grant.approval_revision,grant.decision_evidence_sha256,
+   p->>'kind',ARRAY[reviewer_person,original_person]);
+ END IF;
+ -- Matching original-actor recovery can use its own newly authenticated,
+ -- current session. No posting-session reactivation and no blind repost.
  RETURN hft.ops_a2_reconcile_original_attempt_private_v3(p,original_proof);
 END $reconcile_v3$;
 ALTER FUNCTION hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)
