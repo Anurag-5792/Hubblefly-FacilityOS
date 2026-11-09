@@ -882,7 +882,10 @@ SET search_path=pg_catalog,pg_temp AS $issue_transfer$
 DECLARE
  o hft.ops_a2_transfer_issuance_order%ROWTYPE;
  maker text;checker text;approver text;policy_generation bigint;
- leaf_name text;
+ a hft.protected_stock_approval%ROWTYPE;
+ d hft.protected_approval_decision%ROWTYPE;
+ latest_policy hft.posting_action_policy%ROWTYPE;
+ leaf_name text;scope_payload jsonb;
 BEGIN
  IF pg_catalog.current_setting('transaction_isolation')<>'serializable'
  OR NOT pg_catalog.pg_has_role(session_user,'hft_r1_governance_issuer','MEMBER')
@@ -913,6 +916,70 @@ BEGIN
  AND warehouse_id=o.warehouse_id FOR SHARE;
  IF policy_generation IS NULL OR policy_generation<>o.policy_generation
  THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_POLICY_STALE'; END IF;
+ -- The original protected approval/decision must independently authorize
+ -- this exact document and current source revision. A matching document ID
+ -- alone is not an authorization to create an arbitrary transfer.
+ SELECT * INTO a FROM hft.protected_stock_approval AS approved
+ WHERE approved.legal_entity_id=o.legal_entity_id
+ AND approved.document_id=o.document_id::text
+ AND approved.kind='TRANSFER'
+ AND approved.document_revision=o.revision FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_067_TRANSFER_ORIGINAL_APPROVAL_MISSING'; END IF;
+ SELECT * INTO d FROM hft.protected_approval_decision AS decision
+ WHERE decision.legal_entity_id=a.legal_entity_id
+ AND decision.approval_id=a.approval_id
+ AND decision.approval_revision=a.approval_revision FOR SHARE;
+ IF d.approval_id IS NULL OR NOT a.approved
+ OR a.site_id<>o.site_id OR a.warehouse_id<>o.warehouse_id
+ OR a.item_code<>o.item_code OR a.location_id<>o.source_leaf
+ OR a.condition<>'GOOD' OR a.batch_no<>o.batch_no
+ OR a.serial_no<>o.serial_no OR a.quantity_micro<>o.authorized_micro
+ OR a.actor_subject IS NULL
+ OR a.approver_subject<>o.approved_subject
+ OR a.prepared_by<>o.prepared_subject OR a.checked_by<>o.checked_subject
+ OR a.document_revision<>o.revision OR a.policy_generation<>o.policy_generation
+ OR a.approved_scope_sha256 !~ '^[0-9a-f]{64}$'
+ OR d.source_revision<>o.revision
+ OR d.payload_sha256 IS DISTINCT FROM a.payload_sha256
+ OR d.decision_evidence_sha256<>o.decision_evidence_sha256
+ OR d.prepared_subject IS DISTINCT FROM o.prepared_subject
+ OR d.checked_subject IS DISTINCT FROM o.checked_subject
+ OR d.approver_subject<>o.approved_subject
+ OR d.prepared_session_id IS DISTINCT FROM o.prepared_session_id
+ OR d.checked_session_id IS DISTINCT FROM o.checked_session_id
+ OR d.approver_session_id<>o.approved_session_id
+ OR pg_catalog.clock_timestamp()<a.valid_from
+ OR pg_catalog.clock_timestamp()>=a.valid_until
+ OR d.recorded_at<a.valid_from OR d.recorded_at>=a.valid_until
+ OR o.approved_at<a.valid_from OR o.approved_at>=a.valid_until
+ OR EXISTS(SELECT 1 FROM hft.protected_approval_revocation AS revoked
+  WHERE revoked.legal_entity_id=a.legal_entity_id
+  AND revoked.approval_id=a.approval_id
+  AND revoked.approval_revision=a.approval_revision)
+ OR EXISTS(SELECT 1 FROM hft.protected_approval_supersession AS superseded
+  WHERE superseded.legal_entity_id=a.legal_entity_id
+  AND superseded.approval_id=a.approval_id
+  AND superseded.approval_revision=a.approval_revision)
+ THEN RAISE EXCEPTION 'OPS_A2_067_TRANSFER_ORIGINAL_DECISION_SCOPE_FORGED'; END IF;
+ -- Crucial policy freshness: SELECT the ACTUAL latest revision first,
+ -- then reject it if expired/weakened. Never prefilter valid policy rows.
+ SELECT * INTO latest_policy FROM hft.posting_action_policy AS pol
+ WHERE pol.legal_entity_id=o.legal_entity_id AND pol.site_id=o.site_id
+ AND pol.warehouse_id=o.warehouse_id AND pol.action_kind='TRANSFER'
+ ORDER BY pol.policy_revision DESC LIMIT 1 FOR SHARE;
+ IF latest_policy.policy_revision IS NULL
+ OR latest_policy.policy_revision<>a.policy_revision
+ OR latest_policy.policy_revision<>d.policy_revision
+ OR pg_catalog.clock_timestamp()<latest_policy.valid_from
+ OR pg_catalog.clock_timestamp()>=latest_policy.valid_until
+ OR d.recorded_at<latest_policy.valid_from
+ OR d.recorded_at>=latest_policy.valid_until
+ OR NOT latest_policy.require_preparer
+ OR NOT latest_policy.require_checker
+ OR NOT latest_policy.require_independent_approver
+ THEN RAISE EXCEPTION 'OPS_A2_067_TRANSFER_LATEST_POLICY_REJECTED'; END IF;
+ -- Original legacy filter is not sufficient: independent latest policy
+ -- above is the binding gate. The following check is harmless redundancy.
  PERFORM 1 FROM hft.posting_action_policy AS pol
  WHERE pol.legal_entity_id=o.legal_entity_id AND pol.site_id=o.site_id
  AND pol.warehouse_id=o.warehouse_id AND pol.action_kind='TRANSFER'
@@ -943,6 +1010,30 @@ BEGIN
  WHERE v.legal_entity_id=o.legal_entity_id AND v.item_code=o.item_code
  AND v.version_code=o.product_version_code AND v.state='ACTIVE' FOR SHARE;
  IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_VERSION_INACTIVE'; END IF;
+ -- The destination leaf, version, exact quantity and people are missing
+ -- from portions of the legacy approval: require an independent signed
+ -- original scope MAC with those exact dimensions before document INSERT.
+ scope_payload:=pg_catalog.jsonb_build_object(
+  'contract','HFT-OPS-A2-TRANSFER-ISSUE-SCOPE-067-V1',
+  'orderId',o.order_id::text,'documentId',o.document_id::text,
+  'legalEntityId',o.legal_entity_id,'siteId',o.site_id,
+  'warehouseId',o.warehouse_id,'itemCode',o.item_code,
+  'productVersion',o.product_version_code,'sourceLeaf',o.source_leaf,
+  'destinationLeaf',o.destination_leaf,'batchNo',o.batch_no,
+  'serialNo',o.serial_no,'authorizedMicro',o.authorized_micro,
+  'sourceRevision',o.revision,'policyGeneration',o.policy_generation,
+  'policyRevision',latest_policy.policy_revision,
+  'approvalId',a.approval_id,'approvalRevision',a.approval_revision,
+  'approvedPayloadSha256',a.payload_sha256,
+  'approvedScopeSha256',a.approved_scope_sha256,
+  'decisionSha256',d.decision_evidence_sha256,
+  'sourceActionKey',a.source_action_key,'fragmentId',a.fragment_id,
+  'makerPerson',maker,'checkerPerson',checker,'approverPerson',approver,
+  'approvedAt',pg_catalog.extract(epoch FROM o.approved_at)::bigint);
+ PERFORM hft.ops_a2_assert_independent_scope_v1(
+  'TRANSFER_ISSUE',o.order_id,scope_payload,o.legal_entity_id,
+  a.approval_id,a.approval_revision,d.decision_evidence_sha256,
+  'TRANSFER',ARRAY[maker,checker,approver]);
  INSERT INTO hft.ops_a2_transfer_document(
   id,legal_entity_id,site_id,warehouse_id,item_code,product_version_code,
   source_leaf,destination_leaf,batch_no,serial_no,authorized_micro,
