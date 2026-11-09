@@ -138,6 +138,23 @@ CREATE TABLE hft.ops_a2_transfer_document(
  CHECK(source_leaf<>destination_leaf),
  CHECK(prepared_by<>checked_by AND prepared_by<>approved_by AND checked_by<>approved_by)
 );
+-- 063: one immutable counter transition per immutable TRANSFER command.
+-- No counter-only privileged edit is valid without a unique matching command.
+CREATE TABLE hft.ops_a2_transfer_counter_link(
+ command_uuid uuid PRIMARY KEY REFERENCES hft.stock_command(id),
+ transfer_document_id uuid NOT NULL
+ REFERENCES hft.ops_a2_transfer_document(id),
+ quantity_micro bigint NOT NULL CHECK(quantity_micro>0),
+ before_micro bigint NOT NULL CHECK(before_micro>=0),
+ after_micro bigint NOT NULL CHECK(after_micro>before_micro),
+ UNIQUE(transfer_document_id,after_micro),
+ CHECK(after_micro=before_micro+quantity_micro)
+);
+CREATE TRIGGER immutable_ops_a2_transfer_counter_link
+ BEFORE UPDATE OR DELETE ON hft.ops_a2_transfer_counter_link
+ FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+REVOKE ALL ON hft.ops_a2_transfer_counter_link FROM PUBLIC,hft_r1_app_runtime;
+
 -- Governance 060: authorize exactly the writer's cumulative movement transition.
 -- Every corporate identity, signed approval and source document field is
 -- immutable. No arbitrary authorized-document edit or document deletion.
@@ -163,6 +180,24 @@ BEGIN
  OR NEW.moved_micro>OLD.authorized_micro
  OR NEW.status<>CASE WHEN NEW.moved_micro=OLD.authorized_micro
   THEN 'MOVED' ELSE 'PARTIALLY_MOVED' END
+ OR NOT EXISTS(
+  SELECT 1 FROM hft.ops_a2_transfer_counter_link AS link
+  JOIN hft.stock_command AS command ON command.id=link.command_uuid
+  WHERE link.transfer_document_id=OLD.id
+   AND link.before_micro=OLD.moved_micro
+   AND link.after_micro=NEW.moved_micro
+   AND link.quantity_micro=NEW.moved_micro-OLD.moved_micro
+   AND command.kind='TRANSFER' AND command.id=link.command_uuid
+   AND command.source_document_id=OLD.id::text
+   AND command.legal_entity_id=OLD.legal_entity_id
+   AND command.site_id=OLD.site_id AND command.warehouse_id=OLD.warehouse_id
+   AND command.item_code=OLD.item_code
+   AND command.product_version_code=OLD.product_version_code
+   AND command.ops_a2_source_leaf=OLD.source_leaf
+   AND command.ops_a2_destination_leaf=OLD.destination_leaf
+   AND command.quantity_micro=link.quantity_micro
+   AND (SELECT count(*) FROM hft.stock_entry AS leg
+    WHERE leg.command_id=command.id)=2)
  THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_ONLY_PROTECTED_WRITER_TRANSITION'; END IF;
  RETURN NEW;
 END $protect_transfer$;
@@ -171,6 +206,65 @@ CREATE TRIGGER ops_a2_transfer_document_immutable_v2
  FOR EACH ROW EXECUTE FUNCTION hft.ops_a2_protect_transfer_document_v2();
 REVOKE EXECUTE ON FUNCTION hft.ops_a2_protect_transfer_document_v2()
  FROM PUBLIC,hft_r1_app_runtime;
+-- A deferred link guard rejects privileged counter-only tampering, stale
+-- cumulative status, missing immutable command, and forged linked quantity.
+CREATE OR REPLACE FUNCTION hft.ops_a2_verify_transfer_counter_link_v3()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp
+AS $transfer_link_commit$
+DECLARE d hft.ops_a2_transfer_document%ROWTYPE;
+ c hft.stock_command%ROWTYPE;
+ l hft.ops_a2_transfer_counter_link%ROWTYPE;
+ linked_total bigint;
+BEGIN
+ IF TG_OP='INSERT' THEN l:=NEW;
+ ELSE
+  SELECT * INTO l FROM hft.ops_a2_transfer_counter_link
+  WHERE transfer_document_id=NEW.id AND after_micro=NEW.moved_micro;
+  IF l.command_uuid IS NULL THEN
+   RAISE EXCEPTION 'OPS_A2_TRANSFER_COUNTER_UNBACKED_BY_COMMAND'; END IF;
+ END IF;
+ SELECT * INTO d FROM hft.ops_a2_transfer_document
+ WHERE id=l.transfer_document_id;
+ SELECT * INTO c FROM hft.stock_command WHERE id=l.command_uuid;
+ IF d.id IS NULL OR c.id IS NULL OR c.kind<>'TRANSFER'
+ OR c.source_document_id<>d.id::text
+ OR c.legal_entity_id<>d.legal_entity_id OR c.site_id<>d.site_id
+ OR c.warehouse_id<>d.warehouse_id OR c.item_code<>d.item_code
+ OR c.product_version_code<>d.product_version_code
+ OR c.ops_a2_source_leaf<>d.source_leaf
+ OR c.ops_a2_destination_leaf<>d.destination_leaf
+ OR c.quantity_micro<>l.quantity_micro
+ OR NOT EXISTS(SELECT 1 FROM hft.ops_a2_command_envelope AS env
+    WHERE env.command_uuid=c.id
+    AND env.exact_payload->>'sourceDocumentId'=d.id::text
+    AND (env.exact_payload->>'quantityMicro')::bigint=l.quantity_micro)
+ THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_ORIGINAL_COMMAND_BINDING_INVALID'; END IF;
+ -- The exact command/ledger/evidence checks include both legs and V2 digest.
+ PERFORM hft.ops_a2_assert_command_seal_v2(c.id);
+ SELECT COALESCE(sum(quantity_micro),0) INTO linked_total
+ FROM hft.ops_a2_transfer_counter_link WHERE transfer_document_id=d.id;
+ IF linked_total<>d.moved_micro OR d.moved_micro>d.authorized_micro
+ OR (d.moved_micro=d.authorized_micro AND d.status<>'MOVED')
+ OR (d.moved_micro<d.authorized_micro AND d.status<>'PARTIALLY_MOVED')
+ OR EXISTS(SELECT 1 FROM hft.ops_a2_transfer_counter_link AS x
+  WHERE x.transfer_document_id=d.id AND x.before_micro<>
+   COALESCE((SELECT max(y.after_micro)
+      FROM hft.ops_a2_transfer_counter_link AS y
+      WHERE y.transfer_document_id=d.id AND y.after_micro<x.after_micro),0))
+ THEN RAISE EXCEPTION 'OPS_A2_TRANSFER_COUNTER_LEDGER_CHAIN_MISMATCH'; END IF;
+ RETURN NULL;
+END $transfer_link_commit$;
+CREATE CONSTRAINT TRIGGER ops_a2_transfer_counter_link_requires_command_v3
+ AFTER INSERT ON hft.ops_a2_transfer_counter_link
+ DEFERRABLE INITIALLY DEFERRED
+ FOR EACH ROW EXECUTE FUNCTION hft.ops_a2_verify_transfer_counter_link_v3();
+CREATE CONSTRAINT TRIGGER ops_a2_transfer_counter_change_requires_command_v3
+ AFTER UPDATE ON hft.ops_a2_transfer_document
+ DEFERRABLE INITIALLY DEFERRED
+ FOR EACH ROW EXECUTE FUNCTION hft.ops_a2_verify_transfer_counter_link_v3();
+REVOKE EXECUTE ON FUNCTION hft.ops_a2_verify_transfer_counter_link_v3()
+ FROM PUBLIC,hft_r1_app_runtime;
+
 
 -- 060: extend the EXISTING deferred P2 V1 approval validator to TRANSFER.
 -- The existing trigger is retained unchanged. V1 action logic is preserved;
