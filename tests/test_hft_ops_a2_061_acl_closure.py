@@ -120,6 +120,11 @@ class BoundedAclClosure(unittest.TestCase):
   for forbidden in (
    "pg_has_role('hft_r1_app_runtime','hft_r1_posting_owner','MEMBER')",
    "pg_has_role('hft_r1_app_runtime','hft_r1_governance_issuer','MEMBER')",
+   "pg_has_role('hft_r1_governance_issuer','hft_r1_posting_owner','MEMBER')",
+   "pg_has_role('hft_r1_posting_owner','hft_r1_governance_issuer','MEMBER')",
+   "person_login.rolcanlogin",
+   "'hft_r1_governance_issuer'::pg_catalog.regrole",
+   "'hft_r1_posting_owner'::pg_catalog.regrole",
    "has_table_privilege(login.rolname",
    "'hft.ops_a2_source_binding','INSERT,UPDATE,DELETE'",
    "'hft.ops_a2_account_provision_order','INSERT,UPDATE,DELETE'",
