@@ -5,7 +5,7 @@
 import {parseQuantity} from '../domain/quantity.ts';
 import {validateP0Operation} from '../stores/p0-operations.ts';
 const upperUuid=/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/;
-const lowerUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const lowerUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 type Receipt=Readonly<{
  grnId:string;legalEntityId:string;siteId:string;warehouseId:string;
  itemCode:string;productVersion:string;receiptKey:string;
