@@ -311,11 +311,23 @@ _GATEWAY_SELECT = re.compile(
  r" AS evidence\) AS v;"
 )
 
+_GATEWAY_TRANSACTION = {
+ "observe_case_v1": "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY;\n",
+ "exercise_case_v1": "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ WRITE;\n",
+}
+
 def _observer_query_allowed(sql):
  if sql==GATEWAY_IDENTITY_QUERY:
   return True
- match=_GATEWAY_SELECT.fullmatch(sql)
- return bool(match and match.group(2) in _catalog().CASES)
+ for function,prefix in _GATEWAY_TRANSACTION.items():
+  suffix="\nCOMMIT;"
+  if not sql.startswith(prefix) or not sql.endswith(suffix):
+   continue
+  body=sql[len(prefix):-len(suffix)]
+  match=_GATEWAY_SELECT.fullmatch(body)
+  if match and match.group(1)==function and match.group(2) in _catalog().CASES:
+   return True
+ return False
 
 def _qa_sql(env,sql):
  # The QA login may SELECT only prequalified observer and narrow disposable
@@ -376,9 +388,11 @@ def _call_gateway(case,fixture,env,execute):
  identity=_fixture_id(fixture)
  function="exercise_case_v1" if execute else "observe_case_v1"
  return _qa_sql(env,(
-  "SELECT pg_catalog.row_to_json(v)::text FROM ("
-  f"SELECT hft_qa067.{function}('{case}'::text,"
-  f"'{identity}'::uuid) AS evidence) AS v;"))
+  _GATEWAY_TRANSACTION[function]
+  +"SELECT pg_catalog.row_to_json(v)::text FROM ("
+  +f"SELECT hft_qa067.{function}('{case}'::text,"
+  +f"'{identity}'::uuid) AS evidence) AS v;"
+  +"\nCOMMIT;"))
 
 def verify_independent_results(result_envelopes,trust,admission,receipts):
  # All independent post-observation receipts must be signed by a qualified
