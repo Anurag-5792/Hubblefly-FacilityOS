@@ -304,11 +304,11 @@ GATEWAY_IDENTITY_QUERY="""SELECT row_to_json(x)::text FROM (
 # Exact observer operations only: the identity inspector above, or one
 # catalog-bound gateway call. PostgreSQL grants remain authoritative.
 _GATEWAY_SELECT = re.compile(
- r"SELECT pg_catalog\\.row_to_json\\(v\\)::text FROM \\("
- r"SELECT hft_qa067\\.(exercise_case_v1|observe_case_v1)\\("
+ r"SELECT pg_catalog\.row_to_json\(v\)::text FROM \("
+ r"SELECT hft_qa067\.(exercise_case_v1|observe_case_v1)\("
  r"'(OPS063-F0[1-8])'::text,"
- r"'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'::uuid\\)"
- r" AS evidence\\) AS v;"
+ r"'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'::uuid\)"
+ r" AS evidence\) AS v;"
 )
 
 def _observer_query_allowed(sql):
