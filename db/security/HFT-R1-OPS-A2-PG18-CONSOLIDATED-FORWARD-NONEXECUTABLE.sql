@@ -621,6 +621,72 @@ BEGIN
  IF diff<>0 THEN
   RAISE EXCEPTION 'OPS_A2_067_ORIGINAL_SIGNED_SCOPE_MAC_INVALID'; END IF;
 END $scope067$;
+-- This verifier only reads historical signed scope and current admitted keys.
+-- Its admission snapshot must be revocation-fenced by an external authority;
+-- an RR snapshot alone cannot observe revocations committed after it began.
+CREATE OR REPLACE FUNCTION hft.ops_a2_assert_independent_scope_read_v1(
+ p_purpose text,p_order uuid,p_scope jsonb,p_entity text,
+ p_approval text,p_revision bigint,p_decision_sha text,
+ p_kind text,p_prohibited_people text[])
+RETURNS void LANGUAGE plpgsql STABLE
+SET search_path=pg_catalog,pg_temp AS $scope067_ro$
+DECLARE
+ att hft.ops_a2_independent_scope_v1%ROWTYPE;
+ signed_key hft_secret.ops_a2_scope_key_v1%ROWTYPE;
+ scoped_hash text; signer_person text;
+ expected bytea;claimed bytea;diff integer:=0;i integer;
+ now_epoch bigint;
+BEGIN
+ IF pg_catalog.current_setting('transaction_isolation')<>'repeatable read'
+ OR pg_catalog.current_setting('transaction_read_only')<>'on'
+ OR p_purpose NOT IN('ACCOUNT_ZERO','TRANSFER_ISSUE','RECOVERY_REVIEW')
+ OR pg_catalog.jsonb_typeof(p_scope)<>'object'
+ THEN RAISE EXCEPTION 'OPS_A2_067_SCOPE_PROTECTED_TRANSACTION_REQUIRED'; END IF;
+ SELECT * INTO att FROM hft.ops_a2_independent_scope_v1
+ WHERE purpose=p_purpose AND order_id=p_order
+ AND legal_entity_id=p_entity AND approval_id=p_approval
+ AND approval_revision=p_revision;
+ scoped_hash:=pg_catalog.encode(hft_crypto.digest(
+  pg_catalog.convert_to(p_scope::text,'UTF8'),'sha256'),'hex');
+ IF att.order_id IS NULL OR att.approved_scope IS DISTINCT FROM p_scope
+ OR att.scope_sha256 IS DISTINCT FROM scoped_hash
+ OR att.original_decision_sha256 IS DISTINCT FROM p_decision_sha
+ OR att.mac_sha256 !~ '^[0-9a-f]{64}$'
+ THEN RAISE EXCEPTION 'OPS_A2_067_ORIGINAL_SIGNED_SCOPE_NOT_BOUND'; END IF;
+ SELECT * INTO signed_key FROM hft_secret.ops_a2_scope_key_v1
+ WHERE purpose=att.purpose AND key_version=att.key_version;
+ now_epoch:=pg_catalog.floor(
+  pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp()))::bigint;
+ IF signed_key.key_version IS NULL OR signed_key.revoked_at IS NOT NULL
+ OR pg_catalog.clock_timestamp()<signed_key.not_before
+ OR pg_catalog.clock_timestamp()>=signed_key.not_after
+ OR att.issued_epoch>now_epoch+30 OR att.expires_epoch<=now_epoch
+ OR att.expires_epoch-att.issued_epoch>300
+ THEN RAISE EXCEPTION 'OPS_A2_067_ORIGINAL_SCOPE_KEY_OR_WINDOW_INVALID'; END IF;
+ signer_person:=hft.p2_qualified_human_v1(p_entity,
+  att.signer_subject,att.signer_session_id,p_kind,'APPROVER',
+  pg_catalog.clock_timestamp());
+ IF signer_person IS NULL OR signer_person<>att.signer_person_id
+ OR att.signer_person_id=ANY(p_prohibited_people)
+ THEN RAISE EXCEPTION 'OPS_A2_067_SIGNER_NOT_INDEPENDENT_CORPORATE_PERSON'; END IF;
+ expected:=hft_crypto.hmac(hft.p2_length_prefixed_v1(ARRAY[
+  'HFT-OPS-A2-ORIGINAL-SCOPE-HMAC-V1',att.purpose,att.order_id::text,
+  att.legal_entity_id,att.approval_id,att.approval_revision::text,
+  att.approved_scope::text,att.scope_sha256,att.original_decision_sha256,
+  att.signer_subject,att.signer_session_id,att.signer_person_id,
+  att.key_version::text,att.nonce,att.issued_epoch::text,
+  att.expires_epoch::text]),signed_key.key_bytes,'sha256');
+ claimed:=pg_catalog.decode(att.mac_sha256,'hex');
+ FOR i IN 0..31 LOOP
+  diff:=diff | (pg_catalog.get_byte(expected,i) # pg_catalog.get_byte(claimed,i));
+ END LOOP;
+ IF diff<>0 THEN
+  RAISE EXCEPTION 'OPS_A2_067_ORIGINAL_SIGNED_SCOPE_MAC_INVALID'; END IF;
+END $scope067_ro$;
+REVOKE ALL ON FUNCTION hft.ops_a2_assert_independent_scope_read_v1(
+ text,uuid,jsonb,text,text,bigint,text,text,text[])
+ FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
+
 REVOKE ALL ON FUNCTION hft.ops_a2_assert_independent_scope_v1(
  text,uuid,jsonb,text,text,bigint,text,text,text[])
  FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer;
@@ -3212,7 +3278,7 @@ BEGIN
    'decisionSha256',grant.decision_evidence_sha256,
    'validFromEpoch',pg_catalog.extract(epoch FROM grant.valid_from)::bigint,
    'validUntilEpoch',pg_catalog.extract(epoch FROM grant.valid_until)::bigint);
-  PERFORM hft.ops_a2_assert_independent_scope_v1('RECOVERY_REVIEW',
+  PERFORM hft.ops_a2_assert_independent_scope_read_v1('RECOVERY_REVIEW',
    grant.grant_id,signed_scope,grant.legal_entity_id,
    grant.approval_id,grant.approval_revision,grant.decision_evidence_sha256,
    p->>'kind',ARRAY[reviewer_person,original_person]);
