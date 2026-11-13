@@ -22,16 +22,21 @@ class ExactObserverSQL(unittest.TestCase):
    sql=("SELECT pg_catalog.row_to_json(v)::text FROM ("
         f"SELECT hft_qa067.{function}('OPS063-F01'::text,"
         f"'{uuid}'::uuid) AS evidence) AS v;")
-   self.assertTrue(harness._observer_query_allowed(sql))
+   wrapped=(harness._GATEWAY_TRANSACTION[function]+sql+"\nCOMMIT;")
+   self.assertFalse(harness._observer_query_allowed(sql))
+   self.assertTrue(harness._observer_query_allowed(wrapped))
    for altered in (
-    sql+" DELETE FROM hft.stock_entry;",
-    sql.replace("OPS063-F01","OPS063-F99"),
-    sql.replace("hft_qa067.","public."),
-    sql.replace(uuid,"' || current_user || '"),
-    sql.replace("SELECT", "WITH x AS (SELECT 1) SELECT",1),
-    "select "+sql[7:],
+    wrapped+" DELETE FROM hft.stock_entry;",
+    wrapped.replace("OPS063-F01","OPS063-F99"),
+    wrapped.replace("hft_qa067.","public."),
+    wrapped.replace(uuid,"' || current_user || '"),
+    wrapped.replace("SELECT", "WITH x AS (SELECT 1) SELECT",1),
+    "select "+wrapped[7:],
+    wrapped.replace("REPEATABLE READ, READ ONLY","READ COMMITTED, READ WRITE"),
+    wrapped.replace("SERIALIZABLE, READ WRITE","READ COMMITTED, READ WRITE"),
    ):
-    self.assertFalse(harness._observer_query_allowed(altered))
+    if altered!=wrapped:
+     self.assertFalse(harness._observer_query_allowed(altered))
 
  def test_no_arbitrary_sql_or_role_switch(self):
   for sql in ("SELECT 1;","SET ROLE hft_r1_posting_owner;",
