@@ -277,36 +277,7 @@ def verify_postgres_tls_peer(admission,env):
  except (OSError,ssl.SSLError,ValueError,KeyError,TypeError) as exc:
   raise ValueError("067_PG_ENDPOINT_TLS_IDENTITY_UNVERIFIED") from exc
 
-def _qa_sql(env,sql):
- # The QA login may SELECT only prequalified observer and narrow disposable
- # gateway functions; it must never run raw UPDATE/DDL or CREATE credentials.
- if "ALTER " in sql or "GRANT " in sql or "INSERT " in sql or "UPDATE " in sql or (
-  "DELETE " in sql):
-  raise ValueError("067_QA_DIRECT_DATABASE_MUTATION_DENIED")
- argv=["psql","-X","-q","-A","-t","-v","ON_ERROR_STOP=1"]
- result=subprocess.run(argv,input=sql,text=True,capture_output=True,
-                       env=env,check=False)
- if result.returncode!=0:
-  # A permission error, missing gateway, or unrelated SQLSTATE is NEVER PASS.
-  raise ValueError("067_POSTGRES_OBSERVER_OR_GATEWAY_FAILED_NOT_PASS")
- raw=result.stdout.strip()
- if not raw or "\n" in raw:
-  raise ValueError("067_DATABASE_RESPONSE_NON_SINGULAR")
- try:
-  return json.loads(raw)
- except json.JSONDecodeError as e:
-  raise ValueError("067_DATABASE_RESPONSE_NOT_CANONICAL_JSON") from e
-
-def qualify_live_gateway(admission,env):
- # This can be called only AFTER pinned independent technical admission.
- # It NEVER installs hft_qa067 functions or grants.
- expected=admission.get("qualified_gateway",{})
- if not isinstance(expected,dict) or set(expected)!={
-  "exercise_sha256","observe_sha256","installer_evidence_sha256",
-  "isolation_boundary_evidence_sha256"} or any(
-   not re.fullmatch("[0-9a-f]{64}",str(v)) for v in expected.values()):
-  raise ValueError("067_PROTECTED_GATEWAY_EXACT_SOURCE_NOT_ADMITTED")
- sql="""SELECT row_to_json(x)::text FROM (
+GATEWAY_IDENTITY_QUERY="""SELECT row_to_json(x)::text FROM (
  SELECT current_database() AS db_name,session_user AS db_login,
  current_user AS db_role,current_setting('server_version_num')::integer AS pg_version,
  inet_server_addr()::text AS backend_ip,inet_server_port() AS backend_port,
@@ -330,6 +301,51 @@ def qualify_live_gateway(admission,env):
  JOIN pg_catalog.pg_stat_ssl ssl ON ssl.pid=pg_catalog.pg_backend_pid()
  WHERE r.rolname=session_user
  ) AS x;"""
+# Exact observer operations only: the identity inspector above, or one
+# catalog-bound gateway call. PostgreSQL grants remain authoritative.
+_GATEWAY_SELECT = re.compile(
+ r"SELECT pg_catalog\\.row_to_json\\(v\\)::text FROM \\("
+ r"SELECT hft_qa067\\.(exercise_case_v1|observe_case_v1)\\("
+ r"'(OPS063-F0[1-8])'::text,"
+ r"'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'::uuid\\)"
+ r" AS evidence\\) AS v;"
+)
+
+def _observer_query_allowed(sql):
+ if sql==GATEWAY_IDENTITY_QUERY:
+  return True
+ match=_GATEWAY_SELECT.fullmatch(sql)
+ return bool(match and match.group(2) in _catalog().CASES)
+
+def _qa_sql(env,sql):
+ # The QA login may SELECT only prequalified observer and narrow disposable
+ # gateway functions; it must never run raw UPDATE/DDL or CREATE credentials.
+ if not _observer_query_allowed(sql):
+  raise ValueError("067_QA_SQL_NOT_IN_EXACT_OBSERVER_ALLOWLIST")
+ argv=["psql","-X","-q","-A","-t","-v","ON_ERROR_STOP=1"]
+ result=subprocess.run(argv,input=sql,text=True,capture_output=True,
+                       env=env,check=False)
+ if result.returncode!=0:
+  # A permission error, missing gateway, or unrelated SQLSTATE is NEVER PASS.
+  raise ValueError("067_POSTGRES_OBSERVER_OR_GATEWAY_FAILED_NOT_PASS")
+ raw=result.stdout.strip()
+ if not raw or "\n" in raw:
+  raise ValueError("067_DATABASE_RESPONSE_NON_SINGULAR")
+ try:
+  return json.loads(raw)
+ except json.JSONDecodeError as e:
+  raise ValueError("067_DATABASE_RESPONSE_NOT_CANONICAL_JSON") from e
+
+def qualify_live_gateway(admission,env):
+ # This can be called only AFTER pinned independent technical admission.
+ # It NEVER installs hft_qa067 functions or grants.
+ expected=admission.get("qualified_gateway",{})
+ if not isinstance(expected,dict) or set(expected)!={
+  "exercise_sha256","observe_sha256","installer_evidence_sha256",
+  "isolation_boundary_evidence_sha256"} or any(
+   not re.fullmatch("[0-9a-f]{64}",str(v)) for v in expected.values()):
+  raise ValueError("067_PROTECTED_GATEWAY_EXACT_SOURCE_NOT_ADMITTED")
+ sql=GATEWAY_IDENTITY_QUERY
  result=_qa_sql(env,sql)
  endpoint=admission["endpoint"]
  if result.get("db_name")!=endpoint["database"] or (
