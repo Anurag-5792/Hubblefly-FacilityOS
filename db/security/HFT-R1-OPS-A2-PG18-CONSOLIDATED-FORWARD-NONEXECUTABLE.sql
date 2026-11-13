@@ -859,29 +859,7 @@ CREATE TABLE hft.ops_a2_transfer_issuance_order(
  CHECK(approval_revision>0),
  source_action_key text NOT NULL,
  approved_scope_sha256 text NOT NULL
- CHECK(approved_scope_sha256~'^[0-9a-f]{64}
- checked_subject text NOT NULL,checked_session_id text NOT NULL,
- approved_subject text NOT NULL,approved_session_id text NOT NULL,
- approved_at timestamptz NOT NULL,
- decision_evidence_sha256 text NOT NULL
- CHECK(decision_evidence_sha256~'^[0-9a-f]{64}$'),
- policy_generation bigint NOT NULL CHECK(policy_generation>0),
- status text NOT NULL CHECK(status='AUTHORIZED'),
- FOREIGN KEY(legal_entity_id,approval_id,approval_revision)
- REFERENCES hft.protected_stock_approval(legal_entity_id,approval_id,approval_revision),
- FOREIGN KEY(legal_entity_id,warehouse_id,site_id)
- REFERENCES hft.warehouse(legal_entity_id,warehouse_id,site_id),
- FOREIGN KEY(legal_entity_id,item_code,product_version_code)
- REFERENCES hft.item_version_catalog(legal_entity_id,item_code,version_code),
- FOREIGN KEY(legal_entity_id,warehouse_id,source_leaf)
- REFERENCES hft.location(legal_entity_id,warehouse_id,location_id),
- FOREIGN KEY(legal_entity_id,warehouse_id,destination_leaf)
- REFERENCES hft.location(legal_entity_id,warehouse_id,location_id),
- CHECK(source_leaf<>destination_leaf),
- CHECK(prepared_subject<>checked_subject AND
- prepared_subject<>approved_subject AND checked_subject<>approved_subject)
-);
-),
+ CHECK(approved_scope_sha256~'^[0-9a-f]{64}$'),
  prepared_subject text NOT NULL,prepared_session_id text NOT NULL,
  checked_subject text NOT NULL,checked_session_id text NOT NULL,
  approved_subject text NOT NULL,approved_session_id text NOT NULL,
