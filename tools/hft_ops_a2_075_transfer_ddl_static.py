@@ -51,7 +51,7 @@ def check(source):
  if "^[0-9a-f]{64} text NOT NULL" in table:
   raise ValueError("075_TRANSFER_CORRUPTED_CHECK_RETAINED")
  for name in FIELDS:
-  count=len(re.findall(r"(?m)^\s*"+name+r"\s+(?:uuid|text|bigint|timestamptz)\b",table))
+  count=len(re.findall(r"(?m)(?:^|,)\s*"+name+r"\s+(?:uuid|text|bigint|timestamptz)\b",table))
   if count!=1:raise ValueError("075_TRANSFER_COLUMN_COUNT:"+name)
  for constraint in ("CHECK(source_leaf<>destination_leaf)",
    "FOREIGN KEY(legal_entity_id,approval_id,approval_revision)",
