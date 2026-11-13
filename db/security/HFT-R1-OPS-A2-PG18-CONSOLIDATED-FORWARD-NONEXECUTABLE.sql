@@ -731,6 +731,10 @@ BEGIN
  OR a.kind<>o.action_kind OR a.document_id<>o.source_document_id
  OR a.approver_subject<>o.approved_subject
  OR a.condition<>o.condition
+ -- Supplemental ACCOUNT_ZERO scope never expands the original P2 leaf.
+ -- An approval with one authorized location cannot authorize the other
+ -- side of a transfer without a separately typed original authority.
+ OR a.location_id IS DISTINCT FROM o.leaf_location_id
  OR a.serial_no<>o.serial_no OR a.batch_no<>o.batch_no
  OR (o.account_kind='CUSTODY' AND a.employee_id<>o.custodian_employee_id)
  OR a.approved_scope_sha256 !~ '^[0-9a-f]{64}$'
@@ -838,6 +842,19 @@ BEGIN
   ELSE false END;
  IF NOT original_exists THEN
   RAISE EXCEPTION 'OPS_A2_067_ACCOUNT_TYPED_SOURCE_REVISION_NOT_AUTHORIZED'; END IF;
+ -- TRANSFER source and destination must also be named by the original
+ -- authorized transfer document, never solely by a supplemental scope.
+ IF o.action_kind='TRANSFER' AND NOT EXISTS(
+  SELECT 1 FROM hft.ops_a2_transfer_document x
+  WHERE x.id::text=o.source_document_id
+    AND x.legal_entity_id=o.legal_entity_id
+    AND x.site_id=o.site_id AND x.warehouse_id=o.warehouse_id
+    AND x.item_code=o.item_code
+    AND x.product_version_code=o.product_version_code
+    AND x.revision=o.source_revision
+    AND x.batch_no=o.batch_no AND x.serial_no=o.serial_no
+    AND o.leaf_location_id IN(x.source_leaf,x.destination_leaf))
+ THEN RAISE EXCEPTION 'OPS_A2_075_TRANSFER_ORIGINAL_LEAF_NOT_AUTHORIZED'; END IF;
  PERFORM 1 FROM hft.item_version_catalog AS v
  JOIN hft.item AS i ON i.legal_entity_id=v.legal_entity_id
   AND i.item_code=v.item_code
