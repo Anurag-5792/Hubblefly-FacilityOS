@@ -107,6 +107,17 @@ BEGIN
  AND c.item_code=f.item_code;
  IF observed_command IS NULL
  THEN RAISE EXCEPTION 'HFT_QA067_ORIGINAL_COMMAND_SCOPE_INVALID'; END IF;
+ -- F07 positive-control identity: a genuine one-character numeric BIGINT ID
+ -- belongs to the exact original command and is not a foreign-scope alias.
+ IF p_case='OPS063-F07' AND NOT EXISTS(
+  SELECT 1 FROM hft.stock_entry e
+  WHERE e.id BETWEEN 1 AND 9
+  AND e.command_id=f.original_command_uuid
+  AND EXISTS(SELECT 1 FROM hft.stock_command c
+   WHERE c.id=e.command_id AND c.legal_entity_id=f.legal_entity_id
+   AND c.site_id=f.site_id AND c.warehouse_id=f.warehouse_id
+   AND c.item_code=f.item_code))
+ THEN RAISE EXCEPTION 'HFT_QA067_F07_ORIGINAL_SHORT_ID_SCOPE_MISSING'; END IF;
  SELECT pg_catalog.to_jsonb(a) INTO observed_audit
  FROM hft.audit_outbox a WHERE a.command_id=f.original_command_uuid;
  IF observed_audit IS NULL
