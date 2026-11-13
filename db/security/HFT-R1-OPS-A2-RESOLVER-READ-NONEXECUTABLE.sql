@@ -609,7 +609,7 @@ BEGIN
    'decisionSha256',grant.decision_evidence_sha256,
    'validFromEpoch',pg_catalog.extract(epoch FROM grant.valid_from)::bigint,
    'validUntilEpoch',pg_catalog.extract(epoch FROM grant.valid_until)::bigint);
-  PERFORM hft.ops_a2_assert_independent_scope_v1('RECOVERY_REVIEW',
+  PERFORM hft.ops_a2_assert_independent_scope_read_v1('RECOVERY_REVIEW',
    grant.grant_id,signed_scope,grant.legal_entity_id,
    grant.approval_id,grant.approval_revision,grant.decision_evidence_sha256,
    p->>'kind',ARRAY[reviewer_person,original_person]);
