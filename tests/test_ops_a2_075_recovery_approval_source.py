@@ -51,6 +51,16 @@ class RecoveryAndOriginalScope075(unittest.TestCase):
    self.assertIn("x.product_version_code=o.product_version_code",provision)
    self.assertIn("x.revision=o.source_revision",provision)
    self.assertIn("x.batch_no=o.batch_no AND x.serial_no=o.serial_no",provision)
+   for action,table in (
+    ("RECEIVE","grn_partial_receipt"),
+    ("ISSUE","material_issue_line"),
+    ("RETURN","material_return_line"),
+   ):
+    self.assertIn("OPS_A2_075_"+action+"_ORIGINAL_LINE_LEAF_DENIED",provision)
+    self.assertIn("hft."+table,provision)
+   self.assertIn("l.original_issue_command_id=a.original_issue_id",provision)
+   self.assertIn("l.source_action_key=a.source_action_key",provision)
+   self.assertIn("r.ops_a2_product_version_code=o.product_version_code",provision)
    self.assertLess(provision.index("a.location_id IS DISTINCT"),
                    provision.index("INSERT INTO hft.stock_account"))
    self.assertLess(provision.index("OPS_A2_075_TRANSFER_ORIGINAL_LEAF_NOT_AUTHORIZED"),
