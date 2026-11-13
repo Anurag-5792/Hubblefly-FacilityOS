@@ -842,7 +842,7 @@ CREATE TABLE hft.ops_a2_transfer_issuance_order(
  CHECK(approval_revision>0),
  source_action_key text NOT NULL,
  approved_scope_sha256 text NOT NULL
- CHECK(approved_scope_sha256~'^[0-9a-f]{64} text NOT NULL,prepared_session_id text NOT NULL,
+ CHECK(approved_scope_sha256~'^[0-9a-f]{64}
  checked_subject text NOT NULL,checked_session_id text NOT NULL,
  approved_subject text NOT NULL,approved_session_id text NOT NULL,
  approved_at timestamptz NOT NULL,
@@ -873,6 +873,8 @@ CREATE TABLE hft.ops_a2_transfer_issuance_order(
  CHECK(decision_evidence_sha256~'^[0-9a-f]{64}$'),
  policy_generation bigint NOT NULL CHECK(policy_generation>0),
  status text NOT NULL CHECK(status='AUTHORIZED'),
+ FOREIGN KEY(legal_entity_id,approval_id,approval_revision)
+ REFERENCES hft.protected_stock_approval(legal_entity_id,approval_id,approval_revision),
  FOREIGN KEY(legal_entity_id,warehouse_id,site_id)
  REFERENCES hft.warehouse(legal_entity_id,warehouse_id,site_id),
  FOREIGN KEY(legal_entity_id,item_code,product_version_code)
