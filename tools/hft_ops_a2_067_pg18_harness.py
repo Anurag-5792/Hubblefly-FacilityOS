@@ -455,6 +455,13 @@ def main(argv=None):
     before.get("evidence",{}).get("adverse_established") is not True):
     raise ValueError("067_ACTUAL_ADVERSE_PRESTATE_OR_POSITIVE_CONTROL_MISSING")
    outcome=_call_gateway(cid,receipt["fixture_id"],os.environ,True)
+   executed=outcome.get("evidence",{})
+   if (not isinstance(executed,dict) or
+       executed.get("status")!="DATABASE_NEGATIVE_EXECUTED_UNVERIFIED" or
+       not executed.get("actual_sqlstate") or
+       not executed.get("actual_backend_pid") or
+       not executed.get("fault_constructor_transaction_id")):
+    raise ValueError("067_GATEWAY_REQUEST_NOT_GENUINE_FAULT_EXECUTION")
    after=_call_gateway(cid,receipt["fixture_id"],os.environ,False)
    print(json.dumps({"case":cid,"status":"EXECUTED_UNVERIFIED_NO_PASS",
     "fixture_id":receipt["fixture_id"],"gateway_result":outcome,
