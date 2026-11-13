@@ -844,6 +844,43 @@ BEGIN
   RAISE EXCEPTION 'OPS_A2_067_ACCOUNT_TYPED_SOURCE_REVISION_NOT_AUTHORIZED'; END IF;
  -- TRANSFER source and destination must also be named by the original
  -- authorized transfer document, never solely by a supplemental scope.
+ -- Typed source line must independently bind the same original approved
+ -- leaf. An order's supplemental signed scope cannot substitute another
+ -- original action-line location, item, version, lot or serial.
+ IF o.action_kind='RECEIVE' AND NOT EXISTS(
+  SELECT 1 FROM hft.grn_partial_receipt r
+  WHERE r.grn_id::text=o.source_document_id
+   AND r.legal_entity_id=o.legal_entity_id
+   AND r.warehouse_id=o.warehouse_id
+   AND r.receipt_key||':'||r.line_no::text=a.source_action_key
+   AND r.location_id=o.leaf_location_id
+   AND r.ops_a2_item_code=o.item_code
+   AND r.ops_a2_product_version_code=o.product_version_code
+   AND r.batch_no=o.batch_no AND r.serial_no=o.serial_no)
+ THEN RAISE EXCEPTION 'OPS_A2_075_RECEIVE_ORIGINAL_LINE_LEAF_DENIED'; END IF;
+ IF o.action_kind='ISSUE' AND NOT EXISTS(
+  SELECT 1 FROM hft.material_issue_line l
+  WHERE l.issue_id::text=o.source_document_id
+   AND l.source_action_key=a.source_action_key
+   AND l.legal_entity_id=o.legal_entity_id
+   AND l.warehouse_id=o.warehouse_id
+   AND l.item_code=o.item_code
+   AND l.ops_a2_product_version_code=o.product_version_code
+   AND l.location_id=o.leaf_location_id
+   AND l.batch_no=o.batch_no AND l.serial_no=o.serial_no)
+ THEN RAISE EXCEPTION 'OPS_A2_075_ISSUE_ORIGINAL_LINE_LEAF_DENIED'; END IF;
+ IF o.action_kind='RETURN' AND NOT EXISTS(
+  SELECT 1 FROM hft.material_return_line l
+  WHERE l.return_id::text=o.source_document_id
+   AND l.source_action_key=a.source_action_key
+   AND l.legal_entity_id=o.legal_entity_id
+   AND l.warehouse_id=o.warehouse_id
+   AND l.item_code=o.item_code
+   AND l.ops_a2_product_version_code=o.product_version_code
+   AND l.location_id=o.leaf_location_id
+   AND l.batch_no=o.batch_no AND l.serial_no=o.serial_no
+   AND l.original_issue_command_id=a.original_issue_id)
+ THEN RAISE EXCEPTION 'OPS_A2_075_RETURN_ORIGINAL_LINE_LEAF_DENIED'; END IF;
  IF o.action_kind='TRANSFER' AND NOT EXISTS(
   SELECT 1 FROM hft.ops_a2_transfer_document x
   WHERE x.id::text=o.source_document_id
