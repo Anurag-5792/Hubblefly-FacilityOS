@@ -120,7 +120,7 @@ class Diagnostic067(unittest.TestCase):
    with self.assertRaisesRegex(ValueError,"GATEWAY_EXACT_SOURCE_NOT_ADMITTED"):
     qualify_live_gateway({}, {})
    run.assert_not_called()
-   with self.assertRaisesRegex(ValueError,"QA_DIRECT_DATABASE_MUTATION_DENIED"):
+   with self.assertRaisesRegex(ValueError,"067_QA_SQL_NOT_IN_EXACT_OBSERVER_ALLOWLIST"):
     _qa_sql({},"UPDATE hft.stock_account SET qty_micro=10")
    run.assert_not_called()
  def test_actual_pg_starttls_peer_pin_is_mandatory_before_gateway(self):
