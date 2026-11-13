@@ -149,7 +149,7 @@ class Source067(unittest.TestCase):
    "g.reviewer_subject=authenticated_actor",
    "OPS_A2_067_DIFFERENT_ACTOR_RECOVERY_ENTITLEMENT_REQUIRED",
    "OPS_A2_067_RECOVERY_REVIEW_PERSON_POLICY_OR_SOURCE_INVALID",
-   "hft.ops_a2_assert_independent_scope_v1('RECOVERY_REVIEW'",
+   "hft.ops_a2_assert_independent_scope_read_v1('RECOVERY_REVIEW'",
    "hft.ops_a2_reconcile_original_attempt_private_v3(p,original_proof)"):
    with self.subTest(marker=marker):self.assertIn(marker,f)
   self.assertEqual(f.count("RETURN hft.ops_a2_reconcile_original_attempt_private_v3"),1)
