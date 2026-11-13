@@ -47,7 +47,7 @@ def source_attestation(require_clean=True):
   file=ROOT/relative
   if not file.is_file():raise ValueError("075_PROTECTED_SOURCE_MISSING:"+relative)
   text=file.read_text()
-  if not re.search(r"DO\s+\$STOP_[A-Z0-9_]+\$",text):
+  if not re.search(r"DO\s+\$(?:STOP_[A-Z0-9_]+|OPS_A2_CONSOLIDATED_STOP)\$",text):
    raise ValueError("075_UNCONDITIONAL_SQL_STOP_MISSING:"+relative)
   if not re.search(r"RAISE\s+EXCEPTION",text):
    raise ValueError("075_STOP_HAS_NO_EXCEPTION:"+relative)
