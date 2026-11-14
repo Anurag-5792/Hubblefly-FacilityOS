@@ -176,6 +176,16 @@ BEGIN
   'orderId',p_order,'scopeSha256',scope_hash,'stockPosted',false);
 END $bootstrap$;
 
+-- Corporate source and execution receipt are append-only. A corrected
+-- original authority requires a separately enrolled new order, never an
+-- UPDATE that silently changes the scope or enrolled corporate signers.
+CREATE TRIGGER p3_corporate_bootstrap_order_immutable_v1
+ BEFORE UPDATE OR DELETE ON hft.p3_corporate_bootstrap_order_v1
+ FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+CREATE TRIGGER p3_corporate_bootstrap_receipt_immutable_v1
+ BEFORE UPDATE OR DELETE ON hft.p3_corporate_bootstrap_receipt_v1
+ FOR EACH ROW EXECUTE FUNCTION hft.deny_fact_mutation();
+
 -- NO installer, runtime, PUBLIC or QA access is granted here.
 -- The separately approved installer must transfer this function to a
 -- dedicated NOLOGIN corporate bootstrap owner with exact DML ONLY on
