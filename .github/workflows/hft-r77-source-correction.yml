@@ -1,0 +1,71 @@
+name: HFT R77 one-use source correction builder
+on:
+  push:
+    branches: [engineering/hft-r1-stores-foundation]
+    paths: [.github/workflows/hft-r77-source-correction.yml]
+permissions:
+  contents: write
+jobs:
+  prepare-source-commit:
+    if: github.repository == 'Anurag-5792/Hubblefly-FacilityOS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.23.4
+          cache: npm
+      - name: Require exact approved parent and apply only pinned source edits
+        run: |
+          test "$(git rev-parse HEAD^)" = 4b192d2581542ebacafd0f6fee9e7d1b4055f8d6
+          test -z "$(git status --porcelain)"
+          python3 tools/hft_receive_r77_correct_source.py
+          mv tools/r77_source_tests.py tests/test_ops_a2_receive_r77.py
+          rm .github/workflows/hft-r77-source-correction.yml
+          git diff --check
+      - name: Full source regressions and production build, no database access
+        run: |
+          npm ci --no-audit --no-fund
+          npm run verify
+          node tests/browser/hft-c050-mounted.mjs
+          npm audit --omit=dev --audit-level=moderate
+          npm audit --audit-level=high
+      - name: Store validated commit object only; never move a branch or merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import base64,json,os,subprocess,urllib.request
+          from pathlib import Path
+          import sys
+          sys.path.insert(0,'tools')
+          from hft_receive_r77_correct_source import BLOBS
+          repo='Anurag-5792/Hubblefly-FacilityOS'
+          root='https://api.github.com/repos/'+repo
+          def api(path,data=None):
+              request=urllib.request.Request(root+path,data=None if data is None else json.dumps(data).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},method='GET' if data is None else 'POST')
+              with urllib.request.urlopen(request,timeout=30) as response:return json.load(response)
+          head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          if head!=os.environ['EXPECTED_HEAD']:raise SystemExit('R77_HEAD_CHANGED')
+          allowed=set(BLOBS)|{'tests/test_ops_a2_receive_r77.py','tools/r77_source_tests.py','.github/workflows/hft-r77-source-correction.yml'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          changed.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed:raise SystemExit('R77_UNEXPECTED_CHANGED_FILES:'+repr(changed))
+          tree=[]
+          for path in sorted(allowed):
+              file=Path(path)
+              if not file.exists():tree.append({'path':path,'mode':'100644','type':'blob','sha':None});continue
+              sha=api('/git/blobs',{'content':base64.b64encode(file.read_bytes()).decode(),'encoding':'base64'})['sha']
+              tree.append({'path':path,'mode':'100644','type':'blob','sha':sha})
+          base=api('/git/commits/'+head)['tree']['sha']
+          tree_sha=api('/git/trees',{'base_tree':base,'tree':tree})['sha']
+          commit=api('/git/commits',{'message':'fix(077): bind exact physical receipt quantity and atomically advance all-line GRN status; preserve canonical 0005/0006','tree':tree_sha,'parents':[head]})['sha']
+          print('R77_VALIDATED_SOURCE_COMMIT='+commit)
+          print('R77_BRANCH_NOT_MOVED;PROTECTED_SQL_NOT_EXECUTED')
+          PY
