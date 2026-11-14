@@ -68,7 +68,10 @@ export function assertOnlinePgTransport(
  }else if(!database||!dbName.test(database)||database!==env.HFT_TEST_PG_DATABASE)
   throw Error('HFT_ONLINE_DB_DISPOSABLE_DATABASE_REQUIRED');
  const p2=env.HFT_P2_RUNTIME_LOGIN,p3=env.HFT_P3_RUNTIME_LOGIN;
- if(!p2||!p3||p2===p3)throw Error('HFT_ONLINE_DB_SEPARATE_ROLES_REQUIRED');
+ // Masters-only retained deployments have no reason to provision a P2 role.
+ // A present P2 identity must still be distinct; the P2 duty remains denied.
+ if(!p3|| (retained?(p2!==undefined&&p2===p3):(!p2||p2===p3)))
+  throw Error('HFT_ONLINE_DB_SEPARATE_ROLES_REQUIRED');
  const login=duty==='P2_STORES'?p2:p3;
  if(!roleName.test(login)||forbiddenRoles.has(login)||
   /(_owner|_admin|_superuser)$/.test(login))
