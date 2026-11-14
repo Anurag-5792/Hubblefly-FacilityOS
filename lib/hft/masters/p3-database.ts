@@ -3,6 +3,7 @@
  */
 import {createRequire} from 'node:module';
 import {assertSecureStartup} from '../security/authorization.ts';
+import {isRetainedMastersProfile,assertRetainedMastersProfile} from './retained-nonproduction-profile.ts';
 import {assertOnlineRuntimeCatalog} from '../persistence/online-db-qualification.ts';
 import {isOnlinePgTransport,openOnlinePgPool,assertOnlinePgTransport,
  assertOnlineBackendIdentity,assertOnlinePgBackendTls} from '../persistence/online-pg-transport.ts';
@@ -10,6 +11,15 @@ import {CommitOutcomeUncertain,type PgPool,type PgQueryClient,
  type IsolatedPgEnvironment} from '../persistence/isolated-pg-transaction.ts';
 
 export function assertP3Environment(env:IsolatedPgEnvironment):void{
+ // Retained nonproduction is NOT the historical disposable test profile.
+ // All stock transports and the default global startup guard remain closed.
+ if(isRetainedMastersProfile(env)){
+  assertRetainedMastersProfile(env);
+  assertOnlinePgTransport(env,'P3_MASTERS');
+  return;
+ }
+ if(env.HFT_MASTERS_RUNTIME_PROFILE!==undefined)
+  throw Error('P3_UNKNOWN_RUNTIME_PROFILE_DENIED');
  assertSecureStartup(env);
  const online=isOnlinePgTransport(env);
  const login=online?env.HFT_P3_RUNTIME_LOGIN:env.PGUSER;
