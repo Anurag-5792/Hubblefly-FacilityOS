@@ -145,7 +145,7 @@ async function main(){
    startedCommit=true;
    await p.query('COMMIT');
   }catch{
-   if(!startedCommitawait p.query('ROLLBACK');
+   if(!startedCommit)await p.query('ROLLBACK');
    fail(startedCommit?'COMMIT_OUTCOME_UNCERTAIN_NO_RETRY':'POSITIVE_POST_FAILED');
   }
   const fact=inspectFact(good,await recover(reader,good));
