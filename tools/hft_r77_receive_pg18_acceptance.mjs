@@ -422,6 +422,7 @@ function validatePositive(f,before,after,read,recovered){
   after.grn.authorizedBy===before.grn.authorizedBy&&
   JSON.stringify(after.receipt)===JSON.stringify(before.receipt)&&
   JSON.stringify(after.invoice)===JSON.stringify(before.invoice)&&
+  JSON.stringify(after.sourceBinding)===JSON.stringify(before.sourceBinding)&&
   JSON.stringify(after.approval)===JSON.stringify(before.approval)&&
   JSON.stringify(after.approvalDecision)===JSON.stringify(before.approvalDecision),
   'COMMITTED_ORIGINAL_PROVENANCE_CHANGED');
