@@ -223,7 +223,8 @@ async function identity(c){
  pg_catalog.has_table_privilege('hft_r77_gateway_owner','hft.stock_account',
   'INSERT,UPDATE,DELETE') AS gateway_account_dml,
  (SELECT count(*)::int FROM pg_catalog.pg_roles role
-  WHERE role.rolcanlogin AND role.rolname<>session_user
+  WHERE role.rolcanlogin AND NOT role.rolsuper
+   AND role.rolname<>session_user
    AND pg_catalog.has_function_privilege(role.rolname,
     'hft_qa077.post_receive_v1(uuid,text,jsonb,jsonb)','EXECUTE')
   ) AS other_login_gateway_post_execute,
