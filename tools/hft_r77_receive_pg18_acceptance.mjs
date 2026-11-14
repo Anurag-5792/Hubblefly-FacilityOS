@@ -20,7 +20,8 @@
  */
 import {readFileSync} from 'node:fs';
 import {Client} from 'pg';
-import {createHash} from 'node:crypto';
+import {createHash,X509Certificate} from 'node:crypto';
+import {isIP} from 'node:net';
 
 const cases=new Set(['BULK_5','SERIAL_1','LATE_ROLLBACK',
  'INVALID_ACTOR','WRONG_BIN','CHANGED_QUANTITY','FORGED_RECEIPT',
@@ -74,7 +75,7 @@ function fixtureFromFile(caseId){
    'REAL_'+id.toUpperCase()+'_REQUIRED');
  assert(Number.isSafeInteger(s.grnLineNo)&&s.grnLineNo>0,'EXACT_GRN_LINE_REQUIRED');
  const admission=object(f.admission,'INDEPENDENT_ADMISSION_REQUIRED');
- for(const name of ['sha256','migrationSha256','aclSha256','approvalDecisionSha256',
+ for(const name of ['sha256','resourceSha256','migrationSha256','aclSha256','approvalDecisionSha256',
   'invoiceEvidenceSha256','qcEvidenceSha256','physicalReceiptEvidenceSha256']){
   assert(typeof admission[name]==='string'&&hex64.test(admission[name])&&
    !/^0{64}$/.test(admission[name]),'SIGNED_'+name.toUpperCase()+'_REQUIRED');
@@ -120,6 +121,19 @@ function fixtureFromFile(caseId){
   'NEGATIVE_EXACT_PROTECTED_DENIAL_REQUIRED');
  return f;
 }
+function validatedCa(){
+ const pem=readFileSync(process.env.HFT_R77_PG_CA_FILE,'utf8');
+ const rx=/-----BEGIN CERTIFICATE-----[\\s\\S]*?-----END CERTIFICATE-----/g;
+ const parts=[...pem.matchAll(rx)].map(x=>x[0]);
+ assert(parts.length>0&&parts.length<=8&&pem.replace(rx,'').trim()==='',
+  'TLS_TRUST_ROOT_CONTENT_INVALID');
+ for(const part of parts){
+  const cert=new X509Certificate(part);
+  assert(cert.ca&&Date.now()>=Date.parse(cert.validFrom)&&
+   Date.now()<Date.parse(cert.validTo),'TLS_TRUST_ROOT_NOT_CURRENT_CA');
+ }
+ return pem;
+}
 function validateExecution(){
  const a=process.argv;
  assert(a.length===5&&a[2]==='--execute'&&a[3]==='--case'&&
@@ -128,21 +142,40 @@ function validateExecution(){
   process.env.HFT_ENVIRONMENT==='test'&&
   process.env.HFT_LIVE_POSTING_ENABLED==='false'&&
   process.env.NODE_ENV!=='production','NONPRODUCTION_AUTHORIZATION_REQUIRED');
- assert(process.env.PGHOST==='127.0.0.1'&&
-  /^hft_r1_disposable_[a-z0-9_]{2,40}$/.test(process.env.PGDATABASE||'')&&
+ assert(/^hft_r1_disposable_[a-z0-9_]{2,40}$/.test(process.env.PGDATABASE||'')&&
   /^hft_r1_[a-z0-9_]{5,40}$/.test(process.env.PGUSER||'')&&
   /^[0-9]{4,5}$/.test(process.env.PGPORT||'')&&
   process.env.PGSSLMODE==='verify-full'&&
   process.env.HFT_R77_PG_CA_FILE?.startsWith('/')&&
-  process.env.HFT_R77_FIXTURE_FILE?.startsWith('/'),
+  process.env.HFT_R77_FIXTURE_FILE?.startsWith('/')&&
+  hex64.test(process.env.HFT_R77_APPROVED_RESOURCE_SHA256||''),
   'ISOLATED_DB_TLS_AND_PRIVATE_FIXTURE_REQUIRED');
- assert(!process.env.HFT_R77_PG_DSN,'CONNECTION_STRING_OVERRIDE_FORBIDDEN');
+ assert(!process.env.HFT_R77_PG_DSN&&
+  !process.env.PGHOSTADDR&&!process.env.PGSERVICE&&!process.env.PGOPTIONS,
+  'CONNECTION_STRING_OR_AMBIENT_ROUTING_FORBIDDEN');
+ const mode=process.env.HFT_R77_TRANSPORT;
+ if(mode==='LOCAL_TLS'){
+  assert(process.env.PGHOST==='127.0.0.1'&&
+   process.env.HFT_R77_APPROVED_BACKEND_PORT===process.env.PGPORT,
+   'LOCAL_DISPOSABLE_HOST_AND_PORT_REQUIRED');
+ }else if(mode==='ONLINE_TLS'){
+  const host=process.env.PGHOST||'';
+  const labels=host.split('.');
+  assert(host===process.env.HFT_R77_APPROVED_ENDPOINT_HOST&&
+   host===host.toLowerCase()&&isIP(host)===0&&
+   labels.length>=2&&!host.endsWith('.local')&&
+   !host.endsWith('.localhost')&&host.length<=253&&
+   labels.every(x=>/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(x))&&
+   /^[0-9]{4,5}$/.test(process.env.HFT_R77_APPROVED_BACKEND_PORT||''),
+   'ONLINE_TLS_ATTESTED_ENDPOINT_REQUIRED');
+ }else fail('APPROVED_TRANSPORT_MODE_REQUIRED');
 }
 function connect(){
  return new Client({host:process.env.PGHOST,
   port:Number(process.env.PGPORT),database:process.env.PGDATABASE,
   user:process.env.PGUSER,password:process.env.PGPASSWORD,
-  ssl:{rejectUnauthorized:true,ca:readFileSync(process.env.HFT_R77_PG_CA_FILE,'utf8')},
+  ssl:{rejectUnauthorized:true,servername:process.env.PGHOST,
+   minVersion:'TLSv1.2',ca:validatedCa()},
   connectionTimeoutMillis:5000,statement_timeout:15000});
 }
 async function identity(c){
@@ -199,8 +232,10 @@ async function identity(c){
  const x=rows[0];
  assert(x.db===process.env.PGDATABASE&&x.login===process.env.PGUSER&&
   x.role===process.env.PGUSER&&x.version==='180006'&&
-  x.replica===false&&x.addr===process.env.PGHOST&&
-  x.port===Number(process.env.PGPORT)&&x.tls===true&&
+  x.replica===false&&
+  (process.env.HFT_R77_TRANSPORT==='LOCAL_TLS'?
+   x.addr===process.env.PGHOST:isIP(x.addr||'')!==0)&&
+  x.port===Number(process.env.HFT_R77_APPROVED_BACKEND_PORT)&&x.tls===true&&
   x.runtime_member===true&&x.owner_member===false&&
   x.gateway_member===false&&x.direct_writer===false&&
   x.direct_recovery===false&&x.direct_reader===false&&
@@ -256,6 +291,8 @@ async function snapshot(c,f,label){
   x.fixtureId===f.fixtureId&&x.caseId===f.caseId&&
   x.sessionUser===process.env.PGUSER&&x.database===process.env.PGDATABASE&&
   x.independentAdmissionSha256===a.sha256&&
+  x.resourceSha256===a.resourceSha256&&
+  x.resourceSha256===process.env.HFT_R77_APPROVED_RESOURCE_SHA256&&
   x.migrationSha256===a.migrationSha256&&x.aclSha256===a.aclSha256&&
   x.invoiceEvidenceSha256===a.invoiceEvidenceSha256&&
   x.qcEvidenceSha256===a.qcEvidenceSha256&&
@@ -477,8 +514,8 @@ async function main(){
  validateExecution();
  const f=fixtureFromFile(process.argv[4]);
  const writer=connect(),reader=connect();
- await writer.connect();await reader.connect();
  try{
+  await writer.connect();await reader.connect();
   await identity(writer);await identity(reader);
   const result=await executeCase(writer,reader,f);
   // Do not disclose original proof, HMAC, session, DSN or private source docs.
