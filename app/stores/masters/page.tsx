@@ -47,6 +47,7 @@ export default function MastersPage(){
  const [reason,setReason]=useState(''),[values,setValues]=useState<Record<string,string>>({});
  const [busy,setBusy]=useState(false),[submitting,setSubmitting]=useState(false);
  const [status,setStatus]=useState('No verified database result loaded.');
+ const [lastRequestId,setLastRequestId]=useState('');
  const scope={legalEntityId:entity.trim(),siteId:site.trim(),warehouseId:warehouse.trim()};
  function clearEmployeeSelection(){
   employeeEditRef.current=null;
@@ -60,12 +61,13 @@ export default function MastersPage(){
   if(submitting)return;
   // Epoch and refs change synchronously, before any pending LIST can resolve.
   requestEpoch.current++;setter(value);setRecords([]);clearEmployeeList();
-  clearEmployeeSelection();setView('LIST');setBusy(false);
+  clearEmployeeSelection();setLastRequestId('');setView('LIST');setBusy(false);
   setStatus('Scope changed. Fresh authenticated LIST and selection required for Employee EDIT.');
  }
  function changeKind(next:Kind){
   requestEpoch.current++;setKind(next);setRecords([]);clearEmployeeList();
-  clearEmployeeSelection();setStatus('Select scope and load authoritative records.');
+  clearEmployeeSelection();setLastRequestId('');
+  setStatus('Select scope and load authoritative records.');
  }
  async function call(payload:unknown):Promise<Reply>{
   const response=await fetch('/api/hft/masters',{method:'POST',
@@ -104,6 +106,25 @@ export default function MastersPage(){
    }
   }finally{if(epoch===requestEpoch.current)setBusy(false);}
  }
+ async function verifySavedRequest(){
+  if(!lastRequestId||busy)return;
+  const id=lastRequestId,epoch=++requestEpoch.current;
+  setBusy(true);
+  setStatus('Fresh signed database read of the saved request. This does not activate a master.');
+  try{
+   const verified=await call({intent:'REQUESTS',kind,...scope,search:''});
+   if(epoch!==requestEpoch.current)return;
+   const saved=verified.records?.find(x=>x.request_id===id);
+   if(verified.state!=='AVAILABLE'||!saved)
+    throw Error('P3_SAVED_REQUEST_NOT_IN_AUTHENTICATED_READ_NO_RETRY');
+   setRecords(verified.records||[]);setView('REQUESTS');
+   setStatus('Independent readback confirmed request '+id+
+    ' as '+String(saved.state)+'. Check master LIST after governed approval; request is not an active master.');
+  }catch(e){
+   if(epoch===requestEpoch.current)setStatus(
+    e instanceof Error?e.message:'Saved request readback unavailable');
+  }finally{if(epoch===requestEpoch.current)setBusy(false);}
+ }
  async function submit(event:FormEvent<HTMLFormElement>){
   event.preventDefault();
   if(busy)return;
@@ -126,13 +147,16 @@ export default function MastersPage(){
    const v:Record<string,string>={};
    if(operation==='CREATE'||operation==='EDIT')
     for(const f of fields[kind])v[f.name]=(values[f.name]||'').trim();
+   const requestId=crypto.randomUUID();
    const result=await call({intent:'SUBMIT',change:{
-    contractVersion:'HFT-R1-P3-MASTER-V1',requestId:crypto.randomUUID(),
+    contractVersion:'HFT-R1-P3-MASTER-V1',requestId,
     kind,operation,...scope,recordId:recordId.trim(),expectedVersion:version.trim(),
     reason:reason.trim(),values:v}});
    if(epoch!==requestEpoch.current)return;
    if(result.state!=='PENDING_APPROVAL')throw new Error('P3_APPROVAL_STATE_NOT_CONFIRMED');
-   setStatus('Request persisted and read back: PENDING APPROVAL. No operational master was changed.');
+   setLastRequestId(requestId);
+   setStatus('Saved and read back pending request '+requestId+
+    '. No master was created or activated. Verify again using an independent signed request.');
    setView('REQUESTS');setRecords(result.records||[]);
   }catch(e){
    if(epoch===requestEpoch.current)
@@ -221,6 +245,8 @@ export default function MastersPage(){
     <div className="masters-actions">
      <button type="button" disabled={busy} onClick={()=>void load('LIST')}>Load masters</button>
      <button type="button" disabled={busy} onClick={()=>void load('REQUESTS')}>Pending / denied requests</button>
+     {lastRequestId?<button type="button" disabled={busy}
+      onClick={()=>void verifySavedRequest()}>Re-read saved request</button>:null}
       {kind==='EMPLOYEE'?<Link className="mis-link" href="/stores/masters/approvals">
         Independent Employee approvals</Link>:null}
     </div>
@@ -260,7 +286,7 @@ export default function MastersPage(){
       const op=e.target.value as Operation;
       if(kind==='EMPLOYEE'&&op!==operation)clearEmployeeSelection();
       setOperation(op);if(op==='CREATE')setVersion('0');}}>
-      <option value="CREATE">Register inactive draft</option>
+      <option value="CREATE">Propose registration (not an active master)</option>
       <option value="EDIT">Request field revision</option>
       <option value="ACTIVATE">Request activation</option>
       <option value="DEACTIVATE">Request deactivation</option>
@@ -280,8 +306,9 @@ export default function MastersPage(){
        onChange={e=>setReason(e.target.value)} placeholder="Explain the business reason and supporting evidence"/></label>
      <button type="submit" className="primary-button" disabled={busy}>
       {busy?'Verifying…':'Submit for independent approval'}</button>
-     <p className="masters-help">CREATE stages an inactive record. EDIT cannot change active status.
-      ACTIVATE / DEACTIVATE require separate approval authority, not this form.</p>
+     <p className="masters-help">SUBMIT saves a protected pending request, not a Master.
+      Employee approval and APPLY need a different qualified human; Item, Supplier, Warehouse
+      and Location APPLY remain unqualified. After approval, re-read the master LIST.</p>
     </form>
    </section>
   </div>
