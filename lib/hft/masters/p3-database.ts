@@ -79,6 +79,12 @@ export async function withP3Database<T>(pool:PgPool,env:IsolatedPgEnvironment,
    assertOnlineBackendIdentity(env,info,'P3_MASTERS');
    await assertOnlinePgBackendTls(client);
    await assertOnlineRuntimeCatalog(client,'P3_MASTERS');
+   if(isRetainedMastersProfile(env)){
+    const v=await client.query<{pg_version:number}>(
+      "SELECT current_setting('server_version_num')::integer AS pg_version");
+    if(v.rows.length!==1||v.rows[0].pg_version!==180006)
+      throw Error('P3_RETAINED_POSTGRESQL_18_6_REQUIRED');
+   }
   }else if(info.server_address!=='127.0.0.1')
    throw Error('P3_LOCAL_DATABASE_ADDRESS_MISMATCH');
   const value=await work(client);
