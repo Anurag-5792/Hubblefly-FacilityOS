@@ -8,7 +8,9 @@ import {resolveVerifiedRequestOperator} from '../../lib/hft/security/verified-re
 import {identityEnv,signedToken} from '../support/signed-session-fixture.ts';
 import {RETAINED_MASTERS_PROFILE,assertRetainedMastersProfile,isRetainedMastersProfile}
  from '../../lib/hft/masters/retained-nonproduction-profile.ts';
-import {assertP3Environment} from '../../lib/hft/masters/p3-database.ts';
+import {assertP3Environment,withP3Database} from '../../lib/hft/masters/p3-database.ts';
+import {ONLINE_RUNTIME_CATALOG_SQL} from '../../lib/hft/persistence/online-db-qualification.ts';
+import type {PgPool,PgQueryClient} from '../../lib/hft/persistence/isolated-pg-transaction.ts';
 import {assertOnlinePgTransport,onlinePgPoolOptions}
  from '../../lib/hft/persistence/online-pg-transport.ts';
 
@@ -61,6 +63,49 @@ test('retained P3 can be isolated without provisioning a posting login',()=>{
   isolated.HFT_P3_RUNTIME_LOGIN);
  assert.throws(()=>assertOnlinePgTransport(isolated,'P2_STORES'),
   /DISPOSABLE_DATABASE_REQUIRED/);
+});
+
+test('retained P3 transaction requires real database version exactly matching admission',async()=>{
+ for(const actual of [180007,180006]){
+  const seen:string[]=[], released:boolean[]=[];
+  const client:PgQueryClient={
+   async query<Row extends Record<string,unknown>>(sql:string,params:readonly unknown[]=[]){
+    seen.push(sql);
+    let rows:Record<string,unknown>[]=[];
+    if(sql.includes('SELECT current_database()'))rows=[{
+      db_name:allowed.PGDATABASE,db_login:allowed.HFT_P3_RUNTIME_LOGIN,
+      db_role:allowed.HFT_P3_RUNTIME_LOGIN,
+      server_address:'10.10.10.5',server_port:5432}];
+    else if(sql.includes('pg_catalog.pg_stat_ssl'))rows=[{
+      tls_enabled:true,tls_version:'TLSv1.3',tls_cipher:'TLS_AES_256_GCM_SHA384'}];
+    else if(sql===ONLINE_RUNTIME_CATALOG_SQL){
+      const required=JSON.parse(String(params[0])) as string[];
+      rows=[{function_count:required.length,functions_secure:true,
+        unexpected_functions:0,direct_relation_grants:0,
+        privileged_memberships:0,schema_usage:true,schema_create:false,
+        secret_usage:false,crypto_usage:false,nonprivileged_login:true,
+        server_version_num:actual}];
+    }else if(sql.includes("SELECT current_setting('server_version_num')"))rows=[{
+      pg_version:actual}];
+    return {rows:rows as unknown as Row[],rowCount:rows.length};
+   },release(destroy?:boolean){released.push(destroy===true);}
+  };
+  const pool:PgPool={async connect(){return client;}};
+  let invoked=false;
+  const operation=withP3Database(pool,allowed,true,async()=>{
+    invoked=true;return 'VERIFIED_READ_ONLY';
+  });
+  if(actual===180007){
+    assert.equal(await operation,'VERIFIED_READ_ONLY');
+    assert.equal(invoked,true);
+    assert.ok(seen.includes('COMMIT'));
+    assert.deepEqual(released,[false]);
+  }else{
+    await assert.rejects(operation,/P3_RETAINED_POSTGRESQL_APPROVED_VERSION_MISMATCH/);
+    assert.equal(invoked,false);
+    assert.ok(seen.includes('ROLLBACK'));
+  }
+ }
 });
 test('retained signed session allows only explicit Masters purpose',()=>{
  const actor=resolveVerifiedRequestOperator(request(),allowed,'RETAINED_P3_MASTERS');
