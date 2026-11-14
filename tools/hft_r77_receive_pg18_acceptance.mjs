@@ -74,7 +74,8 @@ function fixtureFromFile(caseId){
    'REAL_'+id.toUpperCase()+'_REQUIRED');
  assert(Number.isSafeInteger(s.grnLineNo)&&s.grnLineNo>0,'EXACT_GRN_LINE_REQUIRED');
  const admission=object(f.admission,'INDEPENDENT_ADMISSION_REQUIRED');
- for(const name of ['sha256','migrationSha256','aclSha256','approvalDecisionSha256']){
+ for(const name of ['sha256','migrationSha256','aclSha256','approvalDecisionSha256',
+  'invoiceEvidenceSha256','qcEvidenceSha256','physicalReceiptEvidenceSha256']){
   assert(typeof admission[name]==='string'&&hex64.test(admission[name])&&
    !/^0{64}$/.test(admission[name]),'SIGNED_'+name.toUpperCase()+'_REQUIRED');
  }
@@ -256,6 +257,9 @@ async function snapshot(c,f,label){
   x.sessionUser===process.env.PGUSER&&x.database===process.env.PGDATABASE&&
   x.independentAdmissionSha256===a.sha256&&
   x.migrationSha256===a.migrationSha256&&x.aclSha256===a.aclSha256&&
+  x.invoiceEvidenceSha256===a.invoiceEvidenceSha256&&
+  x.qcEvidenceSha256===a.qcEvidenceSha256&&
+  x.physicalReceiptEvidenceSha256===a.physicalReceiptEvidenceSha256&&
   (negatives.has(f.caseId)?x.expectedReject===f.expectedReject:
    x.expectedReject===null),
   'SNAPSHOT_OR_INDEPENDENT_ADMISSION_NOT_QUALIFIED');
@@ -281,6 +285,8 @@ async function recover(c,f){
 function validatePreSource(f,x){
  const s=f.source, p=f.payload;
  assert(x.grn?.invoiceId===s.invoiceId&&
+  x.grn?.supplierId===x.invoice?.supplierId&&
+  x.grn?.invoiceKey===x.invoice?.invoiceKey&&
   x.invoice?.status==='VERIFIED'&&
   x.receipt?.id===s.receiptId&&x.receipt?.grnId===s.grnId&&
   x.receipt?.lineNo===s.grnLineNo&&
