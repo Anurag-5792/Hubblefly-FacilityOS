@@ -76,11 +76,7 @@ GRANT EXECUTE ON FUNCTION hft.p3_bootstrap_first_approved_scope_v1(uuid,jsonb)
 REVOKE ALL ON hft.p3_master_change_request,
  hft.p3_master_invocation_nonce,hft.p3_master_decision
  FROM PUBLIC,hft_r1_app_runtime,hft_r1_retained_p3_login;
-REVOKE EXECUTE ON FUNCTION
- hft.p3_nonemployee_decision_digest_v1(jsonb)
- FROM PUBLIC,hft_r1_app_runtime,hft_r1_p3_master_runtime,hft_r1_retained_p3_login;
--- NOTE: the immediately preceding function may NOT EXIST by design in MVP.
--- The independently accepted installation derivative MUST replace that
--- statement with catalog-conditional REVOKE or remove it under exact review.
--- DO NOT execute this source as a migration.
+-- No nonemployee APPLY helpers/functions are installed by this package.
+-- Independent catalog postflight MUST prove the fourth P3 EXECUTE absent.
+-- No direct protected stock posting/receive function grant is made.
 COMMIT;
