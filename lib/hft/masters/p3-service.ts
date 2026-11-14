@@ -43,6 +43,8 @@ function guardedRows(input:unknown,scope:MasterQuery):MastersResult{
   if(!candidate||typeof candidate!=='object'||Array.isArray(candidate))
    throw new Error('P3_PROTECTED_READ_ROW_INVALID');
   const row=candidate as Record<string,unknown>;
+  if(row.kind!==scope.kind)
+   throw new Error('P3_PROTECTED_READ_KIND_MISMATCH');
   if(row.legal_entity_id!==scope.legalEntityId)
    throw new Error('P3_PROTECTED_READ_CROSS_ENTITY');
   if(row.site_id!==scope.siteId && row.site_id!=='')
@@ -123,7 +125,7 @@ export async function handleP3EmployeeDecision(pool:PgPool,env:IsolatedPgEnviron
  let proof;
  try{proof=issueEmployeeDecisionProof(decision,operator,key.key,key.version);}
  finally{key.key.fill(0);}
- return withP3Database(pool,env,false,async client=>{
+ const decisionResult=await withP3Database(pool,env,false,async client=>{
   const data=await client.query<{response:unknown}>(
    'SELECT hft.p3_decide_apply_employee_v1($1::jsonb,$2::jsonb) AS response',
    [JSON.stringify(decision),JSON.stringify(proof)]);
@@ -139,4 +141,19 @@ export async function handleP3EmployeeDecision(pool:PgPool,env:IsolatedPgEnviron
    throw new Error('P3_EMPLOYEE_DECISION_RESPONSE_INVALID');
   return result as EmployeeDecisionResult;
  });
+ if(decisionResult.state!=='APPLIED')return decisionResult;
+ // A committed employee decision is NOT proof that a current master can
+ // be observed. Authenticate a fresh protected GET on a second connection.
+ // Never reapply a decision on missing readback or uncertain COMMIT.
+ const read=await readMasters(pool,env,operator,{
+  intent:'GET',kind:'EMPLOYEE',legalEntityId:decision.legalEntityId,
+  siteId:decision.siteId,warehouseId:decision.warehouseId,
+  recordId:decision.recordId,search:''
+ });
+ const record=read.records.find(row=>row.record_id===decision.recordId);
+ if(!record||record.kind!=='EMPLOYEE'||
+   String(record.version)!==decisionResult.version||
+   record.active!==decisionResult.active)
+  throw new Error('P3_COMMITTED_EMPLOYEE_APPLY_READBACK_REQUIRED_NO_RETRY');
+ return decisionResult;
 }
