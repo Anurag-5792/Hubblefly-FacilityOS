@@ -51,7 +51,8 @@ class RetainedMastersSourceR77(unittest.TestCase):
   self.assertNotIn("'/api/hft/stores",m)
   self.assertIn("RETAINED_MASTERS_ONLY_NO_STOCK",s)
   self.assertIn("HFT_MASTERS_APPROVED_PG_DATABASE",s)
-  self.assertIn("P3_RETAINED_POSTGRESQL_18_6_REQUIRED",p)
+  self.assertIn("HFT_MASTERS_APPROVED_PG_SERVER_VERSION_NUM",s)
+  self.assertIn("P3_RETAINED_POSTGRESQL_APPROVED_VERSION_MISMATCH",p)
   self.assertIn("assertOnlineRuntimeCatalog(client,'P3_MASTERS')",p)
   self.assertIn("assertSecureStartup(env)",p)
   self.assertIn("PRODUCTION_STARTUP_NOT_AUTHORIZED",
