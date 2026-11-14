@@ -146,7 +146,8 @@
         "approvalDecisionSha256",
         "invoiceEvidenceSha256",
         "qcEvidenceSha256",
-        "physicalReceiptEvidenceSha256"
+        "physicalReceiptEvidenceSha256",
+        "resourceSha256"
       ],
       "properties": {
         "qaLogin": {
@@ -196,6 +197,13 @@
           }
         },
         "physicalReceiptEvidenceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "resourceSha256": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$",
           "not": {
