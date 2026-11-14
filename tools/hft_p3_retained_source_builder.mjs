@@ -29,44 +29,8 @@ BEGIN
  RAISE EXCEPTION 'HFT_P3_RETAINED_NONPRODUCTION_INSTALLATION_NOT_AUTHORIZED';
 END $HFT_P3_RETAINED_INSTALLATION_STOP$;
 DO $preflight$`);
- // A regex ends in 
- if(candidate.includes(prior)||!candidate.includes(next)||
-   candidate.indexOf("HFT_P3_RETAINED_NONPRODUCTION_INSTALLATION_NOT_AUTHORIZED")>
-    candidate.indexOf('CREATE TABLE'))
-  throw Error('P3_RETAINED_CANDIDATE_NOT_STOP_GUARDED');
- return Object.freeze({sourceSha256:PIN,derivedSha256:sha(candidate),
-  sql:candidate,executable:false,installed:false});
-}
-function main(args){
- const result=retainedP3ReviewCandidate();
- if(args.length===1&&args[0]==='--inspect'){
-  process.stdout.write(JSON.stringify({contract:'HFT-P3-RETAINED-MASTERS-SOURCE-077',
-    originalSha256:result.sourceSha256,derivedSha256:result.derivedSha256,
-    derivedBytes:Buffer.byteLength(result.sql),stopGuarded:true,
-    executable:false,installed:false,ownerApprovalRequired:true})+'\n');
-  return;
- }
- if(args.length===2&&args[0]==='--emit-review'){
-  const path=args[1];
-  if(!isAbsolute(path)||!path.endsWith('.NONEXECUTABLE.sql')||existsSync(path)||
-     !lstatSync(dirname(path)).isDirectory()||lstatSync(dirname(path)).isSymbolicLink())
-   throw Error('P3_RETAINED_REVIEW_OUTPUT_MUST_BE_NEW_PRIVATE_SQL');
-  writeFileSync(path,result.sql,{flag:'wx',mode:0o600});
-  process.stdout.write(JSON.stringify({state:'STOP_GUARDED_REVIEW_ONLY',
-    sha256:result.derivedSha256,output:path})+'\n');
-  return;
- }
- throw Error('P3_RETAINED_SOURCE_ONLY_USAGE');
-}
-if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- try{main(process.argv.slice(2));}
- catch(error){
-  process.stderr.write(error instanceof Error?error.message:'P3_RETAINED_BUILDER_FAILED');
-  process.exitCode=2;
- }
-}
- and JS string replacement treats that as a special
- // suffix expansion. Use a callback to preserve the literal SQL regex bytes.
+ // SQL regex ends with a dollar+apostrophe; replacement-string tokens would
+ // copy the entire trailing SQL. The callback preserves exact literal bytes.
  const candidate=stopped.replace(prior,()=>next);
  if(candidate.includes(prior)||!candidate.includes(next)||
    candidate.indexOf("HFT_P3_RETAINED_NONPRODUCTION_INSTALLATION_NOT_AUTHORIZED")>
