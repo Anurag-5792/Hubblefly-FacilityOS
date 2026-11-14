@@ -82,8 +82,11 @@ export async function withP3Database<T>(pool:PgPool,env:IsolatedPgEnvironment,
    if(isRetainedMastersProfile(env)){
     const v=await client.query<{pg_version:number}>(
       "SELECT current_setting('server_version_num')::integer AS pg_version");
-    if(v.rows.length!==1||v.rows[0].pg_version!==180006)
-      throw Error('P3_RETAINED_POSTGRESQL_18_6_REQUIRED');
+    // PostgreSQL minor updates must match independent resource admission;
+    // R77's disposable PG18.6 qualification remains a separate exact contract.
+    if(v.rows.length!==1||
+       String(v.rows[0].pg_version)!==env.HFT_MASTERS_APPROVED_PG_SERVER_VERSION_NUM)
+      throw Error('P3_RETAINED_POSTGRESQL_APPROVED_VERSION_MISMATCH');
    }
   }else if(info.server_address!=='127.0.0.1')
    throw Error('P3_LOCAL_DATABASE_ADDRESS_MISMATCH');
