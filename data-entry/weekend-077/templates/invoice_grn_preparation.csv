@@ -1,0 +1,1 @@
+legalEntityId,siteId,warehouseId,supplierId,invoiceNumber,invoiceDate,grnReference,physicalReceiptReference,receiptLineNo,itemCode,versionCode,locationId,serialNo,batchNo,observedQuantity,uom,qcObservation,qcEvidenceReference,sourceDocumentReference

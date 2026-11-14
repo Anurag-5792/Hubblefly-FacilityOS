@@ -1,76 +1,49 @@
-# FacilityOS Architecture v0.1
+# HFT FacilityOS — Phase 1 Controlling Architecture
 
-## Principle
+**Decision basis:** HFT MASTER V2 Phase 1 standalone inventory authority and 1 November 2026 owner Stores GO. **Current technical release:** NO-GO pending qualification.
 
-FacilityOS is the operational web layer. ERPNext remains the ERP stock/accounting backbone.
+## Systems of record and legal boundaries
 
-## Responsibility split
+FacilityOS is HFT's sole operational stock quantity, stock-location, custody and immutable movement authority for Phase 1 **after technical release acceptance**. ERPNext integration/accounting belongs to Phase 2, not a prerequisite for Stores operation. DD software and data remain separate. Approved selected DD *code* may be copied and adapted inside HFT under internal reuse documentation; do not connect HFT directly to DD systems.
 
-### FacilityOS
-- responsive desktop/mobile UX
-- QR resolver
-- rack/level/position/stack-slot model
-- container model (BN/BX/BB)
-- inventory scan workflows
-- SFG/component genealogy
-- route-card UX
-- Gate Pass and Delivery Challan presentation
-- operational audit events
+## Mandatory stock mutation path
 
-### ERPNext
-- Item
-- Warehouse
-- Serial No
-- Batch
-- Stock Ledger
-- Purchase Receipt
-- Stock Entry
-- Delivery Note
-- accounting-linked inventory
+`HFT User / Scanner → signed scoped UI/API → verified actor, approval/Hold and document revision → one protected PostgreSQL posting writer → atomic stock accounts/entries, custody, immutable outcome and audit → durable verified readback`
 
-## Location hierarchy
+No UI, bulk import, stock count or reused legacy service may modify stock accounts by direct table DML. A genuine independently eligible human is mandatory where the business policy calls for independent approval. Alternate login names for one person do not satisfy that requirement.
 
-`Warehouse -> Rack -> Level -> Position -> Stack Slot -> Container -> Item`
+The existing canonical migrations 0001–0006 preserve historical/immutable controls. The more advanced P2 protected writer and P3 master application remain nonexecutable candidates until reviewed and qualified under an authorized forward migration. Never alter applied migration history.
 
-Position QR example: `R03-L2-P04`
+## Physical warehouse model
 
-Resolved live slot example: `R03-L2-P04-S2`
+`Legal Entity → Site → Warehouse → Rack/approved Area → Level/Shelf → Position → Stack Slot → Bin/Container → Item + Product Version + Batch/Serial`
 
-## QR resolver types
+The persisted location model must use stable, scoped IDs and validated typed parentage. Every posted item quantity and physical counted line must point to an **actual active leaf**. The path is derived from authoritative parent relationships, not accepted as an unchecked free-text string. Bin BN, carton BX, battery carton BB and approved floor/storage exceptions must be represented consistently. Preserve older/inactive path history for posted movement reconstruction.
 
-The resolver must distinguish at least:
+Location transfers are authoritative balanced, authorized stock transactions with original and destination leaf identities and audit—not updates to a display field.
 
-- item serial
-- batch
-- position
-- BN bin
-- BX carton
-- BB battery carton
-- SFG serial
-- final drone serial
+## Distinct operational facts
 
-Resolution must be deterministic from the stored identifier, not from free-text descriptions.
+- **Physical inward:** evidence of arrival; not QC acceptance.
+- **GRN/QC-approved receipt:** authorized external-to-available movement into a specific location.
+- **Issue:** available-to-employee/work-order custody or explicitly authorized consumption.
+- **Return:** inspected custody-to-available/damaged/quarantine movement.
+- **Physical count:** timestamped evidence per item/version/serial/batch and exact leaf location; does not post stock.
+- **Opening stock/correction:** independent verified reconciliation plus authorized immutable boundary posting.
+- **Location transfer:** controlled, conservation-preserving movement across location accounts.
 
-## Write discipline
+Each business event has separately verified source, actor, document revision, approval, Hold policy, identity, quantity, idempotency key, posting outcome, audit evidence and durable readback.
 
-ERP-linked stock writes must pass through a transaction service. UI components must never post directly to ERPNext.
+## Product versions, images, scans and reporting
 
-Proposed path:
+The physical product/manufacturing version is different from the Item Master record revision. Each item version—including historical versions—requires a separately verified primary photograph and accurate media provenance. Existing DD filenames alone never establish matching HFT item/version identity.
 
-`UI -> FacilityOS command -> validation -> audit event -> ERPNext adapter -> ERPNext document -> sync result`
+QR identifiers must resolve deterministically to the authorized object and location. Never infer physical inventory solely from an existing label or QR code. Reports show quantities reconstructed from accepted HFT postings at a consistent watermark; no hardcoded or unqualified inventory metrics.
 
-## Irreversible-output gate
+## Evidence, operations and documentation
 
-The following require preview/validation before posting or printing at scale:
+Secure authentication, entity/site/warehouse RBAC, independent human approvals, protected schema grants and audit/Hold enforcement are non-negotiable. Automatic blind retry after uncertain COMMIT is prohibited. Restore acceptance must reconcile serial location and custody as well as aggregate stock.
 
-- opening stock
-- mass serial creation
-- bulk QR/sticker output
-- stock reconciliation adjustments
-- destructive genealogy correction
+Maintain source-level security/architecture/reuse records in **restricted internal documentation**; keep source-free handover operating instructions in a separate approved package. Confidential source and reuse dossiers are not published inside this public repository.
 
-## Responsive UX
-
-Desktop emphasizes tables, bulk review, reconciliation and administration.
-
-Mobile emphasizes scanning, one task per screen and large confirmation controls.
+**Status:** Source and draft design do not imply functional acceptance. Owner production GO is recorded for 1 November 2026; technical database, workstation, full build/browser and independently executed release gates remain open.
