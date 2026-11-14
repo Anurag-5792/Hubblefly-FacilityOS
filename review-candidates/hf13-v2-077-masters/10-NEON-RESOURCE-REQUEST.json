@@ -1,0 +1,80 @@
+{
+  "schema": "HF13_V2_077_MASTERS_RESOURCE_REQUEST_V1",
+  "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
+  "status": "PREPARED_NOT_AUTHORIZED_NOT_CREATED",
+  "created": false,
+  "approved": false,
+  "source_head": "5b45cc3fe9f62b56906a0820afcf1397f7b7f254",
+  "resource_purpose": "RETAINED_REAL_OWNER_MASTER_DATA_ONLY_NOT_R77_QA_NOT_STOCK",
+  "approval_required": {
+    "operation": "Neon.create_project",
+    "org_id": "org-broad-glade-52476265",
+    "region_id": "aws-ap-southeast-1",
+    "billing_plan_verified": "free",
+    "controls": [
+      "Authorization for NEW isolated project (not archived branch)",
+      "Acceptance of owner/master personal-data residency in Singapore",
+      "Allowed runtime network ingress model and verified TLS hostname",
+      "Appropriate managed secret custody, independent backup and separate restore destination",
+      "Billing review and cost monitoring",
+      "Separate role/key enrollment and P3 installation admission"
+    ]
+  },
+  "neon_create_project_args": {
+    "org_id": "org-broad-glade-52476265",
+    "name": "hft-r1-masters-retained-np-077",
+    "region_id": "aws-ap-southeast-1",
+    "pg_version": 18,
+    "branch": {
+      "name": "masters-retained-np",
+      "database_name": "hft_r1_retained_masters_np077",
+      "role_name": "hft_r1_retained_admin"
+    },
+    "default_endpoint_settings": {
+      "autoscaling_limit_min_cu": 0.25,
+      "autoscaling_limit_max_cu": 0.25,
+      "suspend_timeout_seconds": 300
+    },
+    "history_retention_seconds": 21600,
+    "store_passwords": true,
+    "settings": {
+      "enable_logical_replication": false
+    }
+  },
+  "provider_ids": {
+    "project_id": null,
+    "branch_id": null,
+    "endpoint_id": null,
+    "host": null,
+    "port": null
+  },
+  "critical_before_creation": [
+    "Neon FREE plan only short restore history; independent encrypted pg_dump + separate restore is mandatory before owner data entry",
+    "Provider root admin must NOT be used as HFT runtime or operational signer",
+    "No existing production/vercel-dev branch cloned/reused",
+    "Cloud provider may select PostgreSQL 18 minor version other than 18.6; exact SQL server_version_num=180006 is independent runtime gate",
+    "Public network access is not approved by omission: security must accept public endpoint+TLS+least-privileged login or select privately reachable alternative"
+  ],
+  "runtime_candidate": {
+    "database_name": "hft_r1_retained_masters_np077",
+    "group_role": "hft_r1_p3_master_runtime",
+    "runtime_login": "hft_r1_retained_p3_login",
+    "separate_nonlogin_function_owner": "hft_r1_p3_master_owner",
+    "migration_login": "hft_engineering",
+    "qa_login": "NONE_R77_SEPARATE"
+  },
+  "hard_bans": [
+    "Stock posting API",
+    "Shared QA disposable cleanup",
+    "Cloning production or archived branches",
+    "Installing P3 before role/key/crypto/canonical source admission",
+    "Real owner data prior to backup+restore test"
+  ],
+  "estimated_cost": {
+    "verified_neon_org_plan": "free",
+    "within_current_free_quota": "USD 0 if usage within 100 CU-hours/project/month and 1 GB storage",
+    "paid_launch_model": "0.25 CU * 8h/day * 30d * USD 0.106/CU-hour + 1 GB * USD 0.35/GB-month = USD 6.71/month",
+    "not_included": "backup object storage/restore compute, egress exceptions, taxes, snapshot/history, overages",
+    "estimated_only": true
+  }
+}
