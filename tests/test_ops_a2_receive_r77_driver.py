@@ -93,4 +93,25 @@ class R77ReceiveDriverContract(unittest.TestCase):
   self.assertIn("EXCEPTION WHEN OTHERS",sql)
   self.assertIn("R77_UNEXPECTED_NEGATIVE_WRITER_ACCEPTANCE",sql)
   self.assertIn("NEGATIVE_EXACT_PROTECTED_DENIAL_REQUIRED",text)
+ def test_gateway_sql_is_single_well_formed_stop_guarded_candidate(self):
+  sql=GATE.read_text()
+  self.assertEqual(sql.count("CREATE SCHEMA hft_qa077;"),1)
+  self.assertEqual(sql.count("CREATE TABLE hft_qa077.receive_fixture_v1("),1)
+  self.assertEqual(sql.count("COMMIT;"),1)
+  for function in ("assert_receive_fixture_v1","post_receive_v1",
+   "challenge_receive_v1","read_receive_v1","observe_receive_v1",
+   "reconcile_receive_v1"):
+   self.assertEqual(sql.count(
+    "CREATE OR REPLACE FUNCTION hft_qa077."+function+"("),1)
+  for field in ("invoice_evidence_sha256","qc_evidence_sha256",
+   "physical_receipt_evidence_sha256","approved_resource_sha256",
+   "approved_migration_sha256","approved_acl_sha256",
+   "approval_decision_sha256","independent_admission_sha256"):
+   self.assertIn("CHECK("+field+"~'^[0-9a-f]{64}$')",sql)
+  self.assertIn("expected_rejection~'^OPS_A2_[A-Z0-9_]+$'",sql)
+  self.assertIn("message_seen IS DISTINCT FROM f.expected_rejection",sql)
+  self.assertIn("DO $r77_qualified_gateway_postflight$",sql)
+  self.assertIn("'hft.ops_a2_post_stock_command_v2(jsonb,jsonb)','EXECUTE'",sql)
+  self.assertIn("'hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)','EXECUTE'",sql)
+
 if __name__=="__main__":unittest.main()
