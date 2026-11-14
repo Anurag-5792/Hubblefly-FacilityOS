@@ -36,8 +36,9 @@ export async function POST(request:Request):Promise<Response>{
   }
  }catch(error){
   const code=error instanceof Error?error.message:'P3_DECISION_ERROR';
-  if(code.includes('COMMIT_OUTCOME_UNCERTAIN'))
-   return denial(409,'P3_EMPLOYEE_DECISION_COMMIT_UNCERTAIN_NO_RETRY');
+  if(code.includes('COMMIT_OUTCOME_UNCERTAIN')||
+     code==='P3_COMMITTED_EMPLOYEE_APPLY_READBACK_REQUIRED_NO_RETRY')
+   return denial(409,'P3_EMPLOYEE_DECISION_COMMIT_OR_READBACK_UNCERTAIN_NO_RETRY');
   if(code.includes('SIGNER')||code.includes('P3_ISOLATED_DATABASE')||
     code.includes('P3_DATABASE_CREDENTIAL')||code.includes('DRIVER_NOT_INSTALLED')||
     code.includes('PRODUCTION_STARTUP')||code.includes('VERIFIED_AUTH_SOURCE'))
