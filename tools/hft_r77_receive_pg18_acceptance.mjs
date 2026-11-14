@@ -76,7 +76,7 @@ async function recover(c,x){
   await c.query('COMMIT');
   assert(r.rows.length===1,'RECONCILIATION_CARDINALITY');
   return object(r.rows[0].evidence,'RECONCILIATION_MISSING');
- }catch(e){await c.query('ROLLBACK');throw e;}
+ }catch(error){await c.query('ROLLBACK');throw error;}
 }
 function inspectFact(x,e){
  assert(e.state==='COMMITTED_VERIFIED'&&e.auditVerified===true&&
@@ -130,8 +130,8 @@ async function main(){
    await post(p,rollback);
    await p.query('SELECT 1/0 AS deliberate_late_failure');
    fail('FAULT_NOT_RAISED');
-  }catch(e){
-   assert(e.code==='22012','LATE_FAILURE_NOT_SQLSTATE_22012');
+  }catch(error){
+   assert(error.code==='22012','LATE_FAILURE_NOT_SQLSTATE_22012');
    await p.query('ROLLBACK');
   }
   const absent=await recover(reader,rollback);
@@ -144,8 +144,8 @@ async function main(){
    await post(p,good);
    startedCommit=true;
    await p.query('COMMIT');
-  }catch(e){
-   if(!startedCommit)await p.query('ROLLBACK');
+  }catch{
+   if(!startedCommitawait p.query('ROLLBACK');
    fail(startedCommit?'COMMIT_OUTCOME_UNCERTAIN_NO_RETRY':'POSITIVE_POST_FAILED');
   }
   const fact=inspectFact(good,await recover(reader,good));
