@@ -42,6 +42,7 @@ values or activate any service:
 | `HFT_ONLINE_DB_CREDENTIAL_SOURCE` | `MANAGED_RUNTIME_SECRET` |
 | `PGDATABASE` | `hft_r1_retained_[a-z0-9_]{6,40}`, exactly matching `HFT_MASTERS_APPROVED_PG_DATABASE` |
 | `HFT_TEST_PG_DATABASE` | Must be absent; retained profile cannot masquerade as disposable |
+| `HFT_MASTERS_APPROVED_PG_SERVER_VERSION_NUM` | Exact independently attested PostgreSQL version; newly created resource returns `180007` (PostgreSQL 18.7) |
 | `HFT_MASTERS_INDEPENDENT_ADMISSION_SHA256` | 64-digit nonzero SHA-256 of original external independent admission |
 | `HFT_MASTERS_APPROVED_INSTALLER_SHA256` | 64-digit nonzero SHA-256 of separately qualified executable P3 installer |
 | `HFT_MASTERS_APPROVED_RESOURCE_SHA256` | 64-digit nonzero SHA-256 of separately qualified database and connection identity |
@@ -49,7 +50,7 @@ values or activate any service:
 | `HFT_ONLINE_DB_TLS_CA_PEM` | Current valid certificate-authority chain, hostname-verified |
 | `PGPORT`, `HFT_APPROVED_PG_PORT` | Same approved TLS endpoint port |
 | `HFT_ONLINE_DB_BACKEND_PORT` | Independently attested actual backend port |
-| `HFT_P2_RUNTIME_LOGIN`, `HFT_P3_RUNTIME_LOGIN` | Distinct role names, P3 must be unprivileged, neither posting nor P3 function owner |
+| `HFT_P3_RUNTIME_LOGIN` | Required P3 unprivileged role; no posting/P3-owner membership. `HFT_P2_RUNTIME_LOGIN` is not required for Masters-only; if supplied it must be different |
 | `HFT_ONLINE_P3_DB_PASSWORD` | Managed runtime secret only; not in repository |
 | `HFT_SESSION_ED25519_PUBLIC_KEY_PEM`, `HFT_SESSION_ISSUER`, `HFT_SESSION_AUDIENCE` | Verified real short-lived signed-session authority |
 | `HFT_PUBLIC_ORIGIN` | Exact TLS origin used by the retained web application |
@@ -61,8 +62,7 @@ constitute actual independent admission. Chat 13 must verify the actual
 installation, DB resource, TLS identity, and backup/restore. Chat 10 must
 verify effective login ACLs, signer custody and protected P3 function
 owners; the runtime catalog denies extra function, relation and elevated
-role access. The P3 retained transaction also verifies PG 18.6
-(`server_version_num=180006`). Recheck every connection.
+role access. The retained P3 transaction verifies exact independently pinned `server_version_num=180007` for the current Neon PostgreSQL 18.7 resource. Do not substitute the separate R77 QA 18.6 identity. Recheck every connection.
 
 The canonical `tools/hft_apply_migrations.py` is **disposable,
 loopback-only**. It must NOT be pointed at the retained online database
@@ -138,3 +138,9 @@ R77 stock qualification. Neither synthetic tests nor pending requests
 constitute Master activation.
 
 **Status remains: source-only; production NO-GO.**
+
+## Provider identity verified 14 November 2026 (read-only)
+
+The provisioned retained target is Neon project `wandering-cake-50222227`, branch `br-shiny-night-b3qgsj8t`, database `hft_r1_retained_masters_np077` in region `aws-ap-southeast-1`. A read-only SQL query returned `server_version_num=180007`, no `hft` schema, and zero qualifying P3 owner/runtime roles. This **does not authorize** installing SQL or enrolling secrets. Chat 13 V2's frozen P3 review candidate refers to `180006`; that installer must be corrected, independently rehashed and re-reviewed before any installation.
+
+Existing Vercel project: team `team_GZjiGpLO7uRSKAEfW18JkCWS`, project `prj_6KRIqjoTbLlVMUWOmWIid56U4BAf`; the preview environment currently lists legacy HFT_STAGING variables but not the required retained Masters runtime admission, identity issuer, P3 role or HMAC signer. A READY preview of the source is not authenticated data entry.
