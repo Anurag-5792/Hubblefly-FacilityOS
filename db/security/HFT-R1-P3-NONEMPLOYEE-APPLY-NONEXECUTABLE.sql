@@ -220,7 +220,11 @@ BEGIN
  AND (EXISTS(SELECT 1 FROM hft.stock_command sc
    WHERE sc.legal_entity_id=e AND sc.item_code=req.record_id)
  OR EXISTS(SELECT 1 FROM hft.stock_account a
-   WHERE a.legal_entity_id=e AND a.item_code=req.record_id))
+   WHERE a.legal_entity_id=e AND a.item_code=req.record_id)
+ OR EXISTS(SELECT 1 FROM hft.serial_registry serial
+   WHERE serial.legal_entity_id=e AND serial.item_code=req.record_id)
+ OR EXISTS(SELECT 1 FROM hft.grn_line grn
+   WHERE grn.legal_entity_id=e AND grn.item_code=req.record_id))
  THEN RAISE EXCEPTION 'P3_R77_ITEM_HAS_PROTECTED_STOCK_HISTORY'; END IF;
  IF req.kind='ITEM' AND req.operation='ACTIVATE' AND
   (pg_catalog.to_regclass('hft.item_version_photo_coverage_v1') IS NULL
@@ -228,6 +232,16 @@ BEGIN
     WHERE photo.legal_entity_id=e AND photo.item_code=req.record_id
     AND photo.state='ACTIVE' AND photo.approved_primary_count=1))
  THEN RAISE EXCEPTION 'P3_R77_ITEM_VERSION_PRIMARY_PHOTO_REQUIRED'; END IF;
+ IF req.kind='WAREHOUSE' AND req.operation='DEACTIVATE'
+ AND (EXISTS(SELECT 1 FROM hft.stock_account acct
+   WHERE acct.legal_entity_id=e AND acct.warehouse_id=w)
+ OR EXISTS(SELECT 1 FROM hft.location loc
+   WHERE loc.legal_entity_id=e AND loc.warehouse_id=w AND loc.active)
+ OR EXISTS(SELECT 1 FROM hft.grn doc
+   WHERE doc.legal_entity_id=e AND doc.warehouse_id=w))
+ THEN RAISE EXCEPTION 'P3_R77_WAREHOUSE_OPERATIONAL_HISTORY_HOLD'; END IF;
+ IF req.kind='LOCATION' AND req.operation='ACTIVATE'
+ THEN RAISE EXCEPTION 'P3_R77_LOCATION_P0_CERTIFICATION_APPLY_NOT_QUALIFIED'; END IF;
  IF req.kind='LOCATION' THEN
   parent:=COALESCE(req.proposed_values->>'parentLocationId','');
   IF req.operation IN('CREATE','EDIT') THEN
@@ -238,6 +252,24 @@ BEGIN
     WHERE loc.legal_entity_id=e AND loc.warehouse_id=w
     AND loc.location_id=parent AND loc.active)
    THEN RAISE EXCEPTION 'P3_R77_LOCATION_PARENT_NOT_ACTIVE'; END IF;
+   -- Recursive walk of the proposed parent chain. A direct/self/indirect
+   -- cycle is denied before the UPDATE, not repaired after posting.
+   IF parent<>'' AND req.operation='EDIT' AND EXISTS(
+    WITH RECURSIVE ancestor AS (
+      SELECT l.location_id,l.parent_location_id,
+       ARRAY[l.location_id]::text[] AS visited
+      FROM hft.location l WHERE l.legal_entity_id=e
+       AND l.warehouse_id=w AND l.location_id=parent
+      UNION ALL
+      SELECT l.location_id,l.parent_location_id,
+       a.visited||l.location_id
+      FROM ancestor a JOIN hft.location l
+       ON l.legal_entity_id=e AND l.warehouse_id=w
+       AND l.location_id=a.parent_location_id
+      WHERE NOT l.location_id=ANY(a.visited)
+    )
+    SELECT 1 FROM ancestor WHERE location_id=req.record_id)
+   THEN RAISE EXCEPTION 'P3_R77_LOCATION_INDIRECT_PARENT_CYCLE'; END IF;
   END IF;
   IF req.operation='DEACTIVATE' AND EXISTS(
    SELECT 1 FROM hft.location child WHERE child.legal_entity_id=e
