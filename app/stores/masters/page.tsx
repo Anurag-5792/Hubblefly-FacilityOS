@@ -61,7 +61,7 @@ export default function MastersPage(){
   if(submitting)return;
   // Epoch and refs change synchronously, before any pending LIST can resolve.
   requestEpoch.current++;setter(value);setRecords([]);clearEmployeeList();
-  clearEmployeeSelection();setLastRequestId('');setView('LIST');setBusy(false);
+  clearEmployeeSelection();setView('LIST');setLastRequestId('');setBusy(false);
   setStatus('Scope changed. Fresh authenticated LIST and selection required for Employee EDIT.');
  }
  function changeKind(next:Kind){
