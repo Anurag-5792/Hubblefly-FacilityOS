@@ -2,6 +2,7 @@
  * This HTTP handler never directly updates employee or audit tables.
  */
 import {resolveVerifiedRequestOperator} from '../../../../../lib/hft/security/verified-request.ts';
+import {isRetainedMastersProfile} from '../../../../../lib/hft/masters/retained-nonproduction-profile.ts';
 import {assertP3Environment,openP3Pool} from '../../../../../lib/hft/masters/p3-database.ts';
 import {handleP3EmployeeDecision} from '../../../../../lib/hft/masters/p3-service.ts';
 import {validateEmployeeDecision} from '../../../../../lib/hft/masters/p3-employee-proofs.ts';
@@ -19,7 +20,8 @@ export async function POST(request:Request):Promise<Response>{
   return denial(413,'P3_REQUEST_TOO_LARGE');
  try{
   assertP3Environment(process.env);
-  const user=resolveVerifiedRequestOperator(request,process.env);
+  const user=resolveVerifiedRequestOperator(request,process.env,
+   isRetainedMastersProfile(process.env)?'RETAINED_P3_MASTERS':'DEFAULT');
   const raw=await request.text();
   if(raw.length>16384)return denial(413,'P3_REQUEST_TOO_LARGE');
   let unknown:unknown;try{unknown=JSON.parse(raw);}catch{return denial(400,'P3_JSON_INVALID');}
