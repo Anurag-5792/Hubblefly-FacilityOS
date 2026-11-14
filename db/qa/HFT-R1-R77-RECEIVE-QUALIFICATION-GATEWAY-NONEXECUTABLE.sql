@@ -304,6 +304,15 @@ BEGIN
    FROM hft.stock_account a WHERE a.id=f.account_uuid
     AND a.legal_entity_id=f.legal_entity_id AND a.site_id=f.site_id
     AND a.warehouse_id=f.warehouse_id),
+ 'custodySha256',(SELECT pg_catalog.encode(pg_catalog.sha256(
+    pg_catalog.convert_to(COALESCE(pg_catalog.jsonb_agg(
+      pg_catalog.to_jsonb(cu) ORDER BY cu.issue_command_id)::text,'[]'),
+      'UTF8')),'hex')
+    FROM hft.employee_custody cu
+    WHERE cu.legal_entity_id=f.legal_entity_id
+      AND cu.warehouse_id=f.warehouse_id
+      AND cu.item_code=f.item_code
+      AND cu.product_version_code=f.product_version_code),
  'serial',(SELECT pg_catalog.to_jsonb(s) FROM hft.serial_registry s
     WHERE f.control_type='SERIAL' AND s.legal_entity_id=f.legal_entity_id
      AND s.item_code=f.item_code AND s.serial_no=f.serial_no),
