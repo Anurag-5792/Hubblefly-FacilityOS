@@ -18,7 +18,7 @@
  *
  * No automatic retries; unknown COMMIT is held for original-nonce recovery.
  */
-import {readFileSync} from 'node:fs';
+import {readFileSync,lstatSync} from 'node:fs';
 import {Client} from 'pg';
 import {createHash,X509Certificate} from 'node:crypto';
 import {isIP} from 'node:net';
@@ -35,6 +35,13 @@ function assert(condition,code){if(!condition)fail(code);}
 function object(x,code){
  assert(x!==null&&typeof x==='object'&&!Array.isArray(x),code);
  return x;
+}
+function readPrivateFile(path,label){
+ const st=lstatSync(path);
+ assert(st.isFile()&&!st.isSymbolicLink()&&(st.mode&0o077)===0&&
+  (typeof process.getuid!=='function'||st.uid===process.getuid()),
+  'PRIVATE_'+label+'_OWNERSHIP_OR_MODE_REQUIRED');
+ return readFileSync(path,'utf8');
 }
 function positiveMicro(x){assert(typeof x==='string'&&/^[1-9][0-9]*$/.test(x),'POSITIVE_MICRO_REQUIRED');return BigInt(x);}
 function signedQuantity(micro){
@@ -62,7 +69,7 @@ function readPair(pair,intent,fixture,limit){
  return x;
 }
 function fixtureFromFile(caseId){
- const f=object(JSON.parse(readFileSync(process.env.HFT_R77_FIXTURE_FILE,'utf8')),
+ const f=object(JSON.parse(readPrivateFile(process.env.HFT_R77_FIXTURE_FILE,'FIXTURE')),
   'FIXTURE_JSON_REQUIRED');
  assert(f.contractVersion==='HFT-R77-PG18-RECEIVE-ADMISSION-V2'&&
   f.caseId===caseId&&uuid.test(f.fixtureId),'EXACT_ADMISSION_CONTRACT_REQUIRED');
@@ -122,7 +129,7 @@ function fixtureFromFile(caseId){
  return f;
 }
 function validatedCa(){
- const pem=readFileSync(process.env.HFT_R77_PG_CA_FILE,'utf8');
+ const pem=readPrivateFile(process.env.HFT_R77_PG_CA_FILE,'APPROVED_CA');
  const rx=/-----BEGIN CERTIFICATE-----[\\s\\S]*?-----END CERTIFICATE-----/g;
  const parts=[...pem.matchAll(rx)].map(x=>x[0]);
  assert(parts.length>0&&parts.length<=8&&pem.replace(rx,'').trim()==='',
