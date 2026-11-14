@@ -2,6 +2,7 @@
  * Only POST: the existing signed-session adapter deliberately binds POST only.
  */
 import {resolveVerifiedRequestOperator} from '../../../../lib/hft/security/verified-request.ts';
+import {isRetainedMastersProfile} from '../../../../lib/hft/masters/retained-nonproduction-profile.ts';
 import {handleP3MasterRequest} from '../../../../lib/hft/masters/p3-service.ts';
 import {assertP3Environment,openP3Pool} from '../../../../lib/hft/masters/p3-database.ts';
 export const runtime='nodejs';
@@ -17,7 +18,8 @@ export async function POST(request:Request):Promise<Response>{
  if(!Number.isFinite(length)||length>16384)return reply(413,'P3_REQUEST_TOO_LARGE');
  try{
   assertP3Environment(process.env);
-  const operator=resolveVerifiedRequestOperator(request,process.env);
+  const operator=resolveVerifiedRequestOperator(request,process.env,
+   isRetainedMastersProfile(process.env)?'RETAINED_P3_MASTERS':'DEFAULT');
   const body=await request.text();
   if(body.length>16384)return reply(413,'P3_REQUEST_TOO_LARGE');
   let payload:unknown;try{payload=JSON.parse(body);}catch{return reply(400,'P3_JSON_INVALID');}
