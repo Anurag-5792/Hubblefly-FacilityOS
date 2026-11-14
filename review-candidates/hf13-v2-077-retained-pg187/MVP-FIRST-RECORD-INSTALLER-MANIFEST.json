@@ -1,0 +1,139 @@
+{
+  "schema": "HF13_V2_R77_FIRST_RECORD_MVP_INSTALLATION_V1",
+  "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
+  "delivery_goal": "One authenticated in-app P3 pending change COMMITTED and reread through a fresh application request",
+  "classification": "EXECUTABLE_SHAPED_SOURCE_CANDIDATE_UNREVIEWED_NOT_AUTHORIZED_NOT_EXECUTED",
+  "source": {
+    "repository": "Anurag-5792/Hubblefly-FacilityOS",
+    "engineering_head": "5fe71565a2b0343ffd4a2ec5a25be5e0dfce27cc",
+    "canonical_manifest_sha256": "ce51d77af4db16b8d97dcbcc10cd0472ef806f7c581b16982f95f21120fa7355",
+    "p2_original_source_sha256": "2cef3309608781a5a02ac3158d3886e847bb7d6b2acd9e5f2007ef69d21bf443",
+    "p3_original_source_sha256": "33eac12f493ca70463ffe50cfec62377e904d9a84d51e1c6eedb6797f34bb4c1"
+  },
+  "resource": {
+    "provider": "Neon",
+    "org_id": "org-broad-glade-52476265",
+    "project_id": "wandering-cake-50222227",
+    "branch_id": "br-shiny-night-b3qgsj8t",
+    "endpoint_id": "ep-hidden-fire-b324s21q",
+    "hostname": "ep-hidden-fire-b324s21q.c-4.ap-southeast-1.aws.neon.tech",
+    "database": "hft_r1_retained_masters_np077",
+    "postgres_server_version_num": 180007,
+    "sql_inspection_verified": true,
+    "provider_sql_inspection_tls": false,
+    "actual_external_runtime_tls_qualified": false
+  },
+  "canonical_revisions": [
+    [
+      "0001_hft_masters.sql",
+      "8e7253652591c5ce7ef3935d0dc8893e4f503479fa59e7748583ec9ec2215723"
+    ],
+    [
+      "0002_hft_ledger.sql",
+      "6e1981c6314b604f470c4a5d9e7c255891fc7e3f693e5cde7780ea77ff12da36"
+    ],
+    [
+      "0003_hft_workflows.sql",
+      "bf8a4987d1f3c82f3016a1d340edb79a6d238229e23f28dbc65cc75c0a181cf8"
+    ],
+    [
+      "0004_hft_posting_authority.sql",
+      "27375f432d476e8e88f8402af1970422d62de898a1fbcc91a9ec30efce79d7e2"
+    ],
+    [
+      "0005_hft_quantitative_accounts_receipts.sql",
+      "01fe977d55540b31cf6a0691e88969ecb01c63e6e25d30c75e5c06a61b70aedf"
+    ],
+    [
+      "0006_hft_posted_fact_integrity.sql",
+      "664c7fcb57bbc699cc8cd727046e8a1048ecb89792d27abe1dd3aef024754044"
+    ]
+  ],
+  "executable_candidate_files": [
+    {
+      "stage": 10,
+      "actor": "qualified Neon DBA",
+      "file": "10-MVP-DBA-ROLES-EXECUTABLE-CANDIDATE.sql",
+      "sha256": "17ad4b1df169c9a262609ebb5c67813d73e4fa43906f01270217552388f9ba8d",
+      "description": "Create only restricted NOLOGIN groups and credentialless installer/P3/bootstrap logins; no password enrollment"
+    },
+    {
+      "stage": 20,
+      "actor": "qualified migration login hft_engineering",
+      "file": "20-MVP-PGCRYPTO-EXECUTABLE-CANDIDATE.sql",
+      "sha256": "7c55a466ef1ddd0341c260b431e83664137872731f2eb4925e07ac7cbc149d6f",
+      "description": "Install restricted hft_crypto pgcrypto extension after approved canonical 0001..0006"
+    },
+    {
+      "stage": 25,
+      "actor": "qualified migration login hft_engineering",
+      "file": "25-MVP-P2-IDENTITY-EXECUTABLE-CANDIDATE.sql",
+      "sha256": "ef5ac3fff5d11034f62ed285c59430c71d401b1dd71b9385c12019213398055c",
+      "description": "P3-specific posting_session, human mapping, revocation and exact MAC length-prefixed codec, NO stock writer"
+    },
+    {
+      "stage": 40,
+      "actor": "qualified migration login hft_engineering",
+      "file": "40-CORPORATE-BOOTSTRAP-INSTALL-CANDIDATE.sql",
+      "sha256": "1c3f2d9e082ec6121adb173834ed224c39cbdbf825942a00f8cabbbd3bb76a79",
+      "description": "Install corporate first-scope function/tables; NOT enrolling order or signing material"
+    },
+    {
+      "stage": 50,
+      "actor": "qualified migration login hft_engineering",
+      "file": "50-RETAINED-P3-INSTALL-CANDIDATE.sql",
+      "sha256": "2062447980c8bdfd46f9bb0d77e840569244c7afd5b96e1b4078b28bfefba4ce",
+      "description": "Install P3 request/read/Employee-decision functions and P3 owner ACL; no nonemployee APPLY"
+    },
+    {
+      "stage": 75,
+      "actor": "qualified migration login hft_engineering",
+      "file": "75-MVP-P3-CORPORATE-ACL-EXECUTABLE-CANDIDATE.sql",
+      "sha256": "95d3b5be18732896baf2e4e9bb4df277a2ca1c178a77cdb47ec7b380381478c8",
+      "description": "Corporate NOLOGIN function-owner transfer/only approved bootstrap EXECUTE; no stock/new master APPLY grants"
+    },
+    {
+      "stage": 85,
+      "actor": "qualified Neon DBA",
+      "file": "85-MVP-DBA-CLOSE-EXECUTABLE-CANDIDATE.sql",
+      "sha256": "4c6d42ff0204f79f6c729e0fbf6827a3b92f67759a5cec8f7566ad553e5df1d2",
+      "description": "After separately approved original first-scope bootstrap: revoke temporary owner memberships and disable installer and corporate one-time login"
+    }
+  ],
+  "mandatory_order": [
+    "00 independent source and resource admission, actual remote TLS, hostname/CA/SQL session and encrypted baseline + controlled restoration route",
+    "10 approved DBA roles (no passwords in SQL) and separately enrolled managed installer credentials",
+    "15 canonical 0001–0006 with exact hash-bound REMOTE installation transport and readback",
+    "20 restricted pgcrypto in hft_crypto",
+    "25 isolated P3-only P2 session/human proof codec prerequisites",
+    "40 corporate first legal entity/site/warehouse protected bootstrap function DDL",
+    "50 base P3 request/read and employee decision SQL",
+    "75 minimal corporate function owner/grants closure",
+    "76 independently attested corporate real original enrollment, HMAC key/session and first active scope bootstrap: SEPARATE CONTROLLED DATA OPERATION",
+    "77 verified issuer, governed identity/scope/policy; independently signed REQUEST read and Employee decision key enrollment",
+    "80 secure migration-owner/one-time-bootstrap role close",
+    "81 baseline backup checksum independent protected custody and restore drill as admitted for nonprod",
+    "90 bounded Vercel preview API binding and actual authenticated PENDING request and fresh readback, denial, duplicate test"
+  ],
+  "source_only_stop_versions_intact": true,
+  "excluded_from_first_record": [
+    "60-NONEMPLOYEE-APPLY-INSTALL-CANDIDATE.sql",
+    "70-OWNER-ACL-CLOSURE-STOP-GUARDED.sql",
+    "OPS-A2 R77 gateway and stock RECEIVE",
+    "Production deployment",
+    "Item activation/photo certification",
+    "Unrelated QA matrices"
+  ],
+  "existing_deployment": {
+    "team_id": "team_GZjiGpLO7uRSKAEfW18JkCWS",
+    "project_id": "prj_6KRIqjoTbLlVMUWOmWIid56U4BAf",
+    "preview_branch": "engineering/hft-r1-stores-foundation",
+    "retained_env_bound": false,
+    "confirmed_auth_flow": false
+  },
+  "real_sql_execution": false,
+  "original_scope_enrolled": false,
+  "signing_credentials_enrolled": false,
+  "owner_ui_persistence_verified": false,
+  "permission_note": "Project creation was authorized and completed; no role, migration, extension, signing, corporate data, backup, environment-variable or deployment operations are authorized by that prior approval."
+}
