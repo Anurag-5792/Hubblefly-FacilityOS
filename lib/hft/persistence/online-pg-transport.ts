@@ -76,7 +76,7 @@ export function assertOnlinePgTransport(
  }else if(!p2||p2===p3)
   throw Error('HFT_ONLINE_DB_SEPARATE_ROLES_REQUIRED');
  const login=duty==='P2_STORES'?p2:p3;
- if(!roleName.test(login)||forbiddenRoles.has(login)||
+ if(!login||!roleName.test(login)||forbiddenRoles.has(login)||
   /(_owner|_admin|_superuser)$/.test(login))
   throw Error('HFT_ONLINE_DB_RUNTIME_ROLE_INVALID');
  const password=duty==='P2_STORES'?
