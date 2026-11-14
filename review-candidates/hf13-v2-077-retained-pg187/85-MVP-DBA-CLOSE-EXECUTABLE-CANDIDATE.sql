@@ -18,8 +18,9 @@ DO $HF13_MVP_CLOSE_PREFLIGHT$ BEGIN
  OR pg_has_role('hft_r1_retained_p3_login','hft_r1_p3_master_owner','MEMBER')
  OR has_table_privilege('hft_r1_retained_p3_login','hft.stock_entry','INSERT,UPDATE,DELETE')
  OR has_table_privilege('hft_r1_retained_p3_login','hft.stock_account','INSERT,UPDATE,DELETE')
- OR has_function_privilege('hft_r1_retained_p3_login',
-     'hft.ops_a2_post_stock_command_v2(jsonb,jsonb)','EXECUTE')
+ OR EXISTS(SELECT 1 FROM pg_proc p
+   WHERE p.oid=to_regprocedure('hft.ops_a2_post_stock_command_v2(jsonb,jsonb)')
+   AND has_function_privilege('hft_r1_retained_p3_login',p.oid,'EXECUTE'))
  THEN RAISE EXCEPTION 'HF13_MVP_PRIVILEGED_ROLE_OR_RUNTIME_LEAK'; END IF;
 END $HF13_MVP_CLOSE_PREFLIGHT$;
 REVOKE CREATE ON DATABASE hft_r1_retained_masters_np077 FROM hft_engineering;
