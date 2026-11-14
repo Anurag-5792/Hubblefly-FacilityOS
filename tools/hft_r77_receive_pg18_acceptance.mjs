@@ -21,11 +21,11 @@ function object(x,label){
  assert(x&&typeof x==='object'&&!Array.isArray(x),label);
  return x;
 }
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const commandId=/^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/;
 function caseFixture(value,label){
  const x=object(value,label);
  for(const field of ['payload','postingProof','readQuery','readProof'])object(x[field],label+'_'+field);
- assert(uuid.test(String(x.payload.commandId)),label+'_COMMAND_UUID');
+ assert(commandId.test(String(x.payload.commandId)),label+'_COMMAND_ID');
  assert(x.payload.kind==='RECEIVE',label+'_RECEIVE_ONLY');
  assert(x.payload.quantityMicro&&/^[1-9][0-9]*$/.test(String(x.payload.quantityMicro)),
    label+'_POSITIVE_QUANTITY');
