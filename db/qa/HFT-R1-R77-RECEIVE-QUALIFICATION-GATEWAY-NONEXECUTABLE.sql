@@ -41,9 +41,16 @@ CREATE TABLE hft_qa077.receive_fixture_v1(
  expected_quantity_micro bigint NOT NULL CHECK(expected_quantity_micro>0),
  approval_id text NOT NULL,approval_revision bigint NOT NULL,
  invoice_evidence_sha256 text NOT NULL
-  CHECK(invoice_evidence_sha256~'^[0-9a-f]{64}  CHECK(approval_decision_sha256~'^[0-9a-f]{64}$'),
+  CHECK(invoice_evidence_sha256~'^[0-9a-f]{64}$'),
+ qc_evidence_sha256 text NOT NULL
+  CHECK(qc_evidence_sha256~'^[0-9a-f]{64}$'),
+ physical_receipt_evidence_sha256 text NOT NULL
+  CHECK(physical_receipt_evidence_sha256~'^[0-9a-f]{64}$'),
+ approval_decision_sha256 text NOT NULL
+  CHECK(approval_decision_sha256~'^[0-9a-f]{64}$'),
  approved_resource_sha256 text NOT NULL
-  CHECK(approved_resource_sha256~'^[0-9a-f]{64}
+  CHECK(approved_resource_sha256~'^[0-9a-f]{64}$'),
+ approved_migration_sha256 text NOT NULL
   CHECK(approved_migration_sha256~'^[0-9a-f]{64}$'),
  approved_acl_sha256 text NOT NULL
   CHECK(approved_acl_sha256~'^[0-9a-f]{64}$'),
@@ -54,8 +61,10 @@ CREATE TABLE hft_qa077.receive_fixture_v1(
  admitted_at timestamptz NOT NULL,expires_at timestamptz NOT NULL,
  CHECK(expires_at>admitted_at),
  CHECK((case_id IN('INVALID_ACTOR','WRONG_BIN','CHANGED_QUANTITY',
-        'FORGED_RECEIPT','INVALID_APPROVAL','REPLAY')
-        AND expected_rejection~'^OPS_A2_[A-Z0-9_]+
+    'FORGED_RECEIPT','INVALID_APPROVAL','REPLAY')
+    AND expected_rejection~'^OPS_A2_[A-Z0-9_]+$')
+   OR (case_id IN('BULK_5','SERIAL_1','LATE_ROLLBACK')
+    AND expected_rejection IS NULL)),
  CHECK((case_id='BULK_5' AND expected_quantity_micro=5000000
         AND control_type<>'SERIAL') OR
        (case_id='SERIAL_1' AND expected_quantity_micro=1000000
@@ -163,6 +172,7 @@ BEGIN
   GET STACKED DIAGNOSTICS sqlstate_seen=RETURNED_SQLSTATE,
     message_seen=MESSAGE_TEXT;
   IF sqlstate_seen='42501' OR sqlstate_seen='42883'
+   OR message_seen IS DISTINCT FROM f.expected_rejection
    OR message_seen LIKE 'R77_%'
   THEN RAISE EXCEPTION 'R77_NEGATIVE_GATEWAY_OR_PRIVILEGE_FAILURE'; END IF;
   RETURN pg_catalog.jsonb_build_object(
@@ -230,12 +240,18 @@ BEGIN
  'database',pg_catalog.current_database(),
  'sessionUser',session_user,'fixtureId',p_fixture,'caseId',p_case,
  'independentAdmissionSha256',f.independent_admission_sha256,
+ 'resourceSha256',f.approved_resource_sha256,
  'migrationSha256',f.approved_migration_sha256,
  'aclSha256',f.approved_acl_sha256,
+ 'invoiceEvidenceSha256',f.invoice_evidence_sha256,
+ 'qcEvidenceSha256',f.qc_evidence_sha256,
+ 'physicalReceiptEvidenceSha256',f.physical_receipt_evidence_sha256,
+ 'expectedReject',f.expected_rejection,
  'grn',(SELECT pg_catalog.jsonb_build_object(
    'status',g.status,'authorizationRevision',g.authorization_revision,
    'authorizedBy',g.authorized_by,'invoiceId',g.invoice_id,
-   'physicalReceiptId',g.physical_receipt_id)
+   'physicalReceiptId',g.physical_receipt_id,
+   'supplierId',g.supplier_id,'invoiceKey',g.invoice_key)
    FROM hft.grn g WHERE g.id=f.grn_id AND g.legal_entity_id=f.legal_entity_id
     AND g.warehouse_id=f.warehouse_id),
  'allGrnLines',(SELECT pg_catalog.coalesce(pg_catalog.jsonb_agg(
@@ -297,6 +313,15 @@ BEGIN
    FROM hft.stock_account a WHERE a.id=f.account_uuid
     AND a.legal_entity_id=f.legal_entity_id AND a.site_id=f.site_id
     AND a.warehouse_id=f.warehouse_id),
+ 'custodySha256',(SELECT pg_catalog.encode(pg_catalog.sha256(
+    pg_catalog.convert_to(COALESCE(pg_catalog.jsonb_agg(
+      pg_catalog.to_jsonb(cu) ORDER BY cu.issue_command_id)::text,'[]'),
+      'UTF8')),'hex')
+    FROM hft.employee_custody cu
+    WHERE cu.legal_entity_id=f.legal_entity_id
+      AND cu.warehouse_id=f.warehouse_id
+      AND cu.item_code=f.item_code
+      AND cu.product_version_code=f.product_version_code),
  'serial',(SELECT pg_catalog.to_jsonb(s) FROM hft.serial_registry s
     WHERE f.control_type='SERIAL' AND s.legal_entity_id=f.legal_entity_id
      AND s.item_code=f.item_code AND s.serial_no=f.serial_no),
@@ -384,25 +409,24 @@ REVOKE ALL ON FUNCTION
  hft_qa077.reconcile_receive_v1(uuid,text,jsonb,jsonb,jsonb,jsonb)
  FROM PUBLIC,hft_r1_app_runtime;
 
--- A STOP removal alone is NEVER an admissible installer transformation.
--- Fail even after every body compiles unless exact independent nonlogin
--- owner transfers and isolated protected grants have already been applied
--- in the same approved installation transaction.
+-- STOP removal alone is never an approved installer transformation. Exact
+-- independent NOLOGIN owner and restricted ACL must be installed in the
+-- same separately approved disposable installation transaction.
 DO $r77_qualified_gateway_postflight$
 DECLARE owner_ok integer;
 BEGIN
- SELECT count(*) INTO owner_ok FROM pg_catalog.pg_proc AS p
- JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace
- JOIN pg_catalog.pg_roles AS r ON r.oid=p.proowner
- WHERE n.nspname='hft_qa077' AND
- p.proname IN('post_receive_v1','challenge_receive_v1',
+ SELECT count(*) INTO owner_ok FROM pg_catalog.pg_proc p
+ JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+ JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
+ WHERE n.nspname='hft_qa077'
+ AND p.proname IN('post_receive_v1','challenge_receive_v1',
    'read_receive_v1','observe_receive_v1','reconcile_receive_v1')
  AND p.prosecdef AND r.rolname='hft_r77_gateway_owner';
- IF owner_ok<>5 OR
-  NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles
+ IF owner_ok<>5
+ OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles
    WHERE rolname='hft_r77_gateway_owner'
-    AND NOT rolcanlogin AND NOT rolinherit AND NOT rolsuper
-    AND NOT rolbypassrls AND NOT rolcreatedb AND NOT rolcreaterole)
+   AND NOT rolcanlogin AND NOT rolinherit AND NOT rolsuper
+   AND NOT rolbypassrls AND NOT rolcreatedb AND NOT rolcreaterole)
  OR pg_catalog.pg_has_role('hft_r77_gateway_owner',
    'hft_r1_posting_owner','MEMBER')
  OR pg_catalog.has_table_privilege('hft_r77_gateway_owner',
