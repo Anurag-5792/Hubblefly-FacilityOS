@@ -39,7 +39,8 @@ by the driver or inferred from the applicant's strings. Decision
 
 Chat 10 and Chat 13 must independently verify and admit the SHA-256 of
 the **exact executable approved migration**, **exact approved role/ACL
-installation**, and independently signed fixture admission, and privately
+installation**, the **PostgreSQL 18.6 disposable resource attestation**,
+ and independently signed fixture admission, and privately
 insert the matching `hft_qa077.receive_fixture_v1` row with original
 payload and SHA-256 of the original posting-proof JSONB. These hashes and
 `admission_authority` fields are **attestation inputs, not self-validating
@@ -72,6 +73,14 @@ session token or recovery entitlement.
 
 After independent admission, invoke one case at a time with:
 `node tools/hft_r77_receive_pg18_acceptance.mjs --execute --case BULK_5`.
+The driver requires `HFT_R77_APPROVED_RESOURCE_SHA256` equal to the
+independent resource-admission SHA in both private fixture and registered
+database observation. It supports `HFT_R77_TRANSPORT=LOCAL_TLS` with
+`PGHOST=127.0.0.1`, or `HFT_R77_TRANSPORT=ONLINE_TLS` with
+`PGHOST=HFT_R77_APPROVED_ENDPOINT_HOST`; both require verified CA,
+`PGSSLMODE=verify-full`, an approved backend port and exact attested
+database/session identity. These environment values do not replace the
+separately signed resource admission.
 The driver requires independently qualified disposable DB identity,
 PostgreSQL 18.6, verified TLS, exact gateway ownership and no forbidden
 direct function EXECUTE. It does not install or enroll anything.
