@@ -143,7 +143,10 @@
         "sha256",
         "migrationSha256",
         "aclSha256",
-        "approvalDecisionSha256"
+        "approvalDecisionSha256",
+        "invoiceEvidenceSha256",
+        "qcEvidenceSha256",
+        "physicalReceiptEvidenceSha256"
       ],
       "properties": {
         "qaLogin": {
@@ -172,6 +175,27 @@
           }
         },
         "approvalDecisionSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "invoiceEvidenceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "qcEvidenceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "physicalReceiptEvidenceSha256": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$",
           "not": {
