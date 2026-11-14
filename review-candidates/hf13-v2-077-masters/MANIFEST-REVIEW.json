@@ -1,0 +1,90 @@
+{
+  "schema": "HF13_V2_077_RETAINED_MASTERS_REVIEW_MANIFEST_V1",
+  "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
+  "source_head": "5b45cc3fe9f62b56906a0820afcf1397f7b7f254",
+  "branch": "review/hf13-v2-077-masters-activation",
+  "status": "RESOURCE_NOT_AUTHORIZED_NOT_CREATED_SQL_NOT_REVIEWED_NOT_INSTALLED_NOT_TESTED",
+  "independent_source": {
+    "p3_path": "db/security/HFT-R1-P3-MASTERS-REVIEW.sql",
+    "p3_sha256": "33eac12f493ca70463ffe50cfec62377e904d9a84d51e1c6eedb6797f34bb4c1",
+    "canonical_migration_manifest": "db/migrations/manifest.v1.json",
+    "sha256": "ce51d77af4db16b8d97dcbcc10cd0472ef806f7c581b16982f95f21120fa7355"
+  },
+  "artifacts": [
+    {
+      "name": "10-NEON-RESOURCE-REQUEST.json",
+      "sha256": "1d70373e1b0ed6439fa1cac67376d67468e14bb809c12a33c54c4f5ec9184f54"
+    },
+    {
+      "name": "15-RESOURCE-IDENTITY-READONLY.sql",
+      "sha256": "f5615b33e77bf5605a62616377907e1416b980af62806eba9118eeae20b26873"
+    },
+    {
+      "name": "20-INSTALLATION-DEPLOYMENT-AND-UI-ACCEPTANCE.md",
+      "sha256": "741bac2d003a54e4f943bf3fa4a6bc6697f4a272941c3e306d2ef27f4a01e645"
+    },
+    {
+      "name": "50-P3-RETAINED-EXECUTABLE-REVIEW.sql",
+      "sha256": "acbe2b778c30b3cc044be7d3ff028f88977f26c195baaa6b5392ba77234b0389",
+      "reviewed": false,
+      "approved": false,
+      "postgresql_executed": false,
+      "derivation": "Exact source with one disposable naming guard replaced with retained naming guard and an added exact resource/TLS/PG18.6/all-six-revision/no-stock preflight; original source untouched"
+    },
+    {
+      "name": "60-INDEPENDENT-READ-ONLY-POSTFLIGHT.sql",
+      "sha256": "7e6ba590c56939e6aa52c2ba2095e3d276168e3d4a800d0575f73f5f8b22e5b5",
+      "postgresql_executed": false
+    }
+  ],
+  "resource_request": {
+    "provider": "Neon",
+    "org_id": "org-broad-glade-52476265",
+    "region_id": "aws-ap-southeast-1",
+    "new_project_name": "hft-r1-masters-retained-np-077",
+    "new_database": "hft_r1_retained_masters_np077",
+    "project_id": null,
+    "branch_id": null,
+    "compute_id": null,
+    "endpoint": null,
+    "authorization": "PENDING",
+    "created": false
+  },
+  "hard_preconditions": [
+    "Independent resource approval + data residency acceptance",
+    "Live provider project/branch/endpoint identities",
+    "PG 18.6 exact back-end session + authenticated hostname/TLS",
+    "Independent signed canonical migration/remote transport admission",
+    "Qualified P2/pgcrypto/roles and P3 SQL review",
+    "Signed session and P3 request/decision HMAC key custody",
+    "Independent legal entity/site/first active warehouse bootstrap",
+    "Separate baseline backup and independent restore",
+    "Scoped deployment binding and two-person real UI acceptance",
+    "NonEmployee APPLY paths source not complete"
+  ],
+  "runtime_gate": {
+    "retained_profile": "HFT_R1_RETAINED_NONPRODUCTION_MASTERS_V1",
+    "stock_posting": false,
+    "allowed_paths": [
+      "/stores/masters",
+      "/stores/masters/approvals",
+      "POST /api/hft/masters",
+      "POST /api/hft/masters/decision"
+    ]
+  },
+  "current_capabilities": {
+    "employee_source_apply_candidate": true,
+    "nonemployee_active_apply": false,
+    "pending_requests_source": true,
+    "owner_ui_verified": false,
+    "backup_verified": false
+  },
+  "r77_independent_workstream": {
+    "review_branch": "review/hf13-v2-077-r77-installer-candidate",
+    "review_head": "f1c1dfa730019adc564cc2f72cb571a54453bc5a",
+    "source_sha": "d6d499154d98c5dd2200c6fb4e6e9a4248ddce5b",
+    "installation_authorized": false,
+    "postgresql_executed": false
+  },
+  "production_no_go": true
+}
