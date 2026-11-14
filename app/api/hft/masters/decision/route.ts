@@ -39,7 +39,8 @@ export async function POST(request:Request):Promise<Response>{
   if(code.includes('COMMIT_OUTCOME_UNCERTAIN')||
      code==='P3_COMMITTED_EMPLOYEE_APPLY_READBACK_REQUIRED_NO_RETRY')
    return denial(409,'P3_EMPLOYEE_DECISION_COMMIT_OR_READBACK_UNCERTAIN_NO_RETRY');
-  if(code.includes('SIGNER')||code.includes('P3_ISOLATED_DATABASE')||
+  if(code.startsWith('P3_RETAINED_')||code.startsWith('HFT_ONLINE_DB_')||
+     code.includes('SIGNER')||code.includes('P3_ISOLATED_DATABASE')||
     code.includes('P3_DATABASE_CREDENTIAL')||code.includes('DRIVER_NOT_INSTALLED')||
     code.includes('PRODUCTION_STARTUP')||code.includes('VERIFIED_AUTH_SOURCE'))
    return denial(503,'P3_APPROVAL_AUTHORITY_NOT_QUALIFIED');
