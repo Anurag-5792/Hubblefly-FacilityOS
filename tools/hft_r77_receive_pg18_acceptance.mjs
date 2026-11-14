@@ -207,6 +207,19 @@ async function identity(c){
  pg_catalog.has_schema_privilege(session_user,'hft_qa077','CREATE') AS qa_schema_create,
  pg_catalog.has_table_privilege(session_user,'hft_qa077.receive_fixture_v1',
   'INSERT,UPDATE,DELETE') AS qa_fixture_dml,
+ pg_catalog.has_table_privilege(session_user,'hft.stock_account',
+  'INSERT,UPDATE,DELETE') AS qa_stock_account_dml,
+ pg_catalog.has_table_privilege(session_user,'hft.stock_entry',
+  'INSERT,UPDATE,DELETE') AS qa_stock_entry_dml,
+ pg_catalog.has_table_privilege('hft_r77_gateway_owner','hft.stock_entry',
+  'INSERT,UPDATE,DELETE') AS gateway_ledger_dml,
+ pg_catalog.has_table_privilege('hft_r77_gateway_owner','hft.stock_account',
+  'INSERT,UPDATE,DELETE') AS gateway_account_dml,
+ (SELECT count(*)::int FROM pg_catalog.pg_roles role
+  WHERE role.rolcanlogin AND role.rolname<>session_user
+   AND pg_catalog.has_function_privilege(role.rolname,
+    'hft_qa077.post_receive_v1(uuid,text,jsonb,jsonb)','EXECUTE')
+  ) AS other_login_gateway_post_execute,
  (SELECT count(*)::int FROM pg_catalog.pg_proc proc
    JOIN pg_catalog.pg_namespace ns ON ns.oid=proc.pronamespace
    JOIN pg_catalog.pg_roles owner ON owner.oid=proc.proowner
@@ -214,7 +227,7 @@ async function identity(c){
     proc.proname IN ('post_receive_v1','challenge_receive_v1',
       'read_receive_v1','observe_receive_v1','reconcile_receive_v1')
     AND proc.prosecdef AND owner.rolname='hft_r77_gateway_owner') AS qualified_owner_count,
- (SELECT NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls
+ (SELECT NOT rolcanlogin AND NOT rolinherit AND NOT rolsuper AND NOT rolbypassrls
    AND NOT rolcreaterole AND NOT rolcreatedb
    FROM pg_catalog.pg_roles
    WHERE rolname='hft_r77_gateway_owner') AS gateway_owner_safe,
@@ -243,6 +256,9 @@ async function identity(c){
   x.gateway_observer===true&&x.gateway_negative===true&&
   x.gateway_reader===true&&
   x.qa_schema_create===false&&x.qa_fixture_dml===false&&
+  x.qa_stock_account_dml===false&&x.qa_stock_entry_dml===false&&
+  x.gateway_ledger_dml===false&&x.gateway_account_dml===false&&
+  x.other_login_gateway_post_execute===0&&
   x.qualified_owner_count===5&&x.gateway_owner_safe===true&&
   x.gateway_owns_posting_owner===false&&
   x.owner_can_writer===true&&x.owner_can_recover===true&&
