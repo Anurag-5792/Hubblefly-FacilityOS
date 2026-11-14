@@ -63,4 +63,30 @@ class NonEmployeeApply077(unittest.TestCase):
   self.assertNotIn("p3_decide_apply_nonemployee_v1",service)
   middleware=(ROOT/"middleware.ts").read_text()
   self.assertNotIn("/api/hft/masters/nonemployee",middleware)
+ def test_first_scope_requires_an_independent_corporate_bootstrap_source(self):
+  file=ROOT/"db/security/HFT-R1-P3-FIRST-SCOPE-CORPORATE-BOOTSTRAP-NONEXECUTABLE.sql"
+  sql=file.read_text()
+  self.assertLess(sql.index("HFT_P3_FIRST_SCOPE_BOOTSTRAP_NOT_AUTHORIZED"),
+   sql.index("CREATE TABLE"))
+  self.assertEqual(sql.count("CREATE FUNCTION hft.p3_bootstrap_first_approved_scope_v1("),1)
+  self.assertEqual(sql.count("COMMIT;"),1)
+  for needle in ("hft_secret.p3_corporate_bootstrap_key_v1",
+   "p3_corporate_bootstrap_order_v1","p3_corporate_bootstrap_receipt_v1",
+   "maker_person_id<>approver_person_id",
+   "original_corporate_document_sha256",
+   "original_corporate_signature_sha256",
+   "independent_enrollment_sha256",
+   "HFT-R1-P3-CORPORATE-BOOTSTRAP-HMAC-V1",
+   "P3_CORPORATE_BOOTSTRAP_MAC_MISMATCH",
+   "P3_CORPORATE_BOOTSTRAP_SESSION_REVOKED",
+   "p3_corporate_bootstrap_order_immutable_v1",
+   "p3_corporate_bootstrap_receipt_immutable_v1",
+   "HFT:GATE:"): # corporate bootstrap uses independent global lock instead
+   if needle=="HFT:GATE:":
+    self.assertIn("HFT:R77:CORPORATE:BOOTSTRAP",sql)
+   else:self.assertIn(needle,sql)
+  self.assertNotIn("GRANT EXECUTE ON FUNCTION",sql)
+  self.assertNotIn("INSERT INTO hft.stock_account",sql)
+  self.assertNotIn("INSERT INTO hft.stock_entry",sql)
+  self.assertNotIn("INSERT INTO hft.p3_master_change_request",sql)
 if __name__=="__main__":unittest.main()
