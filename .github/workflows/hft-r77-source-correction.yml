@@ -20,14 +20,15 @@ jobs:
         with:
           node-version: 22.23.4
           cache: npm
-      - name: Require exact approved parent and apply only pinned source edits
+      - name: Require exact builder parent and apply only pinned source edits
         run: |
-          test "$(git rev-parse HEAD^)" = 4b192d2581542ebacafd0f6fee9e7d1b4055f8d6
+          test "$(git rev-parse HEAD^)" = 58109a5a7f7d7f3955765b890645b2b61122961e
           test -z "$(git status --porcelain)"
           python3 tools/hft_receive_r77_correct_source.py
           mv tools/r77_source_tests.py tests/test_ops_a2_receive_r77.py
           rm .github/workflows/hft-r77-source-correction.yml
-          git diff --check
+          git add -A -- db/security tests/test_ops_a2_receive_r77.py tools/r77_source_tests.py .github/workflows/hft-r77-source-correction.yml
+          git diff --cached --check
       - name: Full source regressions and production build, no database access
         run: |
           npm ci --no-audit --no-fund
@@ -46,15 +47,14 @@ jobs:
           import sys
           sys.path.insert(0,'tools')
           from hft_receive_r77_correct_source import BLOBS
-          repo='Anurag-5792/Hubblefly-FacilityOS'
-          root='https://api.github.com/repos/'+repo
+          root='https://api.github.com/repos/Anurag-5792/Hubblefly-FacilityOS'
           def api(path,data=None):
               request=urllib.request.Request(root+path,data=None if data is None else json.dumps(data).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},method='GET' if data is None else 'POST')
               with urllib.request.urlopen(request,timeout=30) as response:return json.load(response)
           head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
           if head!=os.environ['EXPECTED_HEAD']:raise SystemExit('R77_HEAD_CHANGED')
           allowed=set(BLOBS)|{'tests/test_ops_a2_receive_r77.py','tools/r77_source_tests.py','.github/workflows/hft-r77-source-correction.yml'}
-          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          changed=set(subprocess.check_output(['git','diff','HEAD','--name-only'],text=True).splitlines())
           changed.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
           if changed!=allowed:raise SystemExit('R77_UNEXPECTED_CHANGED_FILES:'+repr(changed))
           tree=[]
