@@ -20,23 +20,22 @@ jobs:
         with:
           node-version: 22.23.4
           cache: npm
-      - name: Require exact builder parent and apply only pinned source edits
+      - name: Apply pinned correction and stage exact final source tree
         run: |
-          test "$(git rev-parse HEAD^)" = 1a02b6d28958d37949ae38e19e900676eba791e3
+          test "$(git rev-parse HEAD^)" = 10f4509ca066762e698682f4740d306ecbe7649d
           test -z "$(git status --porcelain)"
           python3 tools/hft_receive_r77_correct_source.py
           mv tools/r77_source_tests.py tests/test_ops_a2_receive_r77.py
           rm .github/workflows/hft-r77-source-correction.yml
           git add -A -- db/security tests/test_ops_a2_receive_r77.py tools/r77_source_tests.py .github/workflows/hft-r77-source-correction.yml
           git diff --cached --check
-      - name: Full source regressions and production build, no database access
+      - name: Validate draft source; unchanged final-head CI separately requires Chromium
         run: |
           npm ci --no-audit --no-fund
-          npm run verify
-          node tests/browser/hft-c050-mounted.mjs
-          npm audit --omit=dev --audit-level=moderate
-          npm audit --audit-level=high
-      - name: Store validated commit object only; never move a branch or merge
+          npm run verify > /tmp/r77-source-check.log 2>&1 || { tail -100 /tmp/r77-source-check.log; exit 1; }
+          grep -E '# tests |# pass |# fail |Ran [0-9]+ tests|HYGIENE=|Compiled successfully' /tmp/r77-source-check.log
+          echo 'DRAFT_SOURCE_ONLY;FINAL_HEAD_CHROMIUM_AND_AUDITS_STILL_REQUIRED'
+      - name: Store source commit object; do not change branch, roles or database
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EXPECTED_HEAD: ${{ github.sha }}
@@ -67,5 +66,5 @@ jobs:
           tree_sha=api('/git/trees',{'base_tree':base,'tree':tree})['sha']
           commit=api('/git/commits',{'message':'fix(077): bind exact physical receipt quantity and atomically advance all-line GRN status; preserve canonical 0005/0006','tree':tree_sha,'parents':[head]})['sha']
           print('R77_VALIDATED_SOURCE_COMMIT='+commit)
-          print('R77_BRANCH_NOT_MOVED;PROTECTED_SQL_NOT_EXECUTED')
+          print('R77_BRANCH_NOT_MOVED;PROTECTED_SQL_NOT_EXECUTED;FINAL_HEAD_CI_REQUIRED')
           PY
