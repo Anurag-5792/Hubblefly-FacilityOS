@@ -5471,4 +5471,40 @@ REVOKE ALL ON FUNCTION
  hft_qa077.observe_receive_v1(uuid,text,jsonb,jsonb),
  hft_qa077.reconcile_receive_v1(uuid,text,jsonb,jsonb,jsonb,jsonb)
  FROM PUBLIC,hft_r1_app_runtime;
+
+-- A STOP removal alone is NEVER an admissible installer transformation.
+-- Fail even after every body compiles unless exact independent nonlogin
+-- owner transfers and isolated protected grants have already been applied
+-- in the same approved installation transaction.
+DO $r77_qualified_gateway_postflight$
+DECLARE owner_ok integer;
+BEGIN
+ SELECT count(*) INTO owner_ok FROM pg_catalog.pg_proc AS p
+ JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace
+ JOIN pg_catalog.pg_roles AS r ON r.oid=p.proowner
+ WHERE n.nspname='hft_qa077' AND
+ p.proname IN('post_receive_v1','challenge_receive_v1',
+   'read_receive_v1','observe_receive_v1','reconcile_receive_v1')
+ AND p.prosecdef AND r.rolname='hft_r77_gateway_owner';
+ IF owner_ok<>5 OR
+  NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles
+   WHERE rolname='hft_r77_gateway_owner'
+    AND NOT rolcanlogin AND NOT rolinherit AND NOT rolsuper
+    AND NOT rolbypassrls AND NOT rolcreatedb AND NOT rolcreaterole)
+ OR pg_catalog.pg_has_role('hft_r77_gateway_owner',
+   'hft_r1_posting_owner','MEMBER')
+ OR pg_catalog.has_table_privilege('hft_r77_gateway_owner',
+   'hft.stock_entry','INSERT,UPDATE,DELETE')
+ OR pg_catalog.has_table_privilege('hft_r77_gateway_owner',
+   'hft.stock_account','INSERT,UPDATE,DELETE')
+ OR NOT pg_catalog.has_function_privilege('hft_r77_gateway_owner',
+   'hft.ops_a2_post_stock_command_v2(jsonb,jsonb)','EXECUTE')
+ OR NOT pg_catalog.has_function_privilege('hft_r77_gateway_owner',
+   'hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)','EXECUTE')
+ OR NOT pg_catalog.has_function_privilege('hft_r77_gateway_owner',
+   'hft.ops_a2_read_authoritative_v2(jsonb,jsonb)','EXECUTE')
+ OR pg_catalog.has_function_privilege('hft_r1_app_runtime',
+   'hft.ops_a2_post_stock_command_v2(jsonb,jsonb)','EXECUTE')
+ THEN RAISE EXCEPTION 'R77_INDEPENDENT_OWNER_ROLE_AND_ACL_INSTALLER_REQUIRED'; END IF;
+END $r77_qualified_gateway_postflight$;
 COMMIT;
