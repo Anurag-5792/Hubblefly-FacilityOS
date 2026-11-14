@@ -360,6 +360,7 @@ function validatePreSource(f,x){
   x.account?.accountId===s.accountId&&
   x.account?.bin===s.physicalBin&&x.account?.kind==='AVAILABLE'&&
   x.account?.condition==='GOOD'&&
+  x.account?.itemCode===s.itemCode&&
   x.account?.productVersion===s.productVersion&&
   x.account?.serialNo===s.serialNo&&x.account?.batchNo===s.batchNo&&
   x.invoiceLine?.itemCode===s.itemCode,
@@ -376,9 +377,21 @@ function validatePreSource(f,x){
    x.sourceBinding?.status==='APPROVED'&&
    x.sourceBinding.authorizedMicro===p.quantityMicro&&
    x.sourceBinding.approvalId===s.approvalId&&
+   x.sourceBinding.approvalRevision===Number(p.approvalRevision)&&
+   x.sourceBinding.sourceRevision===Number(p.sourceRevision)&&
+   x.sourceBinding.sourceDocumentId===s.grnId&&
+   x.sourceBinding.sourceActionKey===p.sourceActionKey&&
+   x.sourceBinding.actorSubject===p.actorSubject&&
+   x.sourceBinding.approvedBy===s.approvedBy&&
    x.approval?.approved===true&&
    x.approval?.documentId===s.grnId&&
+   x.approval?.sourceActionKey===p.sourceActionKey&&
    x.approval?.quantityMicro===p.quantityMicro&&
+   x.approval?.approverSubject===s.approvedBy&&
+   x.approval?.actorSubject===p.actorSubject&&
+   x.approval?.payloadSha256===f.postingProof.payloadSha256&&
+   x.approvalDecision?.payloadSha256===f.postingProof.payloadSha256&&
+   x.approvalDecision?.sourceRevision===Number(p.sourceRevision)&&
    x.approvalDecision?.decisionEvidenceSha256===
     f.admission.approvalDecisionSha256&&
    x.approval?.inspectionEvidenceId===s.qcEvidenceId,
