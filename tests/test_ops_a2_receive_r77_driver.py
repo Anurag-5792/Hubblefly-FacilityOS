@@ -42,6 +42,9 @@ class R77ReceiveDriverContract(unittest.TestCase):
    "HFT_R77_PG_CA_FILE","direct_writer===false",
    "direct_recovery===false","direct_reader===false",
    "gateway_member===false","owner_member===false",
+   "other_login_gateway_post_execute===0",
+   "qa_stock_entry_dml===false","gateway_ledger_dml===false",
+   "resourceSha256","ONLINE_TLS","LOCAL_TLS",
    "PG_RESOURCE_OR_ACL_NOT_QUALIFIED"):
    self.assertIn(token,text)
  def test_real_distinct_5u_and_serial_fixtures_with_signed_sources(self):
@@ -55,6 +58,11 @@ class R77ReceiveDriverContract(unittest.TestCase):
   self.assertEqual(schema["properties"]["caseId"]["enum"][:2],["BULK_5","SERIAL_1"])
   self.assertIn("postingProof",schema["required"])
   self.assertEqual(len(schema["properties"]["payload"]["required"]),33)
+  self.assertIn("resourceSha256",schema["properties"]["admission"]["required"])
+  for key in ("invoiceEvidenceSha256","qcEvidenceSha256",
+              "physicalReceiptEvidenceSha256"):
+   self.assertIn(key,schema["properties"]["admission"]["required"])
+   self.assertIn(key,GATE.read_text())
   self.assertNotIn("example",schema.get("properties",{}))
  def test_true_late_posting_fault_and_complete_rollback_observer(self):
   text=DRIVER.read_text()
