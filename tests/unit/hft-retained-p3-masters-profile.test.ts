@@ -33,6 +33,7 @@ const allowed={...identityEnv,
  HFT_MASTERS_INDEPENDENT_ADMISSION_SHA256:'a'.repeat(64),
  HFT_MASTERS_APPROVED_INSTALLER_SHA256:'b'.repeat(64),
  HFT_MASTERS_APPROVED_RESOURCE_SHA256:'c'.repeat(64),
+ HFT_MASTERS_APPROVED_PG_SERVER_VERSION_NUM:'180007',
  HFT_PUBLIC_ORIGIN:url};
 function request(token=signedToken()){
  return new Request(url+'/api/hft/masters',{method:'POST',
@@ -52,6 +53,15 @@ test('retained Masters profile is separately admitted while global production st
  assert.throws(()=>assertOnlinePgTransport(allowed,'P2_STORES'),
   /DISPOSABLE_DATABASE_REQUIRED/);
 });
+test('retained P3 can be isolated without provisioning a posting login',()=>{
+ const isolated={...allowed,HFT_P2_RUNTIME_LOGIN:undefined,
+   HFT_ONLINE_P2_DB_PASSWORD:undefined};
+ assert.doesNotThrow(()=>assertP3Environment(isolated));
+ assert.equal(assertOnlinePgTransport(isolated,'P3_MASTERS').login,
+  isolated.HFT_P3_RUNTIME_LOGIN);
+ assert.throws(()=>assertOnlinePgTransport(isolated,'P2_STORES'),
+  /DISPOSABLE_DATABASE_REQUIRED/);
+});
 test('retained signed session allows only explicit Masters purpose',()=>{
  const actor=resolveVerifiedRequestOperator(request(),allowed,'RETAINED_P3_MASTERS');
  assert.equal(actor.subject,'STORE1');assert.deepEqual(actor.scope.warehouseIds,['WH1']);
@@ -67,6 +77,9 @@ test('retained production-like environment denies missing approvals, wrong DB an
   {HFT_MASTERS_INDEPENDENT_ADMISSION_SHA256:undefined},
   {HFT_MASTERS_APPROVED_RESOURCE_SHA256:'0'.repeat(64)},
   {HFT_MASTERS_APPROVED_INSTALLER_SHA256:'bad'},
+  {HFT_MASTERS_APPROVED_PG_SERVER_VERSION_NUM:undefined},
+  {HFT_MASTERS_APPROVED_PG_SERVER_VERSION_NUM:'180005'},
+  {HFT_MASTERS_APPROVED_PG_SERVER_VERSION_NUM:'170007'},
   {PGDATABASE:'hft_r1_disposable_wrongdb'},
   {HFT_MASTERS_APPROVED_PG_DATABASE:'hft_r1_retained_wrongdb'},
   {HFT_TEST_PG_DATABASE:'hft_r1_disposable_synthetic'},
