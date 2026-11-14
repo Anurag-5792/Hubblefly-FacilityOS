@@ -1,0 +1,164 @@
+{
+  "schema": "HF13_V2_077_RETAINED_MASTERS_PG187_INSTALL_REVIEW_V1",
+  "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
+  "timestamp_utc": "2026-11-14",
+  "status": "INDEPENDENT_TECHNICAL_REVIEW_REQUIRED_NO_SQL_AUTHORIZATION",
+  "engineering_source_sha": "5fe71565a2b0343ffd4a2ec5a25be5e0dfce27cc",
+  "resource": {
+    "provider": "Neon",
+    "organization_id": "org-broad-glade-52476265",
+    "project_id": "wandering-cake-50222227",
+    "branch_id": "br-shiny-night-b3qgsj8t",
+    "endpoint_id": "ep-hidden-fire-b324s21q",
+    "host": "ep-hidden-fire-b324s21q.c-4.ap-southeast-1.aws.neon.tech",
+    "database": "hft_r1_retained_masters_np077",
+    "region": "aws-ap-southeast-1",
+    "server_version_num": 180007,
+    "sql_server_version": "PostgreSQL 18.7",
+    "provider_branch_ready": true,
+    "provider_endpoint_active": true,
+    "sql_inspection": {
+      "database_login": "hft_r1_retained_masters_np077_owner",
+      "tls_enabled": false,
+      "backend_port": 5432,
+      "backend_addr": "127.0.0.1/32",
+      "hft_schema_exists": false,
+      "migrations_installed": false,
+      "p3_installed": false,
+      "p3_runtime_group_exists": false
+    },
+    "note": "Provider SQL inspection transport is plaintext loopback and not evidence of an external TLS runtime session"
+  },
+  "canonical_migration_manifest": {
+    "path": "db/migrations/manifest.v1.json",
+    "sha256": "ce51d77af4db16b8d97dcbcc10cd0472ef806f7c581b16982f95f21120fa7355",
+    "migrations": [
+      [
+        "0001_hft_masters.sql",
+        "8e7253652591c5ce7ef3935d0dc8893e4f503479fa59e7748583ec9ec2215723"
+      ],
+      [
+        "0002_hft_ledger.sql",
+        "6e1981c6314b604f470c4a5d9e7c255891fc7e3f693e5cde7780ea77ff12da36"
+      ],
+      [
+        "0003_hft_workflows.sql",
+        "bf8a4987d1f3c82f3016a1d340edb79a6d238229e23f28dbc65cc75c0a181cf8"
+      ],
+      [
+        "0004_hft_posting_authority.sql",
+        "27375f432d476e8e88f8402af1970422d62de898a1fbcc91a9ec30efce79d7e2"
+      ],
+      [
+        "0005_hft_quantitative_accounts_receipts.sql",
+        "01fe977d55540b31cf6a0691e88969ecb01c63e6e25d30c75e5c06a61b70aedf"
+      ],
+      [
+        "0006_hft_posted_fact_integrity.sql",
+        "664c7fcb57bbc699cc8cd727046e8a1048ecb89792d27abe1dd3aef024754044"
+      ]
+    ]
+  },
+  "sources": [
+    {
+      "path": "db/security/HFT-R1-P3-MASTERS-REVIEW.sql",
+      "sha256": "33eac12f493ca70463ffe50cfec62377e904d9a84d51e1c6eedb6797f34bb4c1"
+    },
+    {
+      "path": "db/security/HFT-R1-P3-FIRST-SCOPE-CORPORATE-BOOTSTRAP-NONEXECUTABLE.sql",
+      "sha256": "4167429893971703b2ad97dc9d6ef1ef1a07d3dfeccefa03f80f96993086bde3"
+    },
+    {
+      "path": "db/security/HFT-R1-P3-NONEMPLOYEE-APPLY-NONEXECUTABLE.sql",
+      "sha256": "f691866ced20c90de07cfe2c11cc6ceff19669c4a3e0e12695b076555d023c71"
+    },
+    {
+      "path": "db/security/HFT-R1-P2-ONE-WRITER-REVIEW.sql",
+      "sha256": "2cef3309608781a5a02ac3158d3886e847bb7d6b2acd9e5f2007ef69d21bf443"
+    },
+    {
+      "path": "db/security/HFT-R1-ITEM-VERSION-PHOTOS-REVIEW.sql",
+      "sha256": "b2715bd373e7ad6154ee777a3c088dff0db160d3b8abdb83233a19a2225226eb"
+    }
+  ],
+  "derived_review_sql": [
+    {
+      "stage": 40,
+      "file": "40-CORPORATE-BOOTSTRAP-INSTALL-CANDIDATE.sql",
+      "sha256": "1c3f2d9e082ec6121adb173834ed224c39cbdbf825942a00f8cabbbd3bb76a79",
+      "original_stop_source_untouched": true,
+      "postgresql_tested": false
+    },
+    {
+      "stage": 50,
+      "file": "50-RETAINED-P3-INSTALL-CANDIDATE.sql",
+      "sha256": "2062447980c8bdfd46f9bb0d77e840569244c7afd5b96e1b4078b28bfefba4ce",
+      "original_stop_source_untouched": true,
+      "postgresql_tested": false
+    },
+    {
+      "stage": 60,
+      "file": "60-NONEMPLOYEE-APPLY-INSTALL-CANDIDATE.sql",
+      "sha256": "a1db7102f5a4d90153b311ae00833fa9ccba882f5eb28697860ff3b5a0359976",
+      "original_stop_source_untouched": true,
+      "postgresql_tested": false
+    },
+    {
+      "stage": 70,
+      "file": "70-OWNER-ACL-CLOSURE-STOP-GUARDED.sql",
+      "sha256": "e8236b472296bc4135996f37af4385d72da4f04c07ad913e47a2f6e9a0671e5e",
+      "original_stop_source_untouched": true,
+      "postgresql_tested": false
+    }
+  ],
+  "order": [
+    "00 independently signed resource+PG18.7+TLS identity; explicit protected migration technical admission",
+    "10 independently signed remote canonical 0001-0006 migration installation (existing runner is disposable loopback only)",
+    "20 restricted roles/pgcrypto/P2 session, codec, custody and default ACL (reviewed dependency boundary; NO stock runtime)",
+    "30 exact corporate governance enrollment with original signer and signed order, key custody separate",
+    "40 corporate bootstrap function install and restricted ACL; execute separately admitted original first active entity/site/warehouse bootstrap",
+    "50 retained P3 base install and qualified Employee approval; fresh independent readback",
+    "60 nonemployee function install then explicit ACL and authenticated route/service extension only after independent Chat 10/11/17 acceptance",
+    "70 exact role/ACL closure, live-login denials, runtime function allowlist and authenticated TLS postflight",
+    "80 encrypted custom pg_dump and independently verified restore before owner data entry",
+    "90 scoped Vercel preview binding, real two-person UI save/read/edit, restart persistence"
+  ],
+  "role_preconditions": [
+    "separate migration login hft_engineering must be admitted remotely; existing Neon initial owner never app runtime",
+    "hft_r1_p3_master_owner NOLOGIN",
+    "hft_r1_p3_master_runtime NOLOGIN",
+    "hft_r1_p3_corporate_bootstrap_owner NOLOGIN",
+    "hft_r1_p3_corporate_bootstrap_runtime NOLOGIN",
+    "dedicated first-scope corporate bootstrap LOGIN",
+    "hft_r1_retained_p3_login restricted LOGIN",
+    "P2 posting owner, audit verifier and governance issuer NOLOGIN with no direct stock runtime"
+  ],
+  "declared_but_not_proven": [
+    "Exact protected P2+P0 and pgcrypto dependencies",
+    "Independent original corporate signed bootstrap and role enrollment",
+    "No runtime/owner SET ROLE or inherited protected table DML",
+    "Schema parse/DDL compilation and postflight on target PG18.7",
+    "Signed auth/session issuer and protected HMAC key custody",
+    "Runtime fresh readback and restart persistence",
+    "Encrypted backup/restore independent verification"
+  ],
+  "deployment": {
+    "team_id": "team_GZjiGpLO7uRSKAEfW18JkCWS",
+    "vercel_project_id": "prj_6KRIqjoTbLlVMUWOmWIid56U4BAf",
+    "preview_ready_source_sha": "5fe71565a2b0343ffd4a2ec5a25be5e0dfce27cc",
+    "preview_url": "hubblefly-facility-d0dl7t30e-drone-destination.vercel.app",
+    "verified_database_binding": false,
+    "stock_routes_disabled": true
+  },
+  "permissions": {
+    "resource_creation_authorized_and_completed": true,
+    "sql_installation_authorized": false,
+    "role_grants_authorized": false,
+    "key_enrollment_authorized": false,
+    "deployment_authorized": false,
+    "stock_posting_authorized": false
+  },
+  "gate_r": "HOLD",
+  "gate_a": "HOLD",
+  "production": "NO-GO"
+}
