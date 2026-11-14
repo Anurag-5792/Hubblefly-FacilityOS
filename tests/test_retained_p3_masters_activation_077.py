@@ -36,7 +36,7 @@ class RetainedMastersSourceR77(unittest.TestCase):
     sql.index("CREATE TABLE"))
    self.assertIn("hft_r1_retained_",sql)
    self.assertNotIn("hft_r1_disposable_",sql)
-   self.assertEqual(sql.count("hft.p3_decide_apply_employee_v1("),2)
+   self.assertEqual(sql.count("hft.p3_decide_apply_employee_v1("),5)
    self.assertEqual(sql.count("CREATE FUNCTION hft.p3_submit_master_change_v1("),1)
    self.assertEqual(sql.count("CREATE FUNCTION hft.p3_decide_apply_employee_v1("),1)
    self.assertIn("P3_ELIGIBLE_INDEPENDENT_PERSON_REQUIRED",sql)
