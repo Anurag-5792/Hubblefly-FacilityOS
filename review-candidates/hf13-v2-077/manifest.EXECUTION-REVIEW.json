@@ -1,0 +1,176 @@
+{
+  "schema": "HF13_V2_R77_EXECUTABLE_CANDIDATE_MANIFEST_V1",
+  "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
+  "state": "SOURCE_CANDIDATE_UNREVIEWED_NOT_AUTHORIZED_NOT_EXECUTED",
+  "repo": "Anurag-5792/Hubblefly-FacilityOS",
+  "independent_review_frozen_sha": "ae01e3a2e567095bfeb5bbf23f7f626e37d26fba",
+  "exact_source_sha": "d6d499154d98c5dd2200c6fb4e6e9a4248ddce5b",
+  "candidate_branch": "review/hf13-v2-077-r77-installer-candidate",
+  "original_sources_unchanged": true,
+  "canonical_manifest": {
+    "path": "db/migrations/manifest.v1.json",
+    "sha256": "ce51d77af4db16b8d97dcbcc10cd0472ef806f7c581b16982f95f21120fa7355",
+    "migrations": [
+      [
+        "0001_hft_masters.sql",
+        "8e7253652591c5ce7ef3935d0dc8893e4f503479fa59e7748583ec9ec2215723"
+      ],
+      [
+        "0002_hft_ledger.sql",
+        "6e1981c6314b604f470c4a5d9e7c255891fc7e3f693e5cde7780ea77ff12da36"
+      ],
+      [
+        "0003_hft_workflows.sql",
+        "bf8a4987d1f3c82f3016a1d340edb79a6d238229e23f28dbc65cc75c0a181cf8"
+      ],
+      [
+        "0004_hft_posting_authority.sql",
+        "27375f432d476e8e88f8402af1970422d62de898a1fbcc91a9ec30efce79d7e2"
+      ],
+      [
+        "0005_hft_quantitative_accounts_receipts.sql",
+        "01fe977d55540b31cf6a0691e88969ecb01c63e6e25d30c75e5c06a61b70aedf"
+      ],
+      [
+        "0006_hft_posted_fact_integrity.sql",
+        "664c7fcb57bbc699cc8cd727046e8a1048ecb89792d27abe1dd3aef024754044"
+      ]
+    ]
+  },
+  "source_dependencies": [
+    [
+      "db/security/HFT-R1-P2-ONE-WRITER-REVIEW.sql",
+      "2cef3309608781a5a02ac3158d3886e847bb7d6b2acd9e5f2007ef69d21bf443"
+    ],
+    [
+      "db/security/HFT-R1-ITEM-VERSION-PHOTOS-REVIEW.sql",
+      "b2715bd373e7ad6154ee777a3c088dff0db160d3b8abdb83233a19a2225226eb"
+    ],
+    [
+      "db/security/HFT-R1-P3-MASTERS-REVIEW.sql",
+      "33eac12f493ca70463ffe50cfec62377e904d9a84d51e1c6eedb6797f34bb4c1"
+    ],
+    [
+      "db/security/HFT-R1-P0-STORES-PERSISTENCE-REVIEW.sql",
+      "ebc1390a612c1d4b1bc61ef33bd83dbd8173ea7dfb5a6709610778161ddd2a11"
+    ]
+  ],
+  "derived_files": [
+    {
+      "stage": 50,
+      "path": "50-ops-a-versioned-EXECUTABLE-CANDIDATE.sql",
+      "source": "db/security/HFT-R1-OPS-A-VERSIONED-FORWARD-NONEXECUTABLE-CANDIDATE.sql",
+      "source_sha256": "0ae129e297b5363f1549783e729ee0d66e8de7ed2bec97e3e524fc819880acb7",
+      "sha256": "c7e5ebe9020c45661344236ba1e8cda9cf16ecdf30d2be9823543175db56da54"
+    },
+    {
+      "stage": 60,
+      "path": "60-ops-a2-consolidated-EXECUTABLE-CANDIDATE.sql",
+      "source": "db/security/HFT-R1-OPS-A2-PG18-CONSOLIDATED-FORWARD-NONEXECUTABLE.sql",
+      "source_sha256": "d5b8bec248fa69151fcf25cdf8c7a33806c01fbff829e725ac0b449e6797e47e",
+      "sha256": "f15b85ef582c17c922a87b9f2b70ecd05300c99af90b58e43c9d7ed44c3e4dbb"
+    },
+    {
+      "stage": 70,
+      "path": "70-r77-gateway-ACL-EXECUTABLE-CANDIDATE.sql",
+      "source": "db/qa/HFT-R1-R77-RECEIVE-QUALIFICATION-GATEWAY-NONEXECUTABLE.sql",
+      "source_sha256": "b7a7b0edcd6061620d37cc5fcc8bdbc75008133f57b6df4c03dd2a73ed9b6fd8",
+      "sha256": "72b7736eb877ad71b58d060b1381b82b8aa6d43941c61015fb4e37f908fe6760"
+    },
+    {
+      "stage": 80,
+      "path": "80-INDEPENDENT-ACL-POSTFLIGHT.sql",
+      "sha256": "01e7bcf2aadd407793b562eb72e83251cd39e8b25bc9da479772299c513bcd3d"
+    }
+  ],
+  "source_derivation": "Single exact known STOP replaced only on source-hash-bound derivatives; original source preserved; independent review and execution admission mandatory.",
+  "preconditions": {
+    "postgres_exact_server_version_num": 180006,
+    "database_name_candidate": "hft_r1_disposable_r77qa_20261114",
+    "local_host_candidate": "127.0.0.1",
+    "approved_port": "PENDING_TECHNICAL_ATTESTATION",
+    "sql_session_login": "hft_engineering",
+    "required_tls": "Authenticated TLS socket AND separate client peer/channel-binding attestation; SQL pg_stat_ssl alone insufficient",
+    "existing_canonical_migrations_0001_0006": true,
+    "pgcrypto_hft_crypto_approved": true,
+    "exact_roles": [
+      "hft_engineering:LOGIN_INSTALLER",
+      "hft_r1_posting_owner:NOLOGIN",
+      "hft_r1_governance_issuer:NOLOGIN",
+      "hft_r1_app_runtime:NOLOGIN",
+      "hft_r1_audit_verify:NOLOGIN",
+      "hft_r1_p3_master_owner:NOLOGIN",
+      "hft_r1_p3_master_runtime:NOLOGIN",
+      "hft_r77_gateway_owner:NOLOGIN_NOINHERIT",
+      "hft_r77_qa_077:PROPOSED_RESTRICTED_LOGIN_NOT_ENROLLED"
+    ],
+    "installer_temporary_ownership_membership": "Must be independently admitted, restricted and revoked after installation",
+    "independent_pg_dump_restore_required": true,
+    "original_signed_fixture_required": true
+  },
+  "exact_gateway_acl": {
+    "restricted_qa_login": "hft_r77_qa_077 (proposed only)",
+    "gate_functions": [
+      "post_receive_v1",
+      "challenge_receive_v1",
+      "read_receive_v1",
+      "observe_receive_v1",
+      "reconcile_receive_v1"
+    ],
+    "gateway_owner_protected_function_execute": [
+      "hft.ops_a2_post_stock_command_v2(jsonb,jsonb)",
+      "hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)",
+      "hft.ops_a2_read_authoritative_v2(jsonb,jsonb)"
+    ],
+    "gateway_owner_table_select": [
+      "hft_qa077.receive_fixture_v1",
+      "hft.grn",
+      "hft.grn_line",
+      "hft.grn_partial_receipt",
+      "hft.supplier_invoice",
+      "hft.supplier_invoice_line",
+      "hft.ops_a2_source_binding",
+      "hft.protected_stock_approval",
+      "hft.protected_approval_decision",
+      "hft.stock_account",
+      "hft.employee_custody",
+      "hft.serial_registry",
+      "hft.stock_command",
+      "hft.stock_entry",
+      "hft.posting_invocation_nonce",
+      "hft.stock_command_seal",
+      "hft.audit_outbox",
+      "hft.audit_delivery",
+      "hft.ops_a2_command_envelope",
+      "hft.stock_command_outcome"
+    ],
+    "denied": [
+      "PUBLIC EXECUTE on gateway",
+      "hft_r1_app_runtime gateway/protected writer EXECUTE",
+      "QA private helper EXECUTE",
+      "QA direct protected EXECUTE",
+      "QA direct table SELECT/DML",
+      "gateway owner table DML",
+      "QA and owner CREATE on protected schema",
+      "QA owner/issuer membership or SET ROLE"
+    ]
+  },
+  "out_of_scope": [
+    "Create provisioned resources or credentials",
+    "Protected SQL execution",
+    "Key or signer enrollment",
+    "Original fixture provenance",
+    "Production deployment or PR 11 merge"
+  ],
+  "outstanding_reviews": [
+    "Chat10 exact owner/ACL temporary membership and SEC-R77-01",
+    "Chat11 original invoice/GRN/QC/receipt/approval fixture signatures",
+    "Chat17 SQLSTATE/negative genuine fixtures/ledger reconstruction/REPLAY nonce",
+    "MASTER independent technical installation admission"
+  ],
+  "postgres_executed": false,
+  "installer_installed": false,
+  "bulk_5_executed": false,
+  "backup_restored": false,
+  "independent_review_accepted": false
+}
