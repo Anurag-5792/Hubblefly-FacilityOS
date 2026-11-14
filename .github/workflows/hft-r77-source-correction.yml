@@ -22,7 +22,7 @@ jobs:
           cache: npm
       - name: Require exact builder parent and apply only pinned source edits
         run: |
-          test "$(git rev-parse HEAD^)" = 58109a5a7f7d7f3955765b890645b2b61122961e
+          test "$(git rev-parse HEAD^)" = 1a02b6d28958d37949ae38e19e900676eba791e3
           test -z "$(git status --porcelain)"
           python3 tools/hft_receive_r77_correct_source.py
           mv tools/r77_source_tests.py tests/test_ops_a2_receive_r77.py
@@ -54,7 +54,7 @@ jobs:
           head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
           if head!=os.environ['EXPECTED_HEAD']:raise SystemExit('R77_HEAD_CHANGED')
           allowed=set(BLOBS)|{'tests/test_ops_a2_receive_r77.py','tools/r77_source_tests.py','.github/workflows/hft-r77-source-correction.yml'}
-          changed=set(subprocess.check_output(['git','diff','HEAD','--name-only'],text=True).splitlines())
+          changed=set(subprocess.check_output(['git','diff','--no-renames','HEAD','--name-only'],text=True).splitlines())
           changed.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
           if changed!=allowed:raise SystemExit('R77_UNEXPECTED_CHANGED_FILES:'+repr(changed))
           tree=[]
