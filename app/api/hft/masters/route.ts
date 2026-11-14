@@ -35,7 +35,8 @@ export async function POST(request:Request):Promise<Response>{
   }
  }catch(error){
   const code=error instanceof Error?error.message:'P3_OPERATION_FAILED';
-  if(code.startsWith('P3_ISOLATED_DATABASE')||
+  if(code.startsWith('P3_RETAINED_')||code.startsWith('HFT_ONLINE_DB_')||
+   code.startsWith('P3_ISOLATED_DATABASE')||
    code.startsWith('P3_POSTGRES_DRIVER')||
    code.startsWith('P3_DATABASE_CREDENTIAL')||
    code.startsWith('P3_APPROVED_SIGNER')||
