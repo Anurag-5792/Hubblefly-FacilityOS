@@ -153,6 +153,11 @@ BEGIN
  IF b.request_id IS NULL THEN
   RAISE EXCEPTION 'OPS_A2_AUTHENTICATED_P0_SOURCE_NOT_IN_APPROVED_RECORD'; END IF;
  IF p->>'kind'='IN' THEN
+  -- P0 HMAC was verified above; bind its exact decimal to the protected
+  -- source quantity before asking the signer for a P2 command/proof.
+  IF b.authorized_micro::numeric IS DISTINCT FROM
+     ((p->>'quantity')::numeric*1000000)
+  THEN RAISE EXCEPTION 'OPS_A2_R77_P0_RECEIPT_QUANTITY_MISMATCH'; END IF;
   IF p->>'qcState'<>'ACCEPTED' OR b.inspection_evidence_id<>p->>'qcEvidenceId'
   -- Original P0 uppercase UUID maps only to typed lowercase PostgreSQL UUID.
   -- Persisted receipt_key + line_no, never an arbitrary browser action alias.

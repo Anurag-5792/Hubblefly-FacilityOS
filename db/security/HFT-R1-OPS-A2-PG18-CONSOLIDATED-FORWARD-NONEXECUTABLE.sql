@@ -1923,6 +1923,10 @@ BEGIN
   AND x.status IN('AUTHORIZED','PARTIALLY_MOVED')
   FOR SHARE OF x;
  END IF;
+ -- R77-R02: RECEIVE is not a divisible ISSUE/RETURN/TRANSFER ceiling.
+ IF b.action_kind='RECEIVE' AND source_rev IS NOT NULL
+  AND source_qty IS DISTINCT FROM b.authorized_micro
+ THEN RAISE EXCEPTION 'OPS_A2_R77_EXACT_PHYSICAL_RECEIPT_QUANTITY_REQUIRED'; END IF;
  IF source_rev IS NULL OR source_rev<>b.source_revision
  OR source_approver IS DISTINCT FROM b.approver_subject
  OR source_version IS DISTINCT FROM b.product_version_code
@@ -2064,6 +2068,21 @@ BEGIN
  OR outcome.committed_by<>c.actor_subject
  OR NOT EXISTS(SELECT 1 FROM hft.audit_delivery d WHERE d.outbox_id=outbox.id)
  THEN RAISE EXCEPTION 'OPS_A2_V2_IMMUTABLE_SEAL_AUDIT_OR_OUTCOME_INVALID'; END IF;
+ -- R77-R02: historical V2 seals must retain the exact original physical
+ -- receipt quantity; a recomputed balanced -q/+q pair is not sufficient.
+ IF c.kind='RECEIVE' AND NOT EXISTS(
+  SELECT 1 FROM hft.grn_partial_receipt AS r
+  WHERE r.id=c.source_receipt_id AND r.grn_id::text=c.source_document_id
+   AND r.line_no=c.source_line_no
+   AND r.receipt_key||':'||r.line_no::text=c.source_action_key
+   AND r.legal_entity_id=c.legal_entity_id AND r.warehouse_id=c.warehouse_id
+   AND r.location_id=c.ops_a2_destination_leaf
+   AND r.ops_a2_item_code=c.item_code
+   AND r.ops_a2_product_version_code=c.product_version_code
+   AND r.batch_no=c.batch_no AND r.serial_no=c.serial_no
+   AND r.qc_state='ACCEPTED' AND r.accepted_micro=c.quantity_micro
+   AND r.evidence_reference=envelope.exact_payload->>'inspectionEvidenceId')
+ THEN RAISE EXCEPTION 'OPS_A2_R77_SEALED_RECEIPT_QUANTITY_OR_IDENTITY_MISMATCH'; END IF;
  SELECT count(*),COALESCE(sum(qty_delta_micro),0)
  INTO nlegs,delta FROM hft.stock_entry WHERE command_id=p_id;
  -- A zero net delta alone is not conservation: forged equal-and-opposite
@@ -2393,6 +2412,8 @@ DECLARE
  src_version bigint;dst_version bigint;
  source_uuid uuid;target_uuid uuid;receipt_uuid uuid;receipt_line integer;
  cmd_uuid uuid;outbox_uuid uuid;
+ receive_grn hft.grn%ROWTYPE;
+ grn_lines bigint;grn_ordered numeric;grn_accepted numeric;
  before_source bigint;before_target bigint;
  source_after bigint;target_after bigint;
  source_bucket text;target_bucket text;custodian text:=p->>'employeeId';
@@ -2418,7 +2439,51 @@ BEGIN
   'HFT:STOCK:'||e||':'||wh||':'||item||':'||lot||':'||serial,0));
  -- Authentic proof is checked BEFORE any mutable quantity or source update.
  actor:=hft.ops_a2_verify_invocation_v2(p,proof);
+ -- R77-R01: take the document UPDATE lock BEFORE the source verifier's
+ -- shared locks. All lines contribute to header status, including other items.
+ -- SERIALIZABLE rejects a header changed after this transaction's snapshot;
+ -- this writer never retries with a new nonce or a changed source revision.
+ IF action='RECEIVE' THEN
+  SELECT g.* INTO receive_grn FROM hft.grn AS g
+  JOIN hft.warehouse AS w ON w.legal_entity_id=g.legal_entity_id
+   AND w.warehouse_id=g.warehouse_id
+  WHERE g.id::text=p->>'sourceDocumentId' AND g.legal_entity_id=e
+   AND g.warehouse_id=wh AND w.site_id=site
+   AND g.authorization_revision=(p->>'sourceRevision')::bigint
+   AND g.authorized_by=p->>'approvedBy'
+   AND g.status IN('AUTHORIZED','PARTIALLY_RECEIVED')
+  FOR UPDATE OF g;
+  IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_R77_GRN_HEADER_NOT_AUTHORIZED'; END IF;
+  PERFORM 1 FROM hft.grn_line AS gl
+  WHERE gl.grn_id=receive_grn.id AND gl.legal_entity_id=e
+  ORDER BY gl.line_no FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_R77_GRN_HAS_NO_AUTHORIZED_LINES'; END IF;
+  -- Reject pre-existing counter/status corruption; do not silently repair it.
+  PERFORM hft.assert_grn_receipt_cumulative_v2(receive_grn.id);
+ END IF;
  binding:=hft.ops_a2_authorized_source_v2(p);
+ -- R77-R02: one physical receipt, one exact signed quantity. A new
+ -- partial delivery needs a different independently authorized receipt ID.
+ IF action='RECEIVE' THEN
+  BEGIN
+   SELECT r.id,r.line_no INTO STRICT receipt_uuid,receipt_line
+   FROM hft.grn_partial_receipt AS r
+   WHERE r.grn_id=receive_grn.id
+    AND r.receipt_key||':'||r.line_no::text=p->>'sourceActionKey'
+    AND r.legal_entity_id=e AND r.warehouse_id=wh
+    AND r.location_id=p->>'destinationLeafId'
+    AND r.ops_a2_product_version_code=ver AND r.ops_a2_item_code=item
+    AND r.batch_no=lot AND r.serial_no=serial
+    AND r.qc_state='ACCEPTED'
+    AND r.evidence_reference=p->>'inspectionEvidenceId'
+    AND r.accepted_micro=qty
+   FOR SHARE;
+  EXCEPTION WHEN NO_DATA_FOUND OR TOO_MANY_ROWS THEN
+   RAISE EXCEPTION 'OPS_A2_ORIGINAL_GRN_RECEIPT_NOT_VERIFIED';
+  END;
+  PERFORM 1 FROM hft.stock_command WHERE source_receipt_id=receipt_uuid FOR SHARE;
+  IF FOUND THEN RAISE EXCEPTION 'OPS_A2_R77_PHYSICAL_RECEIPT_ALREADY_POSTED'; END IF;
+ END IF;
  -- A fresh signed proof for an already posted exact idempotency key never
  -- posts again; explicit reconciliation is a separate READ-ONLY call.
  PERFORM 1 FROM hft.stock_command sc WHERE sc.legal_entity_id=e
@@ -2491,20 +2556,6 @@ BEGIN
  -- Persist full immutable identity in the canonical command only. A future
  -- independently approved schema cutover must qualify the V2 column/parent
  -- constraints for this exact insert, not silently accept V1 columns.
- IF action='RECEIVE' THEN
-  SELECT r.id,r.line_no INTO receipt_uuid,receipt_line
-  FROM hft.grn_partial_receipt r
-  WHERE r.grn_id::text=p->>'sourceDocumentId'
-   AND r.receipt_key||':'||r.line_no::text=p->>'sourceActionKey'
-   AND r.legal_entity_id=e AND r.warehouse_id=wh
-   AND r.location_id=p->>'destinationLeafId'
-   AND r.ops_a2_product_version_code=ver
-   AND r.ops_a2_item_code=item
-   AND r.qc_state='ACCEPTED'
-  FOR SHARE;
-  IF receipt_uuid IS NULL THEN
-   RAISE EXCEPTION 'OPS_A2_ORIGINAL_GRN_RECEIPT_NOT_VERIFIED'; END IF;
- END IF;
  INSERT INTO hft.stock_command(legal_entity_id,command_id,idempotency_key,
   payload_sha256,kind,source_document_id,source_action_key,
   fragment_id,actor_subject,approval_id,approval_revision,
@@ -2549,6 +2600,27 @@ BEGIN
   AND gl.line_no=receipt_line AND inv.id=gl.invoice_line_id
   AND inv.received_micro+qty<=inv.authorized_micro;
   IF NOT FOUND THEN RAISE EXCEPTION 'OPS_A2_INVOICE_OVER_RECEIPT'; END IF;
+  -- R77-R01: derive status from EVERY locked authorized line, not just
+  -- the posted item. No authorization/revision/identity column is rewritten.
+  SELECT count(*),COALESCE(sum(gl.ordered_micro::numeric),0),
+   COALESCE(sum(gl.accepted_micro::numeric),0)
+  INTO grn_lines,grn_ordered,grn_accepted
+  FROM hft.grn_line AS gl WHERE gl.grn_id=receive_grn.id;
+  IF grn_lines=0 OR grn_accepted<=0 OR grn_accepted>grn_ordered
+   OR EXISTS(SELECT 1 FROM hft.grn_line AS gl WHERE gl.grn_id=receive_grn.id
+    AND (gl.legal_entity_id<>e OR gl.accepted_micro<0
+     OR gl.accepted_micro>gl.ordered_micro))
+  THEN RAISE EXCEPTION 'OPS_A2_R77_GRN_CUMULATIVE_TOTAL_INVALID'; END IF;
+  UPDATE hft.grn AS g
+  SET status=CASE WHEN grn_accepted=grn_ordered THEN 'RECEIVED'
+                 ELSE 'PARTIALLY_RECEIVED' END
+  WHERE g.id=receive_grn.id AND g.legal_entity_id=e AND g.warehouse_id=wh
+   AND g.authorization_revision=receive_grn.authorization_revision
+   AND g.authorized_by=receive_grn.authorized_by AND g.status=receive_grn.status;
+  GET DIAGNOSTICS n=ROW_COUNT;
+  IF n<>1 THEN RAISE EXCEPTION 'OPS_A2_R77_GRN_STATUS_CAS_FAILED'; END IF;
+  -- Same invariant also remains deferred at COMMIT in unchanged migration 0006.
+  PERFORM hft.assert_grn_receipt_cumulative_v2(receive_grn.id);
  ELSIF action='ISSUE' THEN
   UPDATE hft.material_issue_line SET issued_micro=issued_micro+qty
   WHERE issue_id=(p->>'sourceDocumentId')::uuid
@@ -2876,6 +2948,11 @@ BEGIN
  IF b.request_id IS NULL THEN
   RAISE EXCEPTION 'OPS_A2_AUTHENTICATED_P0_SOURCE_NOT_IN_APPROVED_RECORD'; END IF;
  IF p->>'kind'='IN' THEN
+  -- P0 HMAC was verified above; bind its exact decimal to the protected
+  -- source quantity before asking the signer for a P2 command/proof.
+  IF b.authorized_micro::numeric IS DISTINCT FROM
+     ((p->>'quantity')::numeric*1000000)
+  THEN RAISE EXCEPTION 'OPS_A2_R77_P0_RECEIPT_QUANTITY_MISMATCH'; END IF;
   IF p->>'qcState'<>'ACCEPTED' OR b.inspection_evidence_id<>p->>'qcEvidenceId'
   -- Original P0 uppercase UUID maps only to typed lowercase PostgreSQL UUID.
   -- Persisted receipt_key + line_no, never an arbitrary browser action alias.

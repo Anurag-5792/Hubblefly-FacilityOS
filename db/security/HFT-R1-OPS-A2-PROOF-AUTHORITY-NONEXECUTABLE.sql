@@ -440,6 +440,10 @@ BEGIN
   AND x.status IN('AUTHORIZED','PARTIALLY_MOVED')
   FOR SHARE OF x;
  END IF;
+ -- R77-R02: RECEIVE is not a divisible ISSUE/RETURN/TRANSFER ceiling.
+ IF b.action_kind='RECEIVE' AND source_rev IS NOT NULL
+  AND source_qty IS DISTINCT FROM b.authorized_micro
+ THEN RAISE EXCEPTION 'OPS_A2_R77_EXACT_PHYSICAL_RECEIPT_QUANTITY_REQUIRED'; END IF;
  IF source_rev IS NULL OR source_rev<>b.source_revision
  OR source_approver IS DISTINCT FROM b.approver_subject
  OR source_version IS DISTINCT FROM b.product_version_code
