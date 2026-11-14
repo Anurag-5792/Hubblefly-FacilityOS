@@ -169,7 +169,30 @@ async function identity(c){
  pg_catalog.has_function_privilege(session_user,
    'hft_qa077.challenge_receive_v1(uuid,text,jsonb,jsonb)','EXECUTE') AS gateway_negative,
  pg_catalog.has_function_privilege(session_user,
-   'hft_qa077.read_receive_v1(uuid,text,jsonb,jsonb)','EXECUTE') AS gateway_reader`;
+   'hft_qa077.read_receive_v1(uuid,text,jsonb,jsonb)','EXECUTE') AS gateway_reader,
+ pg_catalog.has_schema_privilege(session_user,'hft_qa077','CREATE') AS qa_schema_create,
+ pg_catalog.has_table_privilege(session_user,'hft_qa077.receive_fixture_v1',
+  'INSERT,UPDATE,DELETE') AS qa_fixture_dml,
+ (SELECT count(*)::int FROM pg_catalog.pg_proc proc
+   JOIN pg_catalog.pg_namespace ns ON ns.oid=proc.pronamespace
+   JOIN pg_catalog.pg_roles owner ON owner.oid=proc.proowner
+   WHERE ns.nspname='hft_qa077' AND
+    proc.proname IN ('post_receive_v1','challenge_receive_v1',
+      'read_receive_v1','observe_receive_v1','reconcile_receive_v1')
+    AND proc.prosecdef AND owner.rolname='hft_r77_gateway_owner') AS qualified_owner_count,
+ (SELECT NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls
+   AND NOT rolcreaterole AND NOT rolcreatedb
+   FROM pg_catalog.pg_roles
+   WHERE rolname='hft_r77_gateway_owner') AS gateway_owner_safe,
+ pg_catalog.pg_has_role('hft_r77_gateway_owner','hft_r1_posting_owner',
+   'MEMBER') AS gateway_owns_posting_owner,
+ pg_catalog.has_function_privilege('hft_r77_gateway_owner',
+   'hft.ops_a2_post_stock_command_v2(jsonb,jsonb)','EXECUTE') AS owner_can_writer,
+ pg_catalog.has_function_privilege('hft_r77_gateway_owner',
+   'hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)',
+   'EXECUTE') AS owner_can_recover,
+ pg_catalog.has_function_privilege('hft_r77_gateway_owner',
+   'hft.ops_a2_read_authoritative_v2(jsonb,jsonb)','EXECUTE') AS owner_can_read`;
  const rows=(await c.query(sql)).rows;
  assert(rows.length===1,'PG_IDENTITY_CARDINALITY');
  const x=rows[0];
@@ -182,7 +205,12 @@ async function identity(c){
   x.direct_recovery===false&&x.direct_reader===false&&
   x.gateway_writer===true&&x.gateway_recovery===true&&
   x.gateway_observer===true&&x.gateway_negative===true&&
-  x.gateway_reader===true,'PG_RESOURCE_OR_ACL_NOT_QUALIFIED');
+  x.gateway_reader===true&&
+  x.qa_schema_create===false&&x.qa_fixture_dml===false&&
+  x.qualified_owner_count===5&&x.gateway_owner_safe===true&&
+  x.gateway_owns_posting_owner===false&&
+  x.owner_can_writer===true&&x.owner_can_recover===true&&
+  x.owner_can_read===true,'PG_RESOURCE_OR_ACL_NOT_QUALIFIED');
 }
 function args(f){return [f.fixtureId,f.caseId,
  JSON.stringify(f.payload),JSON.stringify(f.postingProof)];}
@@ -227,7 +255,9 @@ async function snapshot(c,f,label){
   x.fixtureId===f.fixtureId&&x.caseId===f.caseId&&
   x.sessionUser===process.env.PGUSER&&x.database===process.env.PGDATABASE&&
   x.independentAdmissionSha256===a.sha256&&
-  x.migrationSha256===a.migrationSha256&&x.aclSha256===a.aclSha256,
+  x.migrationSha256===a.migrationSha256&&x.aclSha256===a.aclSha256&&
+  (negatives.has(f.caseId)?x.expectedReject===f.expectedReject:
+   x.expectedReject===null),
   'SNAPSHOT_OR_INDEPENDENT_ADMISSION_NOT_QUALIFIED');
  const bal=object(x.balances,'AUTHENTICATED_BALANCES_MISSING');
  assert(bal.state==='AUTHORITATIVE_VERSIONED_READ'&&
