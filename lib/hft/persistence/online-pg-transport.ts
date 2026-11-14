@@ -2,6 +2,7 @@
 import {X509Certificate} from 'node:crypto';
 import {isIP} from 'node:net';
 import {createRequire} from 'node:module';
+import {isRetainedMastersProfile,assertRetainedMastersProfile} from '../masters/retained-nonproduction-profile.ts';
 import type {IsolatedPgEnvironment,PgPool,PgQueryClient} from './isolated-pg-transaction.ts';
 export type OnlinePgDuty='P2_STORES'|'P3_MASTERS';
 export type OnlinePgPool=PgPool&{end():Promise<void>};
@@ -59,7 +60,12 @@ export function assertOnlinePgTransport(
   !/^[1-9][0-9]{0,4}$/.test(backend)||Number(backend)>65535)
   throw Error('HFT_ONLINE_DB_PORT_NOT_ATTESTED');
  const database=env.PGDATABASE;
- if(!database||!dbName.test(database)||database!==env.HFT_TEST_PG_DATABASE)
+ const retained=duty==='P3_MASTERS'&&isRetainedMastersProfile(env);
+ if(retained){
+  assertRetainedMastersProfile(env);
+  if(!database||database!==env.HFT_MASTERS_APPROVED_PG_DATABASE)
+   throw Error('HFT_ONLINE_DB_RETAINED_MASTER_DB_NOT_ADMITTED');
+ }else if(!database||!dbName.test(database)||database!==env.HFT_TEST_PG_DATABASE)
   throw Error('HFT_ONLINE_DB_DISPOSABLE_DATABASE_REQUIRED');
  const p2=env.HFT_P2_RUNTIME_LOGIN,p3=env.HFT_P3_RUNTIME_LOGIN;
  if(!p2||!p3||p2===p3)throw Error('HFT_ONLINE_DB_SEPARATE_ROLES_REQUIRED');
@@ -81,7 +87,8 @@ export function onlinePgPoolOptions(env:IsolatedPgEnvironment,
    ca:c.ca,minVersion:'TLSv1.2'},
   connectionTimeoutMillis:3500,idleTimeoutMillis:5000,max:2,
   keepAlive:true,allowExitOnIdle:true,
-  application_name:'hft-r1-protected-online-disposable'};
+  application_name:duty==='P3_MASTERS'&&isRetainedMastersProfile(env)?
+   'hft-r1-retained-masters-nonproduction':'hft-r1-protected-online-disposable'};
 }
 export function openOnlinePgPool(env:IsolatedPgEnvironment,
  duty:OnlinePgDuty):OnlinePgPool{
