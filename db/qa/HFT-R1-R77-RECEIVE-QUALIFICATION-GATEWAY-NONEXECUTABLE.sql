@@ -65,7 +65,7 @@ REVOKE ALL ON hft_qa077.receive_fixture_v1 FROM PUBLIC,hft_r1_app_runtime;
 -- the registered source/migration/ACL digests before execution is permitted.
 CREATE OR REPLACE FUNCTION hft_qa077.assert_receive_fixture_v1(
  p_fixture uuid,p_case text,p jsonb,original_proof jsonb)
-RETURNS hft_qa077.receive_fixture_v1 LANGUAGE plpgsql VOLATILE
+RETURNS hft_qa077.receive_fixture_v1 LANGUAGE plpgsql STABLE
 SET search_path=pg_catalog,pg_temp AS $assert_fixture$
 DECLARE f hft_qa077.receive_fixture_v1%ROWTYPE;
 BEGIN
@@ -248,6 +248,33 @@ BEGIN
    'receivedMicro',il.received_micro::text,'itemCode',il.item_code)
    FROM hft.supplier_invoice_line il WHERE il.id=f.invoice_line_uuid
     AND il.invoice_id=f.invoice_id AND il.legal_entity_id=f.legal_entity_id),
+ 'sourceBinding',(SELECT pg_catalog.jsonb_build_object(
+   'status',sb.status,'sourceDocumentId',sb.source_document_id,
+   'sourceActionKey',sb.source_action_key,'authorizedMicro',sb.authorized_micro::text,
+   'approvalId',sb.approval_id,'approvalRevision',sb.approval_revision,
+   'sourceRevision',sb.source_revision,'actorSubject',sb.actor_subject,
+   'approvedBy',sb.approver_subject,'issuedBy',sb.issued_by,
+   'issuerDecisionSha256',sb.issuer_decision_sha256)
+   FROM hft.ops_a2_source_binding sb
+   WHERE sb.request_id=(f.approved_payload->>'commandId')::uuid
+    AND sb.legal_entity_id=f.legal_entity_id),
+ 'approval',(SELECT pg_catalog.jsonb_build_object(
+   'approved',pa.approved,'documentId',pa.document_id,
+   'sourceActionKey',pa.source_action_key,'quantityMicro',pa.quantity_micro::text,
+   'approverSubject',pa.approver_subject,'actorSubject',pa.actor_subject,
+   'inspectionEvidenceId',pa.inspection_evidence_id,
+   'payloadSha256',pa.payload_sha256)
+   FROM hft.protected_stock_approval pa
+   WHERE pa.legal_entity_id=f.legal_entity_id
+    AND pa.approval_id=f.approval_id
+    AND pa.approval_revision=f.approval_revision),
+ 'approvalDecision',(SELECT pg_catalog.jsonb_build_object(
+   'decisionEvidenceSha256',pd.decision_evidence_sha256,
+   'sourceRevision',pd.source_revision,'payloadSha256',pd.payload_sha256)
+   FROM hft.protected_approval_decision pd
+   WHERE pd.legal_entity_id=f.legal_entity_id
+    AND pd.approval_id=f.approval_id
+    AND pd.approval_revision=f.approval_revision),
  'receipt',(SELECT pg_catalog.jsonb_build_object(
    'id',r.id,'grnId',r.grn_id,'lineNo',r.line_no,
    'acceptedMicro',r.accepted_micro::text,'qcState',r.qc_state,
@@ -295,6 +322,11 @@ BEGIN
       AND c.command_id=f.approved_payload->>'commandId'),
    'outcomes',(SELECT count(*) FROM hft.stock_command_outcome o
      JOIN hft.stock_command c ON c.id=o.command_id
+     WHERE c.legal_entity_id=f.legal_entity_id
+      AND c.command_id=f.approved_payload->>'commandId'),
+   'auditDelivery',(SELECT count(*) FROM hft.audit_delivery d
+     JOIN hft.audit_outbox a ON a.id=d.outbox_id
+     JOIN hft.stock_command c ON c.id=a.command_id
      WHERE c.legal_entity_id=f.legal_entity_id
       AND c.command_id=f.approved_payload->>'commandId'),
    'auditDigest',(SELECT a.canonical_sha256 FROM hft.audit_outbox a
