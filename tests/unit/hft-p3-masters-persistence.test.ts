@@ -29,7 +29,8 @@ const review={decisionVersion:'HFT-R1-P3-EMPLOYEE-DECISION-V1',
  requestId,requestPayloadSha256:'a'.repeat(64),recordId:'EMP1',
  expectedVersion:'0',policyRevision:'1',decision:'APPROVED',
  evidenceSha256:'b'.repeat(64),reason:'Approved with independent evidence',...scope};
-type Mode='standard'|'commitLost'|'noReadback'|'crossEntity'|'wrongDecision';
+type Mode='standard'|'commitLost'|'noReadback'|'crossEntity'|'wrongDecision'|
+ 'missingApplyReadback'|'wrongApplyRevision';
 function scripted(mode:Mode='standard'){
  const sqls:string[]=[],params:(readonly unknown[])[]=[],released:boolean[]=[];
  let connections=0;
@@ -50,8 +51,10 @@ function scripted(mode:Mode='standard'){
      const records=query.intent==='REQUESTS'
       ?(mode==='noReadback'?[]:[{...identity,request_id:requestId,
          kind:'EMPLOYEE',state:'PENDING_APPROVAL',record_id:'EMP1'}])
-      :[{...identity,kind:'EMPLOYEE',record_id:'EMP1',version:1,active:false,
-         values:{fullName:'Synthetic Operator'}}];
+      :(mode==='missingApplyReadback'&&query.intent==='GET'?[]:
+        [{...identity,kind:'EMPLOYEE',record_id:'EMP1',
+         version:mode==='wrongApplyRevision'&&query.intent==='GET'?2:1,active:false,
+         values:{fullName:'Synthetic Operator'}}]);
      return {rows:[{response:{state:'AVAILABLE',records}}] as unknown as Row[],rowCount:1};
     }
     if(sql.includes('p3_decide_apply_employee_v1(')){
@@ -122,6 +125,23 @@ test('genuine decision path uses one atomic protected DB function',async()=>{
  assert.equal(x.sqls.filter(s=>s.includes('p3_decide_apply_employee_v1(')).length,1);
  assert.ok(x.sqls.every(s=>!s.includes('UPDATE hft.employee')));
  assert.ok(x.sqls.every(s=>!s.includes('INSERT INTO hft.p3_master_decision')));
+});
+test('approved Employee APPLY is independently reread with exact account revision',async()=>{
+ const m=scripted();
+ const r=await handleP3EmployeeDecision(m.pool,env,verifiedFixtureOperator(),review);
+ assert.equal(r.state,'APPLIED');
+ assert.equal(m.connections(),2);
+ assert.equal(m.sqls.filter(sql=>sql.includes('p3_decide_apply_employee_v1(')).length,1);
+ assert.equal(m.sqls.filter(sql=>sql.includes('p3_read_masters_v1(')).length,1);
+ assert.ok(m.sqls.includes('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'));
+});
+test('missing or revision-drifted committed Employee readback does not reapply',async()=>{
+ for(const mode of ['missingApplyReadback','wrongApplyRevision'] as const){
+  const m=scripted(mode);
+  await assert.rejects(handleP3EmployeeDecision(m.pool,env,verifiedFixtureOperator(),review),
+   /P3_COMMITTED_EMPLOYEE_APPLY_READBACK_REQUIRED_NO_RETRY/);
+  assert.equal(m.sqls.filter(sql=>sql.includes('p3_decide_apply_employee_v1(')).length,1);
+ }
 });
 test('denial persists as decision evidence without claiming applied employee',async()=>{
  const x=scripted();
