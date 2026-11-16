@@ -4,7 +4,7 @@ export default function HomePage(){
  return <main className="app-shell">
   <aside className="sidebar"><div className="brand">HUBBLEFLY <span>FacilityOS</span></div>
    <nav><Link className="active" href="/">Dashboard</Link>
-    <Link href="/stores">Stores</Link><Link href="/stores/masters">Employee & Master Data</Link>
+    <Link href="/stores">Stores</Link><Link href="/draft">Draft Masters</Link><Link href="/stores/masters">Governed Masters</Link>
     <Link href="/mis">MIS & Analytics</Link></nav>
    <div className="sidebar-footer">Phase 1 standalone <strong>ERPNext deferred to Phase 2</strong></div></aside>
   <section className="workspace"><header className="topbar"><div>
@@ -15,6 +15,12 @@ export default function HomePage(){
      <strong style={{fontSize:20}}>Unavailable</strong>
      <p className="masters-help">Verified operational source not connected</p></article>)}</div>
    <div className="content-grid">
+    <article className="panel"><p className="eyebrow">Path B · Retained nonproduction</p>
+     <h2>Draft Masters Entry</h2>
+     <p className="masters-help">Create, edit, search and export provisional
+      Employee, Item, Supplier, Warehouse, Location, Legal Entity and Site records.
+      Every saved record remains DRAFT — NOT APPROVED. No stock posting.</p>
+     <Link className="mis-link" href="/draft">Open draft workspace</Link></article>
     <article className="panel"><p className="eyebrow">Phase 1</p><h2>Employee & Stores Masters</h2>
      <p className="masters-help">Scope-controlled master registration, amendments and pending approval requests.
       Persistence requires approved isolated PostgreSQL and governance authority.</p>
@@ -28,6 +34,6 @@ export default function HomePage(){
    </div>
   </section>
   <nav className="mobile-nav"><Link href="/">Home</Link><Link href="/stores">Stores</Link>
-   <Link href="/stores/masters">Masters</Link><Link href="/mis">MIS</Link></nav>
+   <Link href="/draft">Drafts</Link><Link href="/stores/masters">Masters</Link><Link href="/mis">MIS</Link></nav>
  </main>;
 }
