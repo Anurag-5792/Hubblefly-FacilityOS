@@ -3,7 +3,10 @@ import {oidcConfig,decodeFlow,cookieValue,completeLogin,clearAuthCookies}
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export async function GET(request:Request):Promise<Response>{
- const base=process.env.HFT_PUBLIC_ORIGIN||new URL(request.url).origin;
+ const base=process.env.HFT_PUBLIC_ORIGIN;
+ if(!base)return Response.json({state:'UNAVAILABLE',
+  code:'DRAFT077_AUTHENTICATION_NOT_CONFIGURED'},
+  {status:503,headers:{'Cache-Control':'no-store'}});
  const url=new URL(request.url),code=url.searchParams.get('code');
  const state=url.searchParams.get('state');
  const headers=new Headers({'Cache-Control':'no-store'});
