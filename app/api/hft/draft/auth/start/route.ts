@@ -10,7 +10,8 @@ export async function GET():Promise<Response>{
    Location:result.location,'Set-Cookie':result.cookie,
    'Cache-Control':'no-store'}});
  }catch{
-  return Response.redirect((process.env.HFT_PUBLIC_ORIGIN||
-   'https://invalid.example')+'/draft/sign-in?status=unavailable',302);
+  return Response.json({state:'UNAVAILABLE',
+   code:'DRAFT077_AUTHENTICATION_NOT_CONFIGURED'},{
+   status:503,headers:{'Cache-Control':'no-store'}});
  }
 }
