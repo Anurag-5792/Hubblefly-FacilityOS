@@ -97,11 +97,10 @@ function pg(mode:Mode='standard'){
       const old=Number(existing?.revision||0);
       if(old!==Number(cmd.expectedVersion))
        throw Error('DRAFT077_REVISION_CONFLICT');
-      const record={record_id:cmd.recordKey,
-       legal_entity_id:'HFT',site_id:'SITE1',warehouse_id:'WH1',
-       kind:cmd.kind,revision:old+1,
+      const record={recordId:'99999999-9999-4999-8999-999999999999',
+       record_key:cmd.recordKey,kind:cmd.kind,revision:old+1,
        state:DRAFT_STATE,values:cmd.values,created_by:'STORE1',
-       updated_by:'STORE1',created_at:'2026-11-16T00:00:00Z',
+       edited_by:'STORE1',created_at:'2026-11-16T00:00:00Z',
        updated_at:'2026-11-16T00:00:00Z',scopeProvisional:true,
        source_type:cmd.source};
       records.set(cmd.recordKey,record);
