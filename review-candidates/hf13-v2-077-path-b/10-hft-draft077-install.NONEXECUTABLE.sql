@@ -24,12 +24,12 @@ BEGIN
 END $admission_preflight$;
 
 -- Credentials are deliberately NULL. Real passwords are separately issued via
--- approved managed-secret enrollment; login cannot authenticate until then.
+-- approved managed-secret enrollment; both roles remain NOLOGIN until admitted.
 CREATE ROLE hft_draft077_owner NOLOGIN NOINHERIT NOSUPERUSER
   NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE ROLE hft_draft077_api_login LOGIN NOINHERIT PASSWORD NULL NOSUPERUSER
+CREATE ROLE hft_draft077_api_login NOLOGIN NOINHERIT PASSWORD NULL NOSUPERUSER
   NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE ROLE hft_draft077_enroller_login LOGIN NOINHERIT PASSWORD NULL NOSUPERUSER
+CREATE ROLE hft_draft077_enroller_login NOLOGIN NOINHERIT PASSWORD NULL NOSUPERUSER
   NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 GRANT hft_draft077_owner TO hft_r1_retained_masters_np077_owner
   WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
@@ -446,6 +446,8 @@ DECLARE t record; p record; n integer;
 BEGIN
  IF (SELECT count(*) FROM pg_roles WHERE rolname IN(
     'hft_draft077_owner','hft_draft077_api_login','hft_draft077_enroller_login'))<>3
+ OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname IN
+    ('hft_draft077_api_login','hft_draft077_enroller_login') AND rolcanlogin)
  OR pg_has_role('hft_draft077_api_login','hft_draft077_owner','MEMBER')
  OR pg_has_role('hft_draft077_api_login','hft_draft077_enroller_login','MEMBER')
  OR has_schema_privilege('hft_draft077_api_login','hft_draft077','CREATE')
