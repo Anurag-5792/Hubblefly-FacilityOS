@@ -3,16 +3,14 @@
  */
 import {X509Certificate} from 'node:crypto';
 import {isIP} from 'node:net';
-export const DRAFT_PROFILE='HFT_R1_RETAINED_DRAFT_077_V1' as const;
+import {isDraftMode} from './draft-edge-profile.ts';
+export {DRAFT_PROFILE,isDraftMode} from './draft-edge-profile.ts';
 export type DraftEnv=Readonly<Record<string,string|undefined>>;
 const hex=/^[a-f0-9]{64}$/;
 const dns=/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const forbidden=['PGUSER','PGPASSWORD','PGHOSTADDR','PGSERVICE','PGOPTIONS',
  'PGSSLKEY','PGSSLCERT','PGSSLROOTCERT','DATABASE_URL','POSTGRES_URL',
  'POSTGRES_PRISMA_URL','POSTGRES_URL_NON_POOLING'];
-export function isDraftMode(env:DraftEnv):boolean{
- return env.HFT_DRAFT_RUNTIME_PROFILE===DRAFT_PROFILE;
-}
 export function assertDraftProfile(env:DraftEnv):void{
  const host=env.HFT_DRAFT_DB_HOST||'';
  const port=env.HFT_DRAFT_DB_PORT||'';
