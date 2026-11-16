@@ -15,8 +15,8 @@ export type DraftPgClient={
  release(destroy?:boolean):void;
 };
 export type DraftPgPool={connect():Promise<DraftPgClient>;end():Promise<void>};
-const saveSql='SELECT hft_draft077.save_v1($1::text,$2::jsonb) AS evidence';
-const readSql='SELECT hft_draft077.read_v1($1::text,$2::jsonb) AS evidence';
+const saveSql='SELECT hft_draft077.save_draft_v1($1::text,$2::jsonb) AS evidence';
+const readSql='SELECT hft_draft077.read_drafts_v1($1::text,$2::jsonb) AS evidence';
 export const DRAFT_IDENTITY_SQL=`
 SELECT current_database() AS db,session_user AS login,current_user AS role,
  current_setting('server_version_num')::integer AS version,
@@ -30,24 +30,24 @@ SELECT current_database() AS db,session_user AS login,current_user AS role,
  pg_catalog.has_schema_privilege(current_user,'hft_draft077','CREATE')
   AS schema_create,
  pg_catalog.coalesce(pg_catalog.has_function_privilege(current_user,
-  pg_catalog.to_regprocedure('hft_draft077.save_v1(text,jsonb)'),'EXECUTE'),
+  pg_catalog.to_regprocedure('hft_draft077.save_draft_v1(text,jsonb)'),'EXECUTE'),
   false) AS can_save,
  pg_catalog.coalesce(pg_catalog.has_function_privilege(current_user,
-  pg_catalog.to_regprocedure('hft_draft077.read_v1(text,jsonb)'),'EXECUTE'),
+  pg_catalog.to_regprocedure('hft_draft077.read_drafts_v1(text,jsonb)'),'EXECUTE'),
   false) AS can_read,
  (SELECT count(*)::integer FROM pg_catalog.pg_proc p
   JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
   JOIN pg_catalog.pg_roles owner ON owner.oid=p.proowner
   WHERE n.nspname='hft_draft077' AND
-   p.proname IN('save_v1','read_v1')
-   AND p.prosecdef AND owner.rolname='hft_r1_draft_owner'
+   p.proname IN('save_draft_v1','read_drafts_v1')
+   AND p.prosecdef AND owner.rolname='hft_draft077_owner'
    AND NOT owner.rolcanlogin AND NOT owner.rolsuper AND NOT owner.rolbypassrls)
   AS secured_function_count,
  (SELECT count(*)::integer FROM pg_catalog.pg_proc p
   JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
   WHERE n.nspname='hft_draft077'
   AND pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE')
-  AND p.proname NOT IN('save_v1','read_v1'))
+  AND p.proname NOT IN('save_draft_v1','read_drafts_v1'))
   AS extra_draft_function_grants,
  (SELECT count(*)::integer FROM pg_catalog.pg_class c
   JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
@@ -71,7 +71,7 @@ SELECT current_database() AS db,session_user AS login,current_user AS role,
   AS restricted_login_count,
  (SELECT count(*)::integer FROM pg_catalog.pg_roles r
   WHERE r.rolname IN('hft_engineering','hft_r1_posting_owner',
-   'hft_r1_p3_master_owner','hft_r1_governance_issuer','hft_r1_draft_owner')
+   'hft_r1_p3_master_owner','hft_r1_governance_issuer','hft_draft077_owner')
    AND pg_catalog.pg_has_role(current_user,r.oid,'MEMBER'))
   AS privileged_memberships
 `;
@@ -157,19 +157,18 @@ function convertRow(item:unknown,scope:DraftScope,kind:string):DraftRecord{
   throw Error('DRAFT077_READ_ROW_INVALID');
  const r=item as Record<string,unknown>;
  if(r.kind!==kind||r.state!==DRAFT_STATE||r.scopeProvisional!==true||
-  r.legal_entity_id!==scope.legalEntityId||r.site_id!==scope.siteId||
-  r.warehouse_id!==scope.warehouseId||
-  typeof r.record_id!=='string'||typeof r.revision!=='number'||
-  typeof r.created_by!=='string'||typeof r.updated_by!=='string'||
-  typeof r.created_at!=='string'||typeof r.updated_at!=='string')
+  typeof r.recordId!=='string'||typeof r.record_key!=='string'||
+  typeof r.revision!=='number'||typeof r.created_by!=='string'||
+  typeof r.edited_by!=='string'||typeof r.created_at!=='string'||
+  typeof r.updated_at!=='string')
   throw Error('DRAFT077_READ_ROW_STATUS_DRIFT');
  return {
   kind:kind as DraftRecord['kind'],
   legal_entity_id:scope.legalEntityId,site_id:scope.siteId,
-  warehouse_id:scope.warehouseId,record_id:r.record_id,
+  warehouse_id:scope.warehouseId,record_id:r.record_key,
   revision:r.revision,state:DRAFT_STATE,
   values:restoredValues(kind,r.values,scope),
-  created_by:r.created_by,updated_by:r.updated_by,
+  created_by:r.created_by,updated_by:r.edited_by,
   created_at:r.created_at,updated_at:r.updated_at
  };
 }
@@ -187,7 +186,7 @@ async function readPage(c:DraftPgClient,env:DraftEnv,
  if(rows.length!==1||!data||typeof data!=='object'||Array.isArray(data))
   throw Error('DRAFT077_READ_CARDINALITY');
  const e=data as Record<string,unknown>;
- if(e.state!=='DRAFT_ONLY'||e.scopeId!==scopeId||
+ if(e.state!==DRAFT_STATE||e.scopeId!==scopeId||
   e.actor!==actor.subject||e.scopeProvisional!==true||
   !Array.isArray(e.records)||e.records.length>limit||
   e.limit!==limit||e.offset!==offset)
