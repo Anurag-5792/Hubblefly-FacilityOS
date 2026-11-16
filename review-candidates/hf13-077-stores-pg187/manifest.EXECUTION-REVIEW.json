@@ -1,0 +1,165 @@
+{
+  "schema": "HF13_077_STORES_PG187_INSTALLATION_REVIEW_V1",
+  "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
+  "status": "EXACT_REVIEW_CANDIDATES_SOURCE_COMPLETE_INSTALLATION_NOT_ADMITTED",
+  "engineering_source_sha": "3a1c4bc2737cfa478eee21ab8a6e4a832999fe9a",
+  "original_sources_untouched": true,
+  "source_reconciliation": "Operator RECEIVE uses OPS-A2 version-coupled protected writer and single authoritative hft.stock_entry/stock_account. R77 hft_qa077 gateway is excluded.",
+  "target": {
+    "provider": "Neon",
+    "project_id": "wandering-cake-50222227",
+    "branch_id": "br-shiny-night-b3qgsj8t",
+    "database": "hft_r1_retained_masters_np077",
+    "endpoint_id": "ep-hidden-fire-b324s21q",
+    "hostname": "ep-hidden-fire-b324s21q.c-4.ap-southeast-1.aws.neon.tech",
+    "pg_server_version_num": 180007,
+    "resource_designation": "PENDING_EXPLICIT_OWNER_NONPRODUCTION_STORES_PURPOSE_APPROVAL",
+    "external_tls_verified": false
+  },
+  "canonical": {
+    "manifest": "db/migrations/manifest.v1.json",
+    "sha256": "ce51d77af4db16b8d97dcbcc10cd0472ef806f7c581b16982f95f21120fa7355",
+    "files": [
+      [
+        "0001_hft_masters.sql",
+        "8e7253652591c5ce7ef3935d0dc8893e4f503479fa59e7748583ec9ec2215723"
+      ],
+      [
+        "0002_hft_ledger.sql",
+        "6e1981c6314b604f470c4a5d9e7c255891fc7e3f693e5cde7780ea77ff12da36"
+      ],
+      [
+        "0003_hft_workflows.sql",
+        "bf8a4987d1f3c82f3016a1d340edb79a6d238229e23f28dbc65cc75c0a181cf8"
+      ],
+      [
+        "0004_hft_posting_authority.sql",
+        "27375f432d476e8e88f8402af1970422d62de898a1fbcc91a9ec30efce79d7e2"
+      ],
+      [
+        "0005_hft_quantitative_accounts_receipts.sql",
+        "01fe977d55540b31cf6a0691e88969ecb01c63e6e25d30c75e5c06a61b70aedf"
+      ],
+      [
+        "0006_hft_posted_fact_integrity.sql",
+        "664c7fcb57bbc699cc8cd727046e8a1048ecb89792d27abe1dd3aef024754044"
+      ]
+    ]
+  },
+  "stages": [
+    {
+      "step": 10,
+      "file": "10-role-bootstrap.EXECUTABLE-REVIEW.sql",
+      "sha256": "c8afa69e08c4c6ae180db59ed76b7b290e17091ffac8178cb17396c51faadf22",
+      "sql_session": "approved_neon_dba",
+      "authorized": false,
+      "accepted": false
+    },
+    {
+      "step": 20,
+      "file": "20-pgcrypto.EXECUTABLE-REVIEW.sql",
+      "sha256": "04f01ca302fa71281d374dfb589723c809b5129a1832a72cfeb53cfbdce86f0d",
+      "sql_session": "hft_engineering_after_canonical",
+      "authorized": false,
+      "accepted": false
+    },
+    {
+      "step": 30,
+      "file": "30-p2-protected-writer.EXECUTABLE-REVIEW.sql",
+      "sha256": "cc83330fdcd77d1ca0b48c70850efe5a59740dad7f17e03ae867cf06f1adf87f",
+      "original": "db/security/HFT-R1-P2-ONE-WRITER-REVIEW.sql",
+      "source_sha256": "2cef3309608781a5a02ac3158d3886e847bb7d6b2acd9e5f2007ef69d21bf443",
+      "sql_session": "hft_engineering",
+      "authorized": false,
+      "accepted": false
+    },
+    {
+      "step": 40,
+      "file": "40-item-version-photo.EXECUTABLE-REVIEW.sql",
+      "sha256": "b947df03e64c6dd5d7fce5aaf186b08eb45e2373db0120d4e1c584ff6e488fd4",
+      "original": "db/security/HFT-R1-ITEM-VERSION-PHOTOS-REVIEW.sql",
+      "source_sha256": "b2715bd373e7ad6154ee777a3c088dff0db160d3b8abdb83233a19a2225226eb",
+      "sql_session": "hft_engineering",
+      "authorized": false,
+      "accepted": false
+    },
+    {
+      "step": 50,
+      "file": "50-p0-bin-and-readback.EXECUTABLE-REVIEW.sql",
+      "sha256": "9c59b782d919d44a32e7c41bf7961b3521977fc8783d89fce2da498a51de1cbb",
+      "original": "db/security/HFT-R1-P0-STORES-PERSISTENCE-REVIEW.sql",
+      "source_sha256": "ebc1390a612c1d4b1bc61ef33bd83dbd8173ea7dfb5a6709610778161ddd2a11",
+      "sql_session": "hft_engineering",
+      "authorized": false,
+      "accepted": false
+    },
+    {
+      "step": 60,
+      "file": "60-ops-a-version-coupling.EXECUTABLE-REVIEW.sql",
+      "sha256": "9f1234f9524d31055d095b0b435c51a4508ff0fd0dae4f68fc39e1dd4390dcdf",
+      "original": "db/security/HFT-R1-OPS-A-VERSIONED-FORWARD-NONEXECUTABLE-CANDIDATE.sql",
+      "source_sha256": "0ae129e297b5363f1549783e729ee0d66e8de7ed2bec97e3e524fc819880acb7",
+      "sql_session": "hft_engineering",
+      "authorized": false,
+      "accepted": false
+    },
+    {
+      "step": 70,
+      "file": "70-ops-a2-receive-authority.EXECUTABLE-REVIEW.sql",
+      "sha256": "f85760a4eb0532ce69c9333eb9da25391628836c7653d3b518e9d5beaec9c8b0",
+      "original": "db/security/HFT-R1-OPS-A2-PG18-CONSOLIDATED-FORWARD-NONEXECUTABLE.sql",
+      "source_sha256": "d5b8bec248fa69151fcf25cdf8c7a33806c01fbff829e725ac0b449e6797e47e",
+      "sql_session": "hft_engineering",
+      "authorized": false,
+      "accepted": false
+    },
+    {
+      "step": 80,
+      "file": "80-disable-installer.EXECUTABLE-REVIEW.sql",
+      "sha256": "7032e068ba03f5313432c1d34c6da3e52db80e511481986031f09a88674c03df",
+      "sql_session": "approved_neon_dba",
+      "authorized": false,
+      "accepted": false
+    }
+  ],
+  "stage_order": [
+    "10 scoped DBA roles with NOLOGIN runtime; approved migrator credential enrolled separately",
+    "15 canonical 0001..0006 transactionally through remote TLS authorized signed transport",
+    "20 pgcrypto hft_crypto",
+    "30 P2 governance identities, holds and original single writer",
+    "40 item/version photo metadata (only dormant P3 photo-read roles, no P3 app activation)",
+    "50 P0 physical-bin identity and secure readers",
+    "60 OPS-A version coupling",
+    "70 OPS-A2 version-aware RECEIVE resolver, immutable writer, signed proof and authoritative reader",
+    "80 temporary installer owner membership revocation and NOLOGIN closure"
+  ],
+  "outside_scope": [
+    "R77 hft_qa077 disposable test gateway",
+    "P3 Masters runtime",
+    "production database or production deployment",
+    "PR11 merge",
+    "new second stock ledger",
+    "synthetic invoice/GRN/QC evidence",
+    "ISSUE/RETURN/TRANSFER/COUNT operator release before first RECEIVE"
+  ],
+  "missing_technical_admissions": [
+    "MASTER explicit owner approval to designate the named empty retained Masters database as NONPRODUCTION operational Stores",
+    "Independent exact PG18.7 SQL parse/security privilege review of stages 10..80 and transactional canonical installer",
+    "Genuine remote verified TLS CA/hostname and SQL session login; signed installer key and managed credentials",
+    "Approved independent pg_dump custom baseline + separate restore destination and custody",
+    "Original legal entity, site, warehouse, rack/level/position/stack/bin, item/version/photo, supplier invoice/GRN/partial receipt, QC ACCEPTED, no active HOLD and human corporate maker/checker approvals",
+    "Trusted signing-key/session authority and exact owner/EXECUTE grants with no runtime DML",
+    "Chat16 operational Stores middleware exception plus OPS-A2 source-only to accepted HTTP writer/readback integration"
+  ],
+  "actual_database": {
+    "hft_schema_installed": false,
+    "canonical_revisions_applied": false,
+    "stock_command_or_entry_exists": false,
+    "runtime_role_installed": false,
+    "backup_restored": false,
+    "receive_executed": false,
+    "bin_balance_verified": false
+  },
+  "production": "NO_GO",
+  "nonproduction_stores": "NO_GO"
+}
