@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import MastersCsvTransfer from './MastersCsvTransfer';
 import {useState,useRef,type FormEvent} from 'react';
 import {EmployeeMasterDirectory} from '../../../lib/hft/ui-reuse/EmployeeMasterDirectory';
 import {OwnerAccessProposalEditor} from '../../../lib/hft/ui-reuse/OwnerAccessProposalEditor';
@@ -46,6 +47,7 @@ export default function MastersPage(){
  const [recordId,setRecordId]=useState(''),[version,setVersion]=useState('0');
  const [reason,setReason]=useState(''),[values,setValues]=useState<Record<string,string>>({});
  const [busy,setBusy]=useState(false),[submitting,setSubmitting]=useState(false);
+ const [transferBusy,setTransferBusy]=useState(false);
  const [status,setStatus]=useState('No verified database result loaded.');
  const [lastRequestId,setLastRequestId]=useState('');
  const scope={legalEntityId:entity.trim(),siteId:site.trim(),warehouseId:warehouse.trim()};
@@ -58,13 +60,14 @@ export default function MastersPage(){
   employeeListRef.current=null;setEmployeeList(null);
  }
  function scopeChanged(setter:(value:string)=>void,value:string){
-  if(submitting)return;
+  if(submitting||transferBusy)return;
   // Epoch and refs change synchronously, before any pending LIST can resolve.
   requestEpoch.current++;setter(value);setRecords([]);clearEmployeeList();
   clearEmployeeSelection();setView('LIST');setLastRequestId('');setBusy(false);
   setStatus('Scope changed. Fresh authenticated LIST and selection required for Employee EDIT.');
  }
  function changeKind(next:Kind){
+  if(transferBusy)return;
   requestEpoch.current++;setKind(next);setRecords([]);clearEmployeeList();
   clearEmployeeSelection();setLastRequestId('');
   setStatus('Select scope and load authoritative records.');
@@ -212,23 +215,25 @@ export default function MastersPage(){
    <div className="panel-heading"><div><p className="eyebrow">Authority</p><h2>Signed scope</h2></div>
     <span className="status">Database source required</span></div>
    <div className="masters-scope">
-    <label>Legal entity ID<input value={entity} disabled={submitting}
+    <label>Legal entity ID<input value={entity} disabled={submitting||transferBusy}
       onChange={e=>scopeChanged(setEntity,e.target.value)}
       placeholder="From your authorized entity"/></label>
-    <label>Site ID<input value={site} disabled={submitting}
+    <label>Site ID<input value={site} disabled={submitting||transferBusy}
       onChange={e=>scopeChanged(setSite,e.target.value)}
       placeholder="From your authorized site"/></label>
-    <label>Warehouse ID<input value={warehouse} disabled={submitting}
+    <label>Warehouse ID<input value={warehouse} disabled={submitting||transferBusy}
       onChange={e=>scopeChanged(setWarehouse,e.target.value)}
       placeholder="From your authorized warehouse"/></label>
    </div>
    <p className="masters-help">These fields select a scope. They never grant access; the API verifies the signed session and persisted permissions.</p>
   </section>
+  <MastersCsvTransfer key={kind+'|'+scope.legalEntityId+'|'+scope.siteId+'|'+scope.warehouseId}
+   kind={kind} scope={scope} onBusyChange={setTransferBusy}/>
   <div className="masters-columns">
    <section className="panel">
     <div className="panel-heading"><div><p className="eyebrow">Persistent records</p><h2>Search & review</h2></div></div>
     <label className="masters-field">Master type
-     <select value={kind} disabled={busy} onChange={e=>changeKind(e.target.value as Kind)}>
+     <select value={kind} disabled={busy||transferBusy} onChange={e=>changeKind(e.target.value as Kind)}>
       {kinds.map(k=><option key={k} value={k}>{k}</option>)}
      </select>
     </label>
