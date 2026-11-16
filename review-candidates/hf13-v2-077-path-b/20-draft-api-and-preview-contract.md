@@ -6,7 +6,7 @@
 
 Neon `wandering-cake-50222227` / `br-shiny-night-b3qgsj8t` / `hft_r1_retained_masters_np077`; endpoint `ep-hidden-fire-b324s21q.c-4.ap-southeast-1.aws.neon.tech`, PG `180007`. No new Neon project. Existing Vercel team `team_GZjiGpLO7uRSKAEfW18JkCWS`, project `prj_6KRIqjoTbLlVMUWOmWIid56U4BAf`; Preview only, no production mutation.
 
-The source installer `10-hft-draft077-install.EXECUTABLE-CANDIDATE.sql` creates ONLY schema `hft_draft077`, provisional scope, actor grants/revocations, draft HMAC key/revocation, one-use write nonces, records and immutable revision history. It creates NOLOGIN `hft_draft077_owner`, credentialless `hft_draft077_api_login` and credentialless `hft_draft077_enroller_login`. No operational `hft` objects, P3 approval functions or stock accounts are altered.
+The source installer `10-hft-draft077-install.EXECUTABLE-CANDIDATE.sql` creates ONLY schema `hft_draft077`, provisional scope, actor grants/revocations, draft HMAC key/revocation, one-use write nonces, records and immutable revision history. It creates NOLOGIN `hft_r1_draft_owner`, credentialless `hft_draft077_api_login` and credentialless `hft_draft077_enroller_login`. No operational `hft` objects, P3 approval functions or stock accounts are altered.
 
 **Technical installation is separately approval-gated.** It requires exact-sha DBA permission for role/schema/extension/DDL/grants; a genuine issuer and draft HMAC key enrolled separately in managed secrets; a provisional scope and authentic user grant enrolled by an authorized administrator; external TLS hostname/CA proof; and a recoverable encrypted baseline with independent restore evidence. The original STOP-guarded companion is not to be installed. No credential, scope, real person or key is generated in source.
 
@@ -15,8 +15,8 @@ The source installer `10-hft-draft077-install.EXECUTABLE-CANDIDATE.sql` creates 
 The independently authorized app server must validate the genuine Ed25519 `__Host-hft_session` cookie (issuer, audience, subject, jti, expiry), same-origin request and scope grant before generating the draft DB HMAC. It must NEVER accept a caller-provided identity header or trust browser-supplied actor. Use only the direct Neon host and exact unprivileged `hft_draft077_api_login`, with PostgreSQL authenticated TLS; P3/R77/stock routes remain disabled.
 
 **SQL-only allowlist:**
-- `SELECT hft_draft077.save_draft_v1($1::text,$2::jsonb)` in `BEGIN ISOLATION LEVEL SERIALIZABLE`; COMMIT.
-- `SELECT hft_draft077.read_drafts_v1($1::text,$2::jsonb)` in a fresh `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY`.
+- `SELECT hft_draft077.save_v1($1::text,$2::jsonb)` in `BEGIN ISOLATION LEVEL SERIALIZABLE`; COMMIT.
+- `SELECT hft_draft077.read_v1($1::text,$2::jsonb)` in a fresh `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY`.
 
 $1 is the **exact UTF-8 serialized JSON string** signed by the server and forwarded unchanged to SQL. $2 is a nine-string proof object: `proofVersion,actorSubject,sessionId,payloadSha256,issuedAt,expiresAt,nonce,keyVersion,macSha256`. HMAC-SHA-256 uses an independently enrolled draft-only key over the 4-byte big-endian length-prefixed UTF-8 strings `["HFT-DRAFT077-HMAC-V1", "WRITE" or "READ", actorSubject, sessionId, SHA256(bodyText), issuedAt, expiresAt, nonce, keyVersion]`. Proof expiry at most 60 seconds; write nonces are consumed atomically and cannot replay. This HMAC must only be minted after verified human sign-in. The browser never sees the HMAC key or database credential.
 
@@ -31,6 +31,16 @@ EDIT uses `operation=EDIT` and the original `recordKey` with the committed `expe
 {"intent":"GET","scopeId":"<same-scope-uuid>","kind":"EMPLOYEE","recordKey":"<employee-code>","search":"","limit":"1","offset":"0"}
 ```
 LIST can use `kind=ALL`; page with limit <=100 and offset <=100000 for complete database export. A genuine CREATE/EDIT requires a fresh signed GET from a separate read-only DB transaction after COMMIT. On ambiguous COMMIT, never auto-retry: reconcile the original identity using a fresh read.
+
+## Exact Chat 16 V7 service correction required
+
+At engineering HEAD `c9c1a25fd651fa57fcb2c4624d442d25466ca631`, `lib/hft/draft/draft-service.ts` currently calls `save_v1(jsonb)`/`read_v1(jsonb)` **without the HMAC proof** even though `draft-proof.ts` already implements `signDraftBody()`. DO NOT implement unsigned single-argument SQL compatibility.
+
+For SAVE, after authenticating and validating `DraftSave`, construct exact `bodyText=JSON.stringify({operation:cmd.operation,scopeId:env.HFT_DRAFT_ENROLLED_SCOPE_ID,kind:cmd.kind,recordKey:cmd.recordId,expectedVersion:cmd.expectedRevision,values:cmd.values,requestId:cmd.writeId,source:cmd.source})`. Call `signDraftBody(env,operator,cmd,'WRITE',bodyText)`; pass the same unchanged text and JSON-serialized proof to `hft_draft077.save_v1($1::text,$2::jsonb)` within SERIALIZABLE.
+
+For READ, construct `bodyText=JSON.stringify({intent:'LIST',scopeId:env.HFT_DRAFT_ENROLLED_SCOPE_ID,kind:query.kind,recordKey:'',search:query.search,limit:'100',offset:'0'})`, call `signDraftBody(env,operator,query,'READ',bodyText)`, and invoke `hft_draft077.read_v1($1::text,$2::jsonb)` in a fresh REPEATABLE READ READ ONLY transaction. SQL returns state `DRAFT_ONLY` with rows matching `assertDraftRecords`. `GET` and `HISTORY` are also available as signed SQL read intents; export beyond 100 rows must paginate rather than silently truncate. The service's `DRAFT_IDENTITY_SQL` must reference the two-argument function signatures and NOLOGIN owner `hft_r1_draft_owner`.
+
+The signed scopeId must come from independently enrolled, server-side configuration and be bound to the real verified cookie's legalEntity/site/warehouse claims. Never trust a browser-supplied actor, signing key or scopeId.
 
 ## CSV/XLSX reuse (no new parser)
 
