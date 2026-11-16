@@ -9,7 +9,8 @@ import {exportP3Matrix,fieldGuide,importHeaders,previewP3ImportCsv,
  from './p3-csv-transfer.ts';
 
 const utf8=new TextEncoder(),decoder=new TextDecoder('utf-8',{fatal:true});
-const MAX_XLSX_INPUT=2*1024*1024,MAX_XLSX_UNCOMPRESSED=3*1024*1024;
+export const MAX_XLSX_INPUT=2*1024*1024;
+const MAX_XLSX_UNCOMPRESSED=3*1024*1024;
 const MAX_SHEETS=8,MAX_ENTRIES=80,MAX_COLUMNS=40;
 const xlsxMime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 export const XLSX_MIME=xlsxMime;
@@ -167,7 +168,7 @@ function guide(kind:MasterKind):string[][]{
  return [['field','classification','validation / purpose'],
   ...fieldGuide(kind).map(f=>[f.field,f.marker,f.note])];
 }
-function exampleRow(kind:MasterKind):string[]{
+export function fictionalP3SampleRow(kind:MasterKind):string[]{
  const sample:Record<string,string>={
   legalEntityId:'EXAMPLE_ENTITY',siteId:'EXAMPLE_SITE',warehouseId:'EXAMPLE_WH',
   employeeId:'EXAMPLE_EMPLOYEE',fullName:'Fictional Sample Person',
@@ -184,7 +185,7 @@ export function blankP3Xlsx(kind:MasterKind):Uint8Array{
   {name:'FIELD_GUIDE',rows:guide(kind)}]);
 }
 export function sampleP3Xlsx(kind:MasterKind):Uint8Array{
- return workbook([{name:'IMPORT',rows:[importHeaders(kind),exampleRow(kind)]},
+ return workbook([{name:'IMPORT',rows:[importHeaders(kind),fictionalP3SampleRow(kind)]},
   {name:'FIELD_GUIDE',rows:guide(kind)},
   {name:'DEMONSTRATION_ONLY',rows:[
    ['NOT FOR LIVE IMPORT','FICTIONAL SAMPLE RECORDS'],
