@@ -263,8 +263,8 @@ BEGIN
    OR length(val)>256 OR val<>btrim(val)
   THEN RAISE EXCEPTION 'DRAFT077_FIELD_INVALID:%',k; END IF;
  END LOOP;
- IF (kind='LEGAL_ENTITY' AND nullif(vals->>'name','') IS NULL)
- OR (kind='SITE' AND nullif(vals->>'name','') IS NULL)
+ IF (kind='LEGAL_ENTITY' AND nullif(vals->>'legalName','') IS NULL)
+ OR (kind='SITE' AND nullif(vals->>'siteName','') IS NULL)
  OR (kind='EMPLOYEE' AND (nullif(vals->>'fullName','') IS NULL
     OR nullif(vals->>'department','') IS NULL
     OR nullif(vals->>'designation','') IS NULL))
@@ -310,6 +310,196 @@ BEGIN
  src:=b->>'source';expected_revision:=(b->>'expectedVersion')::bigint;
  PERFORM hft_draft077.validate_fields_v1(v_kind,b->'values');
  actor:=hft_draft077.verify_proof_v1(body_text,proof,'WRITE',scope);
+ -- Scope anchors remain provisional, but may not be silently reassigned by
+ -- browser values or a signed payload with inconsistent entity/site identity.
+ IF (v_kind='LEGAL_ENTITY' AND v_record_key IS DISTINCT FROM
+     (SELECT legal_entity_ref FROM hft_draft077.provisional_scope WHERE scope_id=scope))
+ OR (v_kind='SITE' AND v_record_key IS DISTINCT FROM
+     (SELECT site_ref FROM hft_draft077.provisional_scope WHERE scope_id=scope))
+ OR (v_kind IN('EMPLOYEE','WAREHOUSE') AND
+     b->'values'->>'siteId' IS DISTINCT FROM
+     (SELECT site_ref FROM hft_draft077.provisional_scope WHERE scope_id=scope))
+ OR (v_kind='LOCATION' AND coalesce(b->'values'->>'parentLocationId','')<>''
+   AND (b->'values'->>'parentLocationId' !~ '^[A-Z0-9][A-Z0-9._-]{1,63}
+ PERFORM pg_advisory_xact_lock(hashtextextended(
+  'HFT:DRAFT077:'||scope::text||':'||v_kind||':'||v_record_key,0));
+ INSERT INTO hft_draft077.write_nonce(key_version,nonce,actor_subject,request_sha256)
+ VALUES((proof->>'keyVersion')::integer,proof->>'nonce',actor,
+  proof->>'payloadSha256');
+ IF v_action='CREATE' THEN
+  IF expected_revision<>0 THEN RAISE EXCEPTION 'DRAFT077_CREATE_EXPECTS_ZERO'; END IF;
+  INSERT INTO hft_draft077.draft_record
+   (scope_id,kind,record_key,values_json,created_by,edited_by,source_type)
+  VALUES(scope,v_kind,v_record_key,b->'values',actor,actor,src) RETURNING * INTO rec;
+  previous:=NULL;
+ ELSE
+  SELECT * INTO rec FROM hft_draft077.draft_record
+  WHERE scope_id=scope AND kind=v_kind AND record_key=v_record_key FOR UPDATE;
+  IF rec.id IS NULL OR rec.revision<>expected_revision
+  THEN RAISE EXCEPTION 'DRAFT077_STALE_OR_MISSING_REVISION'; END IF;
+  previous:=rec.values_json;
+  UPDATE hft_draft077.draft_record
+  SET values_json=b->'values',revision=revision+1,edited_by=actor,
+   updated_at=clock_timestamp(),source_type=src
+  WHERE id=rec.id AND revision=expected_revision RETURNING * INTO rec;
+  IF rec.id IS NULL THEN RAISE EXCEPTION 'DRAFT077_COMPARE_AND_SET_FAILED'; END IF;
+ END IF;
+ INSERT INTO hft_draft077.draft_revision
+  (record_id,revision,request_id,action,previous_json,current_json,changed_by,source_type)
+ VALUES(rec.id,rec.revision,req,v_action,previous,rec.values_json,actor,src);
+ RETURN jsonb_build_object('state','DRAFT_NOT_APPROVED',
+   'displayStatus','DRAFT — NOT APPROVED',
+   'scopeProvisional',true,'internalUuid',rec.id::text,'scopeId',scope::text,
+   'kind',rec.kind,'recordKey',rec.record_key,'recordId',rec.record_key,
+   'revision',rec.revision,'writeId',req::text,
+   'requestId',req::text,'updatedAt',rec.updated_at);
+END $save$;
+
+-- A fresh READ uses exactly the same authenticated actor/scope HMAC. The
+-- application performs READ after COMMIT on a different database transaction.
+CREATE FUNCTION hft_draft077.read_v1(body_text text,proof jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp AS $read$
+DECLARE b jsonb; scope uuid; actor text; result jsonb; n integer; skipped integer;
+BEGIN
+ IF current_setting('transaction_read_only')<>'on'
+ THEN RAISE EXCEPTION 'DRAFT077_FRESH_READ_ONLY_REQUIRED'; END IF;
+ IF octet_length(body_text)>4096 THEN RAISE EXCEPTION 'DRAFT077_READ_TOO_LARGE'; END IF;
+ b:=body_text::jsonb;
+ IF jsonb_typeof(b)<>'object'
+ OR (SELECT count(*) FROM jsonb_object_keys(b))<>7
+ OR NOT (b ?& ARRAY['intent','scopeId','kind','recordKey','search','limit','offset'])
+ OR EXISTS(SELECT 1 FROM jsonb_each(b) AS x(k,v)
+   WHERE jsonb_typeof(x.v)<>'string')
+ OR b->>'scopeId' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+ OR b->>'intent' NOT IN('GET','LIST','HISTORY')
+ OR b->>'kind' NOT IN
+ ('ALL','LEGAL_ENTITY','SITE','EMPLOYEE','ITEM','SUPPLIER','WAREHOUSE','LOCATION')
+ OR b->>'recordKey' !~ '^[A-Z0-9._-]{0,64}$'
+ OR length(b->>'search')>80 OR b->>'search' !~ '^[A-Za-z0-9 ._-]*$'
+ OR b->>'limit' !~ '^[1-9][0-9]{0,2}$'
+ OR b->>'offset' !~ '^(0|[1-9][0-9]{0,5})$'
+ THEN RAISE EXCEPTION 'DRAFT077_READ_EXACT_FIELDS_REQUIRED'; END IF;
+ n:=(b->>'limit')::integer;skipped:=(b->>'offset')::integer;
+ IF n>100 OR skipped>100000 OR
+ ((b->>'intent' IN('GET','HISTORY')) AND
+ (b->>'kind'='ALL' OR length(b->>'recordKey')<2))
+ THEN RAISE EXCEPTION 'DRAFT077_READ_WINDOW_INVALID'; END IF;
+ scope:=(b->>'scopeId')::uuid;
+ actor:=hft_draft077.verify_proof_v1(body_text,proof,'READ',scope);
+ IF b->>'intent'='HISTORY' THEN
+  SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.revision),'[]'::jsonb)
+  INTO result FROM (
+   SELECT h.revision,h.action,h.previous_json,h.current_json,
+    h.changed_by,h.source_type,h.changed_at
+   FROM hft_draft077.draft_record r
+   JOIN hft_draft077.draft_revision h ON h.record_id=r.id
+   WHERE r.scope_id=scope AND r.kind=b->>'kind'
+   AND r.record_key=b->>'recordKey'
+   ORDER BY h.revision LIMIT n OFFSET skipped
+  ) t;
+ ELSE
+  SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.kind,t.record_key),'[]'::jsonb)
+  INTO result FROM (
+   SELECT r.kind,sc.legal_entity_ref AS legal_entity_id,
+    sc.site_ref AS site_id,sc.warehouse_ref AS warehouse_id,
+    r.record_key AS record_id,r.revision,r.values_json AS "values",
+    r.created_by,r.edited_by AS updated_by,r.created_at,r.updated_at,
+    r.source_type,'DRAFT_NOT_APPROVED'::text AS state,
+    true AS "scopeProvisional"
+   FROM hft_draft077.draft_record r
+   JOIN hft_draft077.provisional_scope sc ON sc.scope_id=r.scope_id
+   WHERE r.scope_id=scope
+   AND (b->>'kind'='ALL' OR r.kind=b->>'kind')
+   AND (b->>'intent'<>'GET' OR r.record_key=b->>'recordKey')
+   AND (b->>'intent'<>'LIST' OR
+    strpos(lower(r.record_key),lower(b->>'search'))>0)
+   ORDER BY r.kind,r.record_key LIMIT n OFFSET skipped
+  ) t;
+ END IF;
+ RETURN jsonb_build_object('state','DRAFT_ONLY',
+  'displayStatus','DRAFT — NOT APPROVED',
+  'scopeProvisional',true,'actor',actor,'scopeId',scope::text,
+  'records',result,'limit',n,'offset',skipped);
+END $read$;
+
+-- Relations and internal helpers must NEVER be callable by the HTTP login.
+REVOKE ALL ON ALL TABLES IN SCHEMA hft_draft077
+ FROM PUBLIC,hft_draft077_api_login,hft_draft077_enroller_login;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA hft_draft077
+ FROM PUBLIC,hft_draft077_api_login,hft_draft077_enroller_login;
+REVOKE EXECUTE ON FUNCTION
+ hft_draft077.deny_fact_mutation_v1(),
+ hft_draft077.prevent_record_delete_v1(),
+ hft_draft077.length_prefixed_v1(text[]),
+ hft_draft077.verify_proof_v1(text,jsonb,text,uuid),
+ hft_draft077.validate_fields_v1(text,jsonb),
+ hft_draft077.save_v1(text,jsonb),
+ hft_draft077.read_v1(text,jsonb)
+ FROM PUBLIC,hft_draft077_api_login,hft_draft077_enroller_login;
+GRANT USAGE ON SCHEMA hft_draft077 TO hft_draft077_api_login,
+ hft_draft077_enroller_login;
+GRANT EXECUTE ON FUNCTION hft_draft077.save_v1(text,jsonb),
+ hft_draft077.read_v1(text,jsonb)
+ TO hft_draft077_api_login;
+-- Genuine external issuance of a provisional scope, scope grant and HMAC
+-- key is permitted ONLY via a separately approved enroller credential.
+GRANT INSERT,SELECT ON hft_draft077.provisional_scope,
+ hft_draft077.actor_scope_grant TO hft_draft077_enroller_login;
+GRANT INSERT ON hft_draft077.actor_scope_revocation,
+ hft_draft077.signing_key,hft_draft077.key_revocation
+ TO hft_draft077_enroller_login;
+
+RESET ROLE;
+-- Remove elevated temporary NOLOGIN owner membership after installation.
+REVOKE hft_r1_draft_owner FROM hft_r1_retained_masters_np077_owner;
+
+-- Catalog postflight: no unintended direct runtime relation privileges or
+-- extra execute; no runtime ability to become the owner or modify P3/stock.
+DO $postflight$
+DECLARE t record; p record; n integer;
+BEGIN
+ IF (SELECT count(*) FROM pg_roles WHERE rolname IN(
+    'hft_r1_draft_owner','hft_draft077_api_login','hft_draft077_enroller_login'))<>3
+ OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname IN
+    ('hft_draft077_api_login','hft_draft077_enroller_login') AND rolcanlogin)
+ OR pg_has_role('hft_draft077_api_login','hft_r1_draft_owner','MEMBER')
+ OR pg_has_role('hft_draft077_api_login','hft_draft077_enroller_login','MEMBER')
+ OR has_schema_privilege('hft_draft077_api_login','hft_draft077','CREATE')
+ OR EXISTS(SELECT 1 FROM pg_namespace ns WHERE ns.nspname='hft'
+    AND has_schema_privilege('hft_draft077_api_login',ns.oid,'USAGE'))
+ THEN RAISE EXCEPTION 'DRAFT077_ROLE_OR_SCHEMA_ISOLATION_FAILED'; END IF;
+ SELECT count(*) INTO n FROM pg_proc p JOIN pg_namespace s ON s.oid=p.pronamespace
+ JOIN pg_roles r ON r.oid=p.proowner
+ WHERE s.nspname='hft_draft077' AND p.proname IN
+ ('save_v1','read_v1')
+ AND p.prosecdef AND r.rolname='hft_r1_draft_owner'
+ AND EXISTS(SELECT 1 FROM unnest(p.proconfig) cfg
+  WHERE replace(cfg,' ','')='search_path=pg_catalog,pg_temp');
+ IF n<>2 THEN RAISE EXCEPTION 'DRAFT077_FUNCTION_OWNER_OR_SEARCH_PATH_FAILED'; END IF;
+ FOR t IN SELECT c.oid,c.relname FROM pg_class c
+ JOIN pg_namespace s ON s.oid=c.relnamespace
+ WHERE s.nspname='hft_draft077' AND c.relkind IN('r','p','v','m','S') LOOP
+  IF (t.relname IS NOT NULL AND
+   (CASE WHEN (SELECT relkind FROM pg_class WHERE oid=t.oid)='S' THEN
+     has_sequence_privilege('hft_draft077_api_login',t.oid,'USAGE,SELECT,UPDATE')
+   ELSE has_table_privilege('hft_draft077_api_login',t.oid,
+      'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') END))
+  THEN RAISE EXCEPTION 'DRAFT077_DIRECT_RUNTIME_DML:%',t.relname; END IF;
+ END LOOP;
+ FOR p IN SELECT f.oid,f.proname FROM pg_proc f
+ JOIN pg_namespace s ON s.oid=f.pronamespace
+ WHERE s.nspname='hft_draft077' LOOP
+  IF has_function_privilege('hft_draft077_api_login',p.oid,'EXECUTE')
+  AND p.oid NOT IN ('hft_draft077.save_v1(text,jsonb)'::regprocedure,
+   'hft_draft077.read_v1(text,jsonb)'::regprocedure)
+  THEN RAISE EXCEPTION 'DRAFT077_RUNTIME_HELPER_LEAK:%',p.proname; END IF;
+ END LOOP;
+END $postflight$;
+COMMIT;
+
+    OR b->'values'->>'parentLocationId'=v_record_key))
+ THEN RAISE EXCEPTION 'DRAFT077_PROVISIONAL_SCOPE_FIELD_MISMATCH'; END IF;
  PERFORM pg_advisory_xact_lock(hashtextextended(
   'HFT:DRAFT077:'||scope::text||':'||v_kind||':'||v_record_key,0));
  INSERT INTO hft_draft077.write_nonce(key_version,nonce,actor_subject,request_sha256)
