@@ -10,6 +10,7 @@ export type DraftScope=Readonly<{legalEntityId:string;siteId:string;warehouseId:
 export type DraftSave=Readonly<DraftScope&{
  contractVersion:typeof DRAFT_CONTRACT;intent:'SAVE';operation:'CREATE'|'EDIT';
  kind:DraftKind;recordId:string;expectedRevision:string;
+ source:'MANUAL'|'CSV'|'XLSX';
  writeId:string;reason:string;values:Readonly<Record<string,string>>;
 }>;
 export type DraftRead=Readonly<DraftScope&{
@@ -50,10 +51,11 @@ function scope(x:Record<string,unknown>):DraftScope{
 export function validateDraftSave(raw:unknown):DraftSave{
  const x=obj(raw);
  keys(x,['contractVersion','intent','operation','kind','legalEntityId','siteId',
-  'warehouseId','recordId','expectedRevision','writeId','reason','values']);
+  'warehouseId','recordId','expectedRevision','writeId','reason','values','source']);
  if(x.contractVersion!==DRAFT_CONTRACT||x.intent!=='SAVE'||
   !isDraftKind(x.kind)||!['CREATE','EDIT'].includes(String(x.operation))||
   typeof x.recordId!=='string'||!id.test(x.recordId)||
+  !['MANUAL','CSV','XLSX'].includes(String(x.source))||
   typeof x.writeId!=='string'||!uuid.test(x.writeId)||
   typeof x.expectedRevision!=='string'||
   !/^(0|[1-9][0-9]{0,12})$/.test(x.expectedRevision)||
@@ -86,7 +88,8 @@ export function validateDraftSave(raw:unknown):DraftSave{
  return Object.freeze({...s,contractVersion:DRAFT_CONTRACT,intent:'SAVE',
   kind:x.kind,operation:x.operation as DraftSave['operation'],
   recordId:x.recordId,writeId:x.writeId,expectedRevision:x.expectedRevision,
-  reason:x.reason,values:Object.freeze(v as Record<string,string>)});
+  reason:x.reason,source:x.source as DraftSave['source'],
+  values:Object.freeze(v as Record<string,string>)});
 }
 export function validateDraftRead(raw:unknown):DraftRead{
  const x=obj(raw);
