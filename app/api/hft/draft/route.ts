@@ -44,10 +44,18 @@ async function batch(raw:Record<string,unknown>,pool:ReturnType<typeof openDraft
  const seen=new Set<string>();
  for(let i=0;i<raw.rows.length;i++){
   const entry=raw.rows[i];
-  const row=i+2;
+  const item=entry&&typeof entry==='object'&&!Array.isArray(entry)?
+   entry as Record<string,unknown>:{};
+  const row=Number.isSafeInteger(item.sourceRow)&&
+   Number(item.sourceRow)>=2&&Number(item.sourceRow)<=10000?
+   Number(item.sourceRow):i+2;
   let cmd:DraftSave;
   try{
-   cmd=validateDraftSave(entry);
+   if(Object.keys(item).length!==2||
+    !Object.hasOwn(item,'sourceRow')||!Object.hasOwn(item,'change')||
+    !Number.isSafeInteger(item.sourceRow))
+    throw Error('DRAFT077_BATCH_ROW_WRAPPER_INVALID');
+   cmd=validateDraftSave(item.change);
    if(cmd.kind!==raw.kind||
     cmd.legalEntityId!==scope.legalEntityId||
     cmd.siteId!==scope.siteId||cmd.warehouseId!==scope.warehouseId||
@@ -55,9 +63,10 @@ async function batch(raw:Record<string,unknown>,pool:ReturnType<typeof openDraft
     throw Error('DRAFT077_BATCH_SCOPE_OR_DUPLICATE');
    seen.add(cmd.recordId);
   }catch(e){
-   results.push({row,recordId:typeof entry==='object'&&entry!==null&&
-      'recordId' in entry?String(entry.recordId).slice(0,64):'',
-     state:'INVALID',code:codeOf(e)});
+   const possible=item.change;
+   const recordId=possible&&typeof possible==='object'&&
+      'recordId' in possible?String(possible.recordId).slice(0,64):'';
+   results.push({row,recordId,state:'INVALID',code:codeOf(e)});
    continue;
   }
   try{
