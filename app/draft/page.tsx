@@ -160,21 +160,34 @@ export default function DraftPage(){
   if(!accepted||busy||!scopeReady||accepted.validRows.length===0)return;
   const n=++epoch.current;setBusy(true);setBatchResults([]);
   const rows=accepted.validRows.map(r=>({
-   contractVersion:DRAFT_CONTRACT,intent:'SAVE',operation:'CREATE',
-   ...scope,kind,recordId:r.recordId,expectedRevision:'0',
-   reason:r.reason,writeId:crypto.randomUUID(),
-   source:accepted.format,values:r.values
+   sourceRow:r.sourceRow,change:{
+    contractVersion:DRAFT_CONTRACT,intent:'SAVE',operation:'CREATE',
+    ...scope,kind,recordId:r.recordId,expectedRevision:'0',
+    reason:r.reason,writeId:crypto.randomUUID(),
+    source:accepted.format,values:r.values
+   }
+  }));
+  const invalid=accepted.issues.map(issue=>({
+   row:issue.row,recordId:issue.recordId,state:'INVALID',code:issue.code
   }));
   setPreview(null); // An uncertain result must not be resubmitted.
   try{
-   const result=await api({contractVersion:DRAFT_CONTRACT,intent:'BATCH',
-    ...scope,kind,rows});
+   const response=await fetch('/api/hft/draft',{method:'POST',
+    credentials:'same-origin',cache:'no-store',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({contractVersion:DRAFT_CONTRACT,intent:'BATCH',
+     ...scope,kind,rows})});
+   const result=await response.json() as Reply;
    if(n!==epoch.current)return;
-   if(result.state!=='DRAFT_BATCH_RESULT'||!result.results)
-    throw Error('DRAFT077_BATCH_OUTCOME_NOT_VERIFIED');
-   setBatchResults(result.results);
-   setStatus('Batch: '+result.confirmed+' saved drafts. Rejected rows remain unchanged.'+
-    ' Import never approves or activates records.');
+   if(!['DRAFT_BATCH_RESULT','PARTIAL_STOP_NO_RETRY'].includes(result.state||'')||
+    !Array.isArray(result.results))
+    throw Error(result.code||'DRAFT077_BATCH_OUTCOME_NOT_VERIFIED');
+   setBatchResults([...invalid,...result.results].sort((a,b)=>a.row-b.row));
+   setStatus('Batch: '+result.confirmed+' saved, '+
+    (invalid.length+result.results.filter(r=>r.state!=='SAVED_DRAFT').length)+
+    ' invalid/rejected.'+(result.state==='PARTIAL_STOP_NO_RETRY'?
+     ' Partial/uncertain outcome; no retry until independent READ.':
+     ' No draft has been approved or activated.'));
   }catch(error){
    if(n===epoch.current)setStatus(
     (error instanceof Error?error.message:'DRAFT077_BATCH_UNCERTAIN')+
