@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { assertSecureStartup } from './lib/hft/security/authorization';
 import {assertRetainedMastersProfile,isRetainedMastersProfile}
  from './lib/hft/masters/retained-nonproduction-profile';
-import {assertDraftProfile,isDraftMode} from './lib/hft/draft/draft-profile';
+import {assertDraftEdgeProfile,isDraftMode} from './lib/hft/draft/draft-edge-profile';
 
 /** Closed except EXACT Masters routes in a separately admitted retained
  * NONPRODUCTION profile. Stock, gallery, misc APIs, and production remain HOLD.
@@ -30,7 +30,7 @@ export function middleware(request:NextRequest){
  if(process.env.HFT_DRAFT_RUNTIME_PROFILE!==undefined){
   try{
    if(isDraftMode(process.env)){
-    assertDraftProfile(process.env);
+    assertDraftEdgeProfile(process.env);
     if(draftRoutes.has(path))return NextResponse.next();
    }
   }catch{/* fail closed for every API */}
