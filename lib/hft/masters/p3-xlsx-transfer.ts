@@ -63,7 +63,8 @@ function cellText(value:string,row:number,column:number,header:boolean):string{
   '><is><t xml:space="preserve">'+xml(value)+'</t></is></c>';
 }
 function sheetXml(rows:readonly (readonly string[])[]):string{
- check(rows.length<=MAX_CSV_IMPORT_ROWS+4,'EXPORT_TOO_MANY_ROWS');
+ // Fresh signed P3 LIST/REQUESTS can contain up to 50 rows plus header.
+ check(rows.length<=64,'EXPORT_TOO_MANY_ROWS');
  const width=Math.max(1,...rows.map(x=>x.length));
  check(width<=MAX_COLUMNS,'EXPORT_TOO_MANY_COLUMNS');
  const lines=rows.map((row,r)=>'<row r="'+(r+1)+'">'+
@@ -180,8 +181,12 @@ export function fictionalP3SampleRow(kind:MasterKind):string[]{
  };
  return importHeaders(kind).map(x=>sample[x]??'');
 }
-export function blankP3Xlsx(kind:MasterKind):Uint8Array{
- return workbook([{name:'IMPORT',rows:[importHeaders(kind)]},
+export function blankP3Xlsx(kind:MasterKind,
+ dataRows:readonly (readonly string[])[]=[]):Uint8Array{
+ check(dataRows.length<=MAX_CSV_IMPORT_ROWS&&
+  dataRows.every(x=>x.length===importHeaders(kind).length),
+  'IMPORT_TEMPLATE_ROW_SHAPE_INVALID');
+ return workbook([{name:'IMPORT',rows:[importHeaders(kind),...dataRows]},
   {name:'FIELD_GUIDE',rows:guide(kind)}]);
 }
 export function sampleP3Xlsx(kind:MasterKind):Uint8Array{
@@ -251,9 +256,22 @@ async function unzip(input:Uint8Array):Promise<Map<string,string>>{
    try{
     const copied=new Uint8Array(compressed.length);
     copied.set(compressed);
-    const raw=await new Response(new Blob([copied.buffer]).stream()
-     .pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
-    decoded=new Uint8Array(raw);
+    const stream=new Blob([copied.buffer]).stream()
+     .pipeThrough(new DecompressionStream('deflate-raw'));
+    const reader=stream.getReader(),chunks:Uint8Array[]=[];
+    let length=0;
+    try{
+     while(true){
+      const next=await reader.read();
+      if(next.done)break;
+      const chunk=new Uint8Array(next.value);
+      length+=chunk.length;
+      check(length<=e.size&&length<=MAX_XLSX_UNCOMPRESSED,
+       'ZIP_DEFLATE_EXPANSION_REJECTED');
+      chunks.push(chunk);
+     }
+    }finally{reader.releaseLock();}
+    decoded=binary(chunks);
    }catch{throw Error('XLSX_DEFLATE_UNAVAILABLE_OR_INVALID');}
   }
   check(decoded.length===e.size&&crc32(decoded)===e.crc,'ZIP_CRC_OR_LENGTH_MISMATCH');
