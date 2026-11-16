@@ -27,7 +27,9 @@ export type OidcConfig=Readonly<{issuer:string;authorize:string;token:string;
  legalEntityId:string;siteId:string;warehouseIds:string[]}>>}>;
 export function oidcConfig(env:DraftEnv):OidcConfig{
  assertDraftProfile(env);
- const issuer=url(env.HFT_DRAFT_OIDC_ISSUER).origin;
+ const exactIssuer=url(env.HFT_DRAFT_OIDC_ISSUER);
+ if(exactIssuer.search)throw Error('DRAFT077_OIDC_ISSUER_QUERY_DENIED');
+ const issuer=exactIssuer.toString().replace(/\/$/,'');
  const authorize=url(env.HFT_DRAFT_OIDC_AUTHORIZE_URL).toString();
  const token=url(env.HFT_DRAFT_OIDC_TOKEN_URL).toString();
  const jwks=url(env.HFT_DRAFT_OIDC_JWKS_URL).toString();
@@ -170,6 +172,8 @@ export async function completeLogin(config:OidcConfig,env:DraftEnv,
   typeof claims.sub!=='string'||!claims.sub||
   typeof claims.iat!=='number'||typeof claims.exp!=='number'||
   claims.exp<=Date.now()/1000||claims.iat>Date.now()/1000+30||
+  (claims.nbf!==undefined&&
+   (typeof claims.nbf!=='number'||claims.nbf>Date.now()/1000+30))||
   typeof claims.nonce!=='string'||!eq(claims.nonce,flow.nonce))
   throw Error('DRAFT077_OIDC_ISSUER_AUDIENCE_NONCE_INVALID');
  const jwks=await jsonHttp(config.jwks,{method:'GET'});
