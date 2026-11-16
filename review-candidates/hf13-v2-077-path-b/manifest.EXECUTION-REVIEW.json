@@ -1,0 +1,107 @@
+{
+  "schema": "HF13_V2_077_PATH_B_DRAFT_ONLY_INSTALLATION_V1",
+  "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
+  "owner_decision": "PATH_B_DRAFT_ONLY_SOURCE_ENGINEERING",
+  "status": "SOURCE_COMMITTED_NOT_INDEPENDENTLY_ADMITTED_NOT_INSTALLED",
+  "source": {
+    "repo": "Anurag-5792/Hubblefly-FacilityOS",
+    "engineering_head": "0d575e897249f2355564ee1c27085a2a4d8ae7d1",
+    "review_branch": "review/hf13-v2-077-path-b-draft-install",
+    "pr_11": "DRAFT_UNMERGED"
+  },
+  "target": {
+    "provider": "Neon",
+    "org_id": "org-broad-glade-52476265",
+    "project_id": "wandering-cake-50222227",
+    "branch_id": "br-shiny-night-b3qgsj8t",
+    "endpoint_id": "ep-hidden-fire-b324s21q",
+    "host": "ep-hidden-fire-b324s21q.c-4.ap-southeast-1.aws.neon.tech",
+    "database": "hft_r1_retained_masters_np077",
+    "postgres_server_version_num": 180007,
+    "created": true
+  },
+  "exact_files": [
+    {
+      "path": "10-hft-draft077-install.EXECUTABLE-CANDIDATE.sql",
+      "sha256": "dcb0446f75257ff9bfbc4296eec82983bb1b076183ff2d954f627247e53a36f9",
+      "execution_state": "UNAUTHORIZED_NOT_EXECUTED"
+    },
+    {
+      "path": "10-hft-draft077-install.NONEXECUTABLE.sql",
+      "sha256": "8589b3d85b730a157c61f1478db0776a739e305b4e9b40e57378aa244f516fd5",
+      "execution_state": "STOP_GUARDED_SOURCE"
+    },
+    {
+      "path": "20-draft-api-and-preview-contract.md",
+      "sha256": "c16166c863be63e0d85cbec3f2c5b8f1e6f8b1ddb405bd4db12537138d5f65f2"
+    },
+    {
+      "path": "30-readonly-catalog-check.sql",
+      "sha256": "fe6891a67fe3993ca10bd931b13e6482b946e063353dff474bb76ae8b391b472",
+      "execution_state": "NOT_TESTED"
+    }
+  ],
+  "permitted_installation_operations_if_independently_approved": [
+    "One BEGIN/COMMIT transactional installation against exact retained DB by verified Neon owner; CREATE ONLY three draft roles initially NOLOGIN and schema hft_draft077",
+    "CREATE pgcrypto ONLY within draft namespace; CREATE ONLY draft scope/grants/key/nonces/records/revisions and draft private helpers/two SECURITY DEFINER functions",
+    "Grant schema USAGE and exactly save_draft_v1(text,jsonb),read_drafts_v1(text,jsonb) EXECUTE to hft_draft077_api_login; zero direct relation privileges",
+    "Grant controlled provisional scope/grant/key INSERT to separate hft_draft077_enroller_login; do not preseed keys, users, scopes or business data",
+    "Postflight proves NO stock, no operational hft schema mutation, no P3 privileges and all draft runtime/issuer logins remain NOLOGIN"
+  ],
+  "later_separate_technical_enrollment": [
+    "Independently verify genuine user issuer, corporate tenant provisional identifiers, authorized actor and scope",
+    "Approve distinct enroller DB credential, temporarily enable enroller LOGIN, enroll one real provisional scope, actor-scope grant and independently generated draft-specific HMAC key, then disable enrollment LOGIN",
+    "Approve dedicated draft API credential, enable hft_draft077_api_login LOGIN and bind managed secret only to Vercel nonproduction Preview",
+    "Verify TLS hostname/CA and actual SQL session current_database(),session_user,pg_stat_ssl.ssl=true",
+    "Take encrypted PostgreSQL custom-format backup with SHA-256 outside GitHub and independently restore to separately approved isolated destination BEFORE owner records",
+    "Approve only draft UI/API Preview routes, genuine Ed25519 short-lived signed session, direct manual CREATE/EDIT and DB-backed list/search/export; stock and P3 remain closed"
+  ],
+  "application": {
+    "owner": "Chat16 V7",
+    "vercel_team": "team_GZjiGpLO7uRSKAEfW18JkCWS",
+    "vercel_project": "prj_6KRIqjoTbLlVMUWOmWIid56U4BAf",
+    "current_preview_source_only": true,
+    "same_origin_authenticated_session_required": true,
+    "function_allowlist": [
+      "hft_draft077.save_draft_v1(text,jsonb)",
+      "hft_draft077.read_drafts_v1(text,jsonb)"
+    ],
+    "valid_kind": [
+      "LEGAL_ENTITY",
+      "SITE",
+      "EMPLOYEE",
+      "ITEM",
+      "SUPPLIER",
+      "WAREHOUSE",
+      "LOCATION"
+    ],
+    "allowed_state": "DRAFT_NOT_APPROVED",
+    "export_source": "PAGINATED_AUTHENTICATED_POSTGRESQL_READBACK",
+    "import_source": [
+      "CSV",
+      "XLSX"
+    ]
+  },
+  "restrictions": [
+    "NO_SQL_EXECUTION_WITHOUT_NEW_TECHNICAL_ADMISSION",
+    "NO_ROLE_PASSWORD_OR_SIGNER_KEY_GENERATION_BY_SOURCE",
+    "NO_AUTHORITATIVE_MASTER_ACTIVATION",
+    "NO_STOCK_POSTING_OR_GRN",
+    "NO_P3_WRITE_OR_APPROVAL",
+    "NO_PRODUCTION_DEPLOYMENT",
+    "NO_PR_11_MERGE",
+    "NO_NEW_NEON_OR_VERCEL_PROJECT",
+    "NO_REAL_BUSINESS_DATA_IN_GITHUB"
+  ],
+  "actual_verification": {
+    "postgres_database_connected": true,
+    "pg_version": 180007,
+    "hft_draft077_installed": false,
+    "limited_roles_installed": false,
+    "app_auth_tested": false,
+    "create_read_edit_tested": false,
+    "import_export_real_db_tested": false,
+    "backup_restored": false
+  },
+  "required_first_record_test": "Signed authorized Employee draft CREATE v1, fresh GET, signed EDIT v2, history readback, duplicate rejection, unauthorized denial, CSV/XLSX valid and invalid import, actual DB export, logout/login/restart persistence."
+}
