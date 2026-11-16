@@ -120,7 +120,7 @@ export default function DraftPage(){
   const cmd:DraftSave={contractVersion:DRAFT_CONTRACT,intent:'SAVE',
    ...scope,kind,recordId:recordId.trim(),operation,
    expectedRevision:revision,reason:reason.trim(),
-   writeId:crypto.randomUUID(),values:Object.fromEntries(
+   writeId:crypto.randomUUID(),source:'MANUAL',values:Object.fromEntries(
     fieldNames[kind].map(k=>[k,(values[k]||'').trim()]))};
   try{
    const result=await api(cmd);
@@ -162,7 +162,8 @@ export default function DraftPage(){
   const rows=accepted.validRows.map(r=>({
    contractVersion:DRAFT_CONTRACT,intent:'SAVE',operation:'CREATE',
    ...scope,kind,recordId:r.recordId,expectedRevision:'0',
-   reason:r.reason,writeId:crypto.randomUUID(),values:r.values
+   reason:r.reason,writeId:crypto.randomUUID(),
+   source:accepted.format,values:r.values
   }));
   setPreview(null); // An uncertain result must not be resubmitted.
   try{
