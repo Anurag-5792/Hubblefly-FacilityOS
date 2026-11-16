@@ -89,7 +89,7 @@ function pg(mode:Mode='standard'){
       extra_draft_function_grants:0,direct_relation_grants:0,
       operational_function_grants:0,restricted_login_count:1,
       privileged_memberships:0}];
-     if(sql==='SELECT hft_draft077.save_draft_v1($1::text,$2::jsonb) AS evidence'){
+     if(sql==='SELECT hft_draft077.save_v1($1::text,$2::jsonb) AS evidence'){
       const cmd=JSON.parse(String(params[0])) as {
        scopeId:string;kind:string;recordKey:string;expectedVersion:string;
        requestId:string;values:Record<string,string>;source:string};
@@ -97,25 +97,26 @@ function pg(mode:Mode='standard'){
       const old=Number(existing?.revision||0);
       if(old!==Number(cmd.expectedVersion))
        throw Error('DRAFT077_REVISION_CONFLICT');
-      const record={recordId:'99999999-9999-4999-8999-999999999999',
-       kind:cmd.kind,record_key:cmd.recordKey,revision:old+1,
+      const record={record_id:cmd.recordKey,
+       legal_entity_id:'HFT',site_id:'SITE1',warehouse_id:'WH1',
+       kind:cmd.kind,revision:old+1,
        state:DRAFT_STATE,values:cmd.values,created_by:'STORE1',
-       edited_by:'STORE1',created_at:'2026-11-16T00:00:00Z',
+       updated_by:'STORE1',created_at:'2026-11-16T00:00:00Z',
        updated_at:'2026-11-16T00:00:00Z',scopeProvisional:true,
        source_type:cmd.source};
       records.set(cmd.recordKey,record);
       rows=[{evidence:{state:DRAFT_STATE,scopeId:cmd.scopeId,
        recordKey:cmd.recordKey,requestId:cmd.requestId,revision:old+1}}];
      }
-     if(sql==='SELECT hft_draft077.read_drafts_v1($1::text,$2::jsonb) AS evidence'){
+     if(sql==='SELECT hft_draft077.read_v1($1::text,$2::jsonb) AS evidence'){
       const q=JSON.parse(String(params[0])) as {
        scopeId:string;kind:string;intent:string;recordKey:string;
        search:string;offset:string;limit:string};
       const values=mode==='missingReadback'?[]:
        [...records.values()].filter(r=>r.kind===q.kind&&
-       (q.intent!=='GET'||r.record_key===q.recordKey)&&
-       (q.intent!=='LIST'||String(r.record_key).includes(q.search)));
-      rows=[{evidence:{state:DRAFT_STATE,scopeId:q.scopeId,actor:'STORE1',
+       (q.intent!=='GET'||r.record_id===q.recordKey)&&
+       (q.intent!=='LIST'||String(r.record_id).includes(q.search)));
+      rows=[{evidence:{state:'DRAFT_ONLY',scopeId:q.scopeId,actor:'STORE1',
        scopeProvisional:true,offset:Number(q.offset),limit:Number(q.limit),
        records:values.slice(Number(q.offset),Number(q.offset)+Number(q.limit))}}];
      }
@@ -165,8 +166,8 @@ test('SQL client saves and independently rereads a committed draft revision',asy
  const read=await readDrafts(db.pool,env,user,validateDraftRead({
   contractVersion:DRAFT_CONTRACT,intent:'READ',kind:'EMPLOYEE',...scope,search:''}));
  assert.equal(read[0].revision,2);
- assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.save_draft_v1($1::text,$2::jsonb) AS evidence').length,2);
- assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.read_drafts_v1($1::text,$2::jsonb) AS evidence').length,3);
+ assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.save_v1($1::text,$2::jsonb) AS evidence').length,2);
+ assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.read_v1($1::text,$2::jsonb) AS evidence').length,3);
  assert.equal(db.sqls.some(s=>/INSERT INTO hft\.|post_stock_command/.test(s)),false);
 });
 test('stale concurrent edit fails without changing retained draft revision',async()=>{
@@ -182,14 +183,14 @@ test('unknown COMMIT freezes original write id and does not automatically repost
  const db=pg('uncertain');
  await assert.rejects(saveDraft(db.pool,env,actor(),command('ITEM')),
   /COMMIT_OUTCOME_UNCERTAIN_NO_RETRY/);
- assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.save_draft_v1($1::text,$2::jsonb) AS evidence').length,1);
+ assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.save_v1($1::text,$2::jsonb) AS evidence').length,1);
  assert.ok(db.destroyed[0]);
 });
 test('missing fresh committed readback requires reconciliation, never repost',async()=>{
  const db=pg('missingReadback');
  await assert.rejects(saveDraft(db.pool,env,actor(),command('ITEM')),
   /COMMITTED_READBACK_REQUIRED_NO_RETRY/);
- assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.save_draft_v1($1::text,$2::jsonb) AS evidence').length,1);
+ assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.save_v1($1::text,$2::jsonb) AS evidence').length,1);
 });
 test('forged actor and cross-warehouse scope denied before PostgreSQL access',async()=>{
  const db=pg(),user=actor();
