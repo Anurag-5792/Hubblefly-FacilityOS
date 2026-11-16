@@ -32,10 +32,15 @@ const env={...identityEnv,NODE_ENV:'production',
  HFT_DRAFT_DB_VERSION:'180007',
  HFT_DRAFT_DB_HOST:'ep-hidden-fire-b324s21q.c-4.ap-southeast-1.aws.neon.tech',
  HFT_DRAFT_APPROVED_HOST:'ep-hidden-fire-b324s21q.c-4.ap-southeast-1.aws.neon.tech',
- HFT_DRAFT_DB_PORT:'5432',HFT_DRAFT_DB_USER:'hft_r1_draft_testlogin',
+ HFT_DRAFT_DB_PORT:'5432',HFT_DRAFT_DB_USER:'hft_draft077_api_login',
  HFT_DRAFT_DB_PASSWORD:'SYNTHETIC_TEST_NEVER_REAL_0001',
  HFT_DRAFT_APPROVED_SCHEMA_SHA256:'b'.repeat(64),
  HFT_DRAFT_INDEPENDENT_ADMISSION_SHA256:'a'.repeat(64),
+ HFT_DRAFT_ENROLLED_SCOPE_ID:'11111111-1111-4111-8111-111111111111',
+ HFT_DRAFT_SCOPE_LEGAL_ENTITY:'HFT',HFT_DRAFT_SCOPE_SITE:'SITE1',
+ HFT_DRAFT_SCOPE_WAREHOUSE:'WH1',
+ HFT_DRAFT_HMAC_KEY_VERSION:'1',
+ HFT_DRAFT_HMAC_KEY_BASE64:Buffer.alloc(32,18).toString('base64'),
  HFT_DRAFT_TLS_CA_PEM:rootCertificates[0],HFT_PUBLIC_ORIGIN:origin};
 function actor(){
  return resolveVerifiedRequestOperator(new Request(origin+'/api/hft/draft',{
@@ -59,14 +64,15 @@ const writeId='11111111-1111-4111-8111-111111111111';
 function command(kind:keyof typeof values,op:'CREATE'|'EDIT'='CREATE',rev='0'){
  return validateDraftSave({
   contractVersion:DRAFT_CONTRACT,intent:'SAVE',operation:op,kind,...scope,
-  recordId:idByKind[kind],expectedRevision:rev,writeId,
+  recordId:idByKind[kind],expectedRevision:rev,writeId,source:'MANUAL',
   reason:'Real employee approved user entry is required, synthetic test here',
   values:values[kind]});
 }
 type Mode='standard'|'uncertain'|'missingReadback';
 function pg(mode:Mode='standard'){
  const records=new Map<string,Record<string,unknown>>();
- const sqls:string[]=[],destroyed:boolean[]=[];let connections=0;
+ const sqls:string[]=[],destroyed:boolean[]=[];
+ let connections=0;
  const pool:DraftPgPool={
   async connect(){
    connections++;
@@ -80,28 +86,38 @@ function pg(mode:Mode='standard'){
       role:env.HFT_DRAFT_DB_USER,version:180007,replica:false,
       tls:true,tls_version:'TLSv1.3',schema_usage:true,schema_create:false,
       can_save:true,can_read:true,secured_function_count:2,
-      direct_relation_grants:0,operational_function_grants:0,
-      restricted_login_count:1,privileged_memberships:0}];
-     if(sql.includes('hft_draft077.save_v1(')){
-      const cmd=JSON.parse(String(params[0])) as ReturnType<typeof command>;
-      const existing=records.get(cmd.recordId);
+      extra_draft_function_grants:0,direct_relation_grants:0,
+      operational_function_grants:0,restricted_login_count:1,
+      privileged_memberships:0}];
+     if(sql.includes('hft_draft077.save_draft_v1(')){
+      const cmd=JSON.parse(String(params[0])) as {
+       scopeId:string;kind:string;recordKey:string;expectedVersion:string;
+       requestId:string;values:Record<string,string>;source:string};
+      const existing=records.get(cmd.recordKey);
       const old=Number(existing?.revision||0);
-      if(old!==Number(cmd.expectedRevision))
+      if(old!==Number(cmd.expectedVersion))
        throw Error('DRAFT077_REVISION_CONFLICT');
-      const record={kind:cmd.kind,legal_entity_id:cmd.legalEntityId,
-       site_id:cmd.siteId,warehouse_id:cmd.warehouseId,
-       record_id:cmd.recordId,revision:old+1,
+      const record={recordId:'99999999-9999-4999-8999-999999999999',
+       kind:cmd.kind,record_key:cmd.recordKey,revision:old+1,
        state:DRAFT_STATE,values:cmd.values,created_by:'STORE1',
-       updated_by:'STORE1',created_at:'2026-11-16T00:00:00Z',
-       updated_at:'2026-11-16T00:00:00Z'};
-      records.set(cmd.recordId,record);
-      rows=[{evidence:{state:DRAFT_STATE,recordId:cmd.recordId,
-       revision:old+1,writeId:cmd.writeId}}];
+       edited_by:'STORE1',created_at:'2026-11-16T00:00:00Z',
+       updated_at:'2026-11-16T00:00:00Z',scopeProvisional:true,
+       source_type:cmd.source};
+      records.set(cmd.recordKey,record);
+      rows=[{evidence:{state:DRAFT_STATE,scopeId:cmd.scopeId,
+       recordKey:cmd.recordKey,requestId:cmd.requestId,revision:old+1}}];
      }
-     if(sql.includes('hft_draft077.read_v1(')){
-      const q=JSON.parse(String(params[0])) as {kind:string};
-      rows=[{evidence:{state:'DRAFT_ONLY',records:mode==='missingReadback'?[]:
-       [...records.values()].filter(r=>r.kind===q.kind)}}];
+     if(sql.includes('hft_draft077.read_drafts_v1(')){
+      const q=JSON.parse(String(params[0])) as {
+       scopeId:string;kind:string;intent:string;recordKey:string;
+       search:string;offset:string;limit:string};
+      const values=mode==='missingReadback'?[]:
+       [...records.values()].filter(r=>r.kind===q.kind&&
+       (q.intent!=='GET'||r.record_key===q.recordKey)&&
+       (q.intent!=='LIST'||String(r.record_key).includes(q.search)));
+      rows=[{evidence:{state:DRAFT_STATE,scopeId:q.scopeId,actor:'STORE1',
+       scopeProvisional:true,offset:Number(q.offset),limit:Number(q.limit),
+       records:values.slice(Number(q.offset),Number(q.offset)+Number(q.limit))}}];
      }
      if(sql==='COMMIT'&&mode==='uncertain'&&connection===1)
       throw Error('SIMULATED_LOST_COMMIT_RESPONSE');
@@ -149,8 +165,8 @@ test('SQL client saves and independently rereads a committed draft revision',asy
  const read=await readDrafts(db.pool,env,user,validateDraftRead({
   contractVersion:DRAFT_CONTRACT,intent:'READ',kind:'EMPLOYEE',...scope,search:''}));
  assert.equal(read[0].revision,2);
- assert.equal(db.sqls.filter(s=>s.includes('hft_draft077.save_v1(')).length,2);
- assert.equal(db.sqls.filter(s=>s.includes('hft_draft077.read_v1(')).length,3);
+ assert.equal(db.sqls.filter(s=>s.includes('hft_draft077.save_draft_v1(')).length,2);
+ assert.equal(db.sqls.filter(s=>s.includes('hft_draft077.read_drafts_v1(')).length,3);
  assert.equal(db.sqls.some(s=>/INSERT INTO hft\.|post_stock_command/.test(s)),false);
 });
 test('stale concurrent edit fails without changing retained draft revision',async()=>{
@@ -166,14 +182,14 @@ test('unknown COMMIT freezes original write id and does not automatically repost
  const db=pg('uncertain');
  await assert.rejects(saveDraft(db.pool,env,actor(),command('ITEM')),
   /COMMIT_OUTCOME_UNCERTAIN_NO_RETRY/);
- assert.equal(db.sqls.filter(s=>s.includes('hft_draft077.save_v1(')).length,1);
+ assert.equal(db.sqls.filter(s=>s.includes('hft_draft077.save_draft_v1(')).length,1);
  assert.ok(db.destroyed[0]);
 });
 test('missing fresh committed readback requires reconciliation, never repost',async()=>{
  const db=pg('missingReadback');
  await assert.rejects(saveDraft(db.pool,env,actor(),command('ITEM')),
   /COMMITTED_READBACK_REQUIRED_NO_RETRY/);
- assert.equal(db.sqls.filter(s=>s.includes('hft_draft077.save_v1(')).length,1);
+ assert.equal(db.sqls.filter(s=>s.includes('hft_draft077.save_draft_v1(')).length,1);
 });
 test('forged actor and cross-warehouse scope denied before PostgreSQL access',async()=>{
  const db=pg(),user=actor();
