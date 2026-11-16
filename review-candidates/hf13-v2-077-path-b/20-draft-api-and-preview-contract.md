@@ -6,7 +6,7 @@
 
 Neon `wandering-cake-50222227` / `br-shiny-night-b3qgsj8t` / `hft_r1_retained_masters_np077`; endpoint `ep-hidden-fire-b324s21q.c-4.ap-southeast-1.aws.neon.tech`, PG `180007`. No new Neon project. Existing Vercel team `team_GZjiGpLO7uRSKAEfW18JkCWS`, project `prj_6KRIqjoTbLlVMUWOmWIid56U4BAf`; Preview only, no production mutation.
 
-The source installer `10-hft-draft077-install.EXECUTABLE-CANDIDATE.sql` creates ONLY schema `hft_draft077`, provisional scope, actor grants/revocations, draft HMAC key/revocation, one-use write nonces, records and immutable revision history. It creates NOLOGIN `hft_r1_draft_owner`, credentialless `hft_draft077_api_login` and credentialless `hft_draft077_enroller_login`. No operational `hft` objects, P3 approval functions or stock accounts are altered.
+The source installer `10-hft-draft077-install.EXECUTABLE-CANDIDATE.sql` creates ONLY schema `hft_draft077`, provisional scope, actor grants/revocations, draft HMAC key/revocation, one-use write nonces, records and immutable revision history. It creates NOLOGIN `hft_draft077_owner`, credentialless `hft_draft077_api_login` and credentialless `hft_draft077_enroller_login`. No operational `hft` objects, P3 approval functions or stock accounts are altered.
 
 **Technical installation is separately approval-gated.** It requires exact-sha DBA permission for role/schema/extension/DDL/grants; a genuine issuer and draft HMAC key enrolled separately in managed secrets; a provisional scope and authentic user grant enrolled by an authorized administrator; external TLS hostname/CA proof; and a recoverable encrypted baseline with independent restore evidence. The original STOP-guarded companion is not to be installed. No credential, scope, real person or key is generated in source.
 
@@ -15,8 +15,8 @@ The source installer `10-hft-draft077-install.EXECUTABLE-CANDIDATE.sql` creates 
 The independently authorized app server must validate the genuine Ed25519 `__Host-hft_session` cookie (issuer, audience, subject, jti, expiry), same-origin request and scope grant before generating the draft DB HMAC. It must NEVER accept a caller-provided identity header or trust browser-supplied actor. Use only the direct Neon host and exact unprivileged `hft_draft077_api_login`, with PostgreSQL authenticated TLS; P3/R77/stock routes remain disabled.
 
 **SQL-only allowlist:**
-- `SELECT hft_draft077.save_v1($1::text,$2::jsonb)` in `BEGIN ISOLATION LEVEL SERIALIZABLE`; COMMIT.
-- `SELECT hft_draft077.read_v1($1::text,$2::jsonb)` in a fresh `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY`.
+- `SELECT hft_draft077.save_draft_v1($1::text,$2::jsonb)` in `BEGIN ISOLATION LEVEL SERIALIZABLE`; COMMIT.
+- `SELECT hft_draft077.read_drafts_v1($1::text,$2::jsonb)` in a fresh `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY`.
 
 $1 is the **exact UTF-8 serialized JSON string** signed by the server and forwarded unchanged to SQL. $2 is a nine-string proof object: `proofVersion,actorSubject,sessionId,payloadSha256,issuedAt,expiresAt,nonce,keyVersion,macSha256`. HMAC-SHA-256 uses an independently enrolled draft-only key over the 4-byte big-endian length-prefixed UTF-8 strings `["HFT-DRAFT077-HMAC-V1", "WRITE" or "READ", actorSubject, sessionId, SHA256(bodyText), issuedAt, expiresAt, nonce, keyVersion]`. Proof expiry at most 60 seconds; write nonces are consumed atomically and cannot replay. This HMAC must only be minted after verified human sign-in. The browser never sees the HMAC key or database credential.
 
@@ -32,13 +32,11 @@ EDIT uses `operation=EDIT` and the original `recordKey` with the committed `expe
 ```
 LIST can use `kind=ALL`; page with limit <=100 and offset <=100000 for complete database export. A genuine CREATE/EDIT requires a fresh signed GET from a separate read-only DB transaction after COMMIT. On ambiguous COMMIT, never auto-retry: reconcile the original identity using a fresh read.
 
-## Chat 16 signed contract — exact source pin
+## Chat 16 V7 signed service reconciliation
 
-At latest inspected engineering source `d23f0169bb82d05cd68da31f55a47f0487c0fc81`, Chat 16's `draft-service.ts` invokes `signDraftBody()` only after genuinely verified Ed25519 cookie/session scope, calls **`hft_draft077.save_v1($1::text,$2::jsonb)`** and **`hft_draft077.read_v1($1::text,$2::jsonb)`**, and requires NOLOGIN `hft_r1_draft_owner` as both function owners. There is no unsigned one-argument compatibility route.
+At engineering source `0abbe343772f05ec764d06d7fdb5a54306eed795`, Chat 16 has corrected `draft-service.ts` to invoke `signDraftBody()`, map current 13-field DraftSave inputs to this SQL's eight-field signed body, and use two-argument `save_draft_v1(text,jsonb)` and `read_drafts_v1(text,jsonb)`. The original NOLOGIN function owner is `hft_draft077_owner`. This source-only alignment is not a PostgreSQL acceptance or proof that an OIDC login has been enrolled.
 
-UI inputs `legalName` and `siteName` are converted server-side to SQL `values.name`; `siteId` fields are validated from the actor's enrolled scope and removed from the signed database body. The signed CREATE/EDIT body is eight fixed keys exactly as below. Chat 16 independently checks record IDs/revisions and re-reads committed changes.
-
-SQL WRITE result contains `state=DRAFT_NOT_APPROVED`, natural `recordKey`, `requestId` and revision. SQL READ envelope contains `state=DRAFT_ONLY`, actor, scopeId, limit/offset and rows, each with actual `legal_entity_id`, `site_id`, `warehouse_id`, natural `record_id`, `updated_by`, stored values, revision and `state=DRAFT_NOT_APPROVED`. Actual PostgreSQL parsing, authentication, privilege and transaction tests have **not** occurred.
+The database READ result is `{state:'DRAFT_NOT_APPROVED',records:[{kind,record_key,values,revision,created_by,edited_by,created_at,updated_at,state:'DRAFT_NOT_APPROVED',scopeProvisional:true}],actor,scopeId,limit,offset}`; the application maps those rows to the DraftRecord view with legal_entity_id/site_id/warehouse_id from the verified signed scope and names from stored values. No unsigned single-argument entrypoints are allowed.
 
 ## CSV/XLSX reuse (no new parser)
 
