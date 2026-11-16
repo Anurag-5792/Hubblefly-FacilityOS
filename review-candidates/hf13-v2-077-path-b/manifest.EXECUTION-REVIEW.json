@@ -2,7 +2,7 @@
   "schema": "HF13_V2_077_PATH_B_DRAFT_ONLY_INSTALLATION_V1",
   "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
   "owner_decision": "PATH_B_DRAFT_ONLY_SOURCE_ENGINEERING",
-  "status": "RECONCILED_SOURCE_CANDIDATE_UNREVIEWED_NOT_AUTHORIZED_NOT_POSTGRES_EXECUTED",
+  "status": "SOURCE_RECONCILED_TO_CHAT16_CONTRACT_UNEXECUTED_TECHNICAL_ADMISSION_PENDING",
   "source": {
     "repo": "Anurag-5792/Hubblefly-FacilityOS",
     "engineering_head": "0d575e897249f2355564ee1c27085a2a4d8ae7d1",
@@ -23,12 +23,12 @@
   "exact_files": [
     {
       "path": "10-hft-draft077-install.EXECUTABLE-CANDIDATE.sql",
-      "sha256": "b003c9f56c61402c6f5683440ae2375f7adb1a48b4e878752d04506e1f15d83b",
+      "sha256": "09c76d3cf81fc9e2c9c4d553f032b7f6c5f91491bca28660d6c526d95bd2eb63",
       "execution_state": "UNAUTHORIZED_NOT_EXECUTED"
     },
     {
       "path": "10-hft-draft077-install.NONEXECUTABLE.sql",
-      "sha256": "dbacaee54ae959da45b27dc68e04d93067322baad7c6bd8dca9bc06fb7",
+      "sha256": "9eeb6218e2cee27d4850d4bf4c9f045782fbf5d1cbcd2148a45a261e34773592",
       "execution_state": "STOP_GUARDED_SOURCE"
     },
     {
@@ -83,7 +83,10 @@
     ],
     "current_chat16_source_observed": "c9c1a25fd651fa57fcb2c4624d442d25466ca631",
     "must_fix_before_api_admission": "draft-service.ts currently uses unsigned single-argument save_v1(jsonb)/read_v1(jsonb); must call existing signDraftBody, sign exact mapped text and bind two SQL params; function-owner assertion must be hft_r1_draft_owner",
-    "response_contract": "save returns state DRAFT_NOT_APPROVED, recordId=natural record code, writeId=request UUID, revision; read returns state DRAFT_ONLY and records fields matching DraftRecord assertions"
+    "response_contract": "save returns state DRAFT_NOT_APPROVED, recordId=natural record code, writeId=request UUID, revision; read returns state DRAFT_ONLY and records fields matching DraftRecord assertions",
+    "postgresql_scope_guards": "After signed actor proof, LEGAL_ENTITY and SITE record identities must equal enrolled provisional references, EMPLOYEE/WAREHOUSE values.siteId equals enrolled provisional site, LOCATION parent not self",
+    "required_legal_entity_fields": "legalName",
+    "required_site_fields": "siteName"
   },
   "restrictions": [
     "NO_SQL_EXECUTION_WITHOUT_NEW_TECHNICAL_ADMISSION",
