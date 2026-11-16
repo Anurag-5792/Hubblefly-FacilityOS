@@ -30,15 +30,26 @@ export function assertDraftProfile(env:DraftEnv):void{
    isIP(host)!==0||host.endsWith('.local')||host.endsWith('.localhost')||
    host.split('.').length<2||host.split('.').some(x=>!dns.test(x))||
    !/^[1-9][0-9]{0,4}$/.test(port)||Number(port)>65535||
-   !/^hft_r1_draft_[a-z0-9_]{3,40}$/.test(user)||
+   user!=='hft_draft077_api_login'||
    password.length<16||password.length>4096||
    !hex.test(env.HFT_DRAFT_APPROVED_SCHEMA_SHA256||'')||
    !hex.test(env.HFT_DRAFT_INDEPENDENT_ADMISSION_SHA256||'')||
+   !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+     .test(env.HFT_DRAFT_ENROLLED_SCOPE_ID||'')||
+   !/^[A-Z0-9][A-Z0-9._-]{1,63}$/.test(env.HFT_DRAFT_SCOPE_LEGAL_ENTITY||'')||
+   !/^[A-Z0-9][A-Z0-9._-]{1,63}$/.test(env.HFT_DRAFT_SCOPE_SITE||'')||
+   !/^[A-Z0-9][A-Z0-9._-]{1,63}$/.test(env.HFT_DRAFT_SCOPE_WAREHOUSE||'')||
+   !/^[1-9][0-9]{0,7}$/.test(env.HFT_DRAFT_HMAC_KEY_VERSION||'')||
+   !env.HFT_DRAFT_HMAC_KEY_BASE64||
    !env.HFT_SESSION_ED25519_PUBLIC_KEY_PEM||
    !env.HFT_SESSION_ISSUER||!env.HFT_SESSION_AUDIENCE||
    !env.HFT_PUBLIC_ORIGIN||
    forbidden.some(x=>Boolean(env[x])))
   throw Error('HFT_DRAFT077_PROFILE_NOT_ADMITTED');
+ const key=Buffer.from(env.HFT_DRAFT_HMAC_KEY_BASE64!,'base64');
+ if(key.length<32||key.length>128)
+  throw Error('HFT_DRAFT077_HMAC_CREDENTIAL_NOT_ADMITTED');
+ key.fill(0);
  const origin=env.HFT_PUBLIC_ORIGIN;
  let parsed:URL;
  try{parsed=new URL(origin);}catch{throw Error('HFT_DRAFT077_ORIGIN_NOT_ADMITTED');}
