@@ -19,7 +19,8 @@ export function mastersPathAdmitted(path:string,env:Readonly<Record<string,strin
  return retainedRoutes.has(path);
 }
 const draftRoutes=new Set([
- '/','/draft','/draft/sign-in','/api/hft/draft','/api/hft/draft/signout'
+ '/','/draft','/draft/sign-in','/api/hft/draft','/api/hft/draft/signout',
+ '/api/hft/draft/auth/start','/api/hft/draft/auth/callback'
 ]);
 const publicDraftPages=new Set(['/','/draft','/draft/sign-in']);
 export function middleware(request:NextRequest){
