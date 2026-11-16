@@ -17,7 +17,7 @@ import shutil
 import subprocess
 import sys
 
-from hft_apply_migrations import revisions, build_locked_statement
+import importlib.util
 
 ROOT = Path(__file__).resolve().parents[1]
 HOST = "ep-hidden-fire-b324s21q.c-4.ap-southeast-1.aws.neon.tech"
@@ -29,6 +29,12 @@ ENDPOINT = "ep-hidden-fire-b324s21q"
 PIN_SOURCE = "5fe71565a2b0343ffd4a2ec5a25be5e0dfce27cc"
 MANIFEST_HASH = "ce51d77af4db16b8d97dcbcc10cd0472ef806f7c581b16982f95f21120fa7355"
 VERSION = "180007"
+HELPER_SHA256 = "3cc1e19e2e72ad2a4f30c24285707e9331063cdb9fa45a3c59c7e3ba202b6e91"
+MVP_MANIFEST_SHA256 = "cf0b53ae0f5d9548577d69c5ffe97b4503cca265e7e9f40465300b04a4aea401"
+# MUST be replaced ONLY by a separately reviewed new source commit after Chat 10
+# independently enrolls the authentic technical-review Ed25519 public key.
+# Unassigned = guaranteed fail-closed --apply; never use an arbitrary env pin.
+TECHNICAL_REVIEWER_PUBKEY_SHA256 = ""
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 
 def sha(data: bytes) -> str:
@@ -36,12 +42,23 @@ def sha(data: bytes) -> str:
 
 def canonical():
     manifest = ROOT / "db" / "migrations" / "manifest.v1.json"
+    mvp = ROOT / "review-candidates" / "hf13-v2-077-retained-pg187" / "MVP-FIRST-RECORD-INSTALLER-MANIFEST.json"
+    helper = ROOT / "tools" / "hft_apply_migrations.py"
     if sha(manifest.read_bytes()) != MANIFEST_HASH:
         raise RuntimeError("CANONICAL_MANIFEST_DIGEST_DRIFT")
-    plan = revisions()  # Canonical original checksum/provenance validation.
+    if not mvp.is_file() or mvp.is_symlink() or sha(mvp.read_bytes()) != MVP_MANIFEST_SHA256:
+        raise RuntimeError("MVP_INSTALLER_MANIFEST_DRIFT")
+    if not helper.is_file() or helper.is_symlink() or sha(helper.read_bytes()) != HELPER_SHA256:
+        raise RuntimeError("CANONICAL_HELPER_SOURCE_DRIFT")
+    spec = importlib.util.spec_from_file_location("hft_pinned_migrator", helper)
+    if not spec or not spec.loader:
+        raise RuntimeError("CANONICAL_HELPER_IMPORT_FAILURE")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    plan = module.revisions()  # Original migration SHA/provenance validation.
     if len(plan) != 6:
         raise RuntimeError("CANONICAL_SIX_REQUIRED")
-    return plan
+    return plan, module.build_locked_statement
 
 def trusted_transport():
     env = os.environ
@@ -132,12 +149,44 @@ def verify_ledger(plan, transport):
             raise RuntimeError("APPLIED_REVISION_SEQUENCE_OR_SHA_INVALID")
     return applied
 
-def approve_admission(path: str):
-    # This *does not authenticate corporate approval*. A separate trusted
-    # reviewer must attest exact file SHA and countersign this admission.
+def checked_file(path: str, label: str) -> Path:
     p = Path(path)
     if not p.is_absolute() or not p.is_file() or p.is_symlink():
-        raise RuntimeError("EXTERNAL_ADMISSION_RECORD_REQUIRED")
+        raise RuntimeError(label + "_MISSING_OR_UNTRUSTED")
+    return p
+
+def checked_backup(path: str, digest: str, label: str) -> None:
+    if not HEX64.fullmatch(digest):
+        raise RuntimeError(label + "_DIGEST_INVALID")
+    p = checked_file(path, label)
+    hasher = hashlib.sha256()
+    with p.open("rb") as stream:
+        for piece in iter(lambda: stream.read(1024 * 1024), b""):
+            hasher.update(piece)
+    if hasher.hexdigest() != digest:
+        raise RuntimeError(label + "_BYTES_MISMATCH")
+
+def approve_admission(path: str):
+    # A local JSON name/status is NEVER sufficient permission for SQL DDL.
+    # Verify a detached Ed25519 signature using an independently PINNED key.
+    if not HEX64.fullmatch(TECHNICAL_REVIEWER_PUBKEY_SHA256):
+        raise RuntimeError("INDEPENDENT_SIGNER_TRUST_ROOT_NOT_ENROLLED_NO_APPLY")
+    p = checked_file(path, "SIGNED_TECHNICAL_ADMISSION")
+    key = checked_file(os.environ.get("HFT_TECH_ADMISSION_PUBLIC_KEY_FILE", ""),
+                       "ADMISSION_PUBLIC_KEY")
+    signature = checked_file(os.environ.get("HFT_TECH_ADMISSION_SIGNATURE_FILE", ""),
+                             "ADMISSION_DETACHED_SIGNATURE")
+    if sha(key.read_bytes()) != TECHNICAL_REVIEWER_PUBKEY_SHA256:
+        raise RuntimeError("ADMISSION_PUBLIC_KEY_TRUST_ROOT_MISMATCH")
+    openssl = shutil.which("openssl")
+    if not openssl:
+        raise RuntimeError("OPENSSL_ED25519_SIGNATURE_VERIFIER_REQUIRED")
+    signed = subprocess.run([
+        openssl, "pkeyutl", "-verify", "-pubin", "-inkey", str(key),
+        "-rawin", "-in", str(p), "-sigfile", str(signature)
+    ], capture_output=True, check=False, timeout=10)
+    if signed.returncode != 0:
+        raise RuntimeError("SIGNED_TECHNICAL_ADMISSION_VERIFICATION_FAILED")
     record = json.loads(p.read_text(encoding="utf-8"))
     mandatory = {
         "technical_status": "APPROVED",
@@ -147,19 +196,22 @@ def approve_admission(path: str):
         "resource_endpoint_id": ENDPOINT,
         "source_sha": PIN_SOURCE,
         "manifest_sha256": MANIFEST_HASH,
+        "mvp_manifest_sha256": MVP_MANIFEST_SHA256,
+        "canonical_helper_sha256": HELPER_SHA256,
+        "remote_runner_sha256": sha(Path(__file__).read_bytes()),
+        "pg_version_num": VERSION,
+        "authorized_action": "CANONICAL_0001_0006_ONLY",
     }
     if any(record.get(k) != v for k, v in mandatory.items()):
-        raise RuntimeError("ADMISSION_RECORD_SCOPE_OR_SHA_INVALID")
-    if not record.get("independent_reviewer") or not record.get("approved_backup_sha256"):
-        raise RuntimeError("INDEPENDENT_REVIEW_AND_RECOVERABLE_BASELINE_REQUIRED")
-    if not HEX64.fullmatch(str(record["approved_backup_sha256"])):
-        raise RuntimeError("BACKUP_SHA256_INVALID")
-    b = Path(record.get("approved_backup_path", ""))
-    if not b.is_absolute() or not b.is_file() or b.is_symlink():
-        raise RuntimeError("BASELINE_FILE_NOT_AVAILABLE")
-    if sha(b.read_bytes()) != record["approved_backup_sha256"]:
-        raise RuntimeError("BACKUP_BYTES_DO_NOT_MATCH_REVIEW")
-    # A signed external approval and independent restore are STILL mandatory.
+        raise RuntimeError("SIGNED_ADMISSION_RESOURCE_ACTION_OR_SOURCE_MISMATCH")
+    if not record.get("independent_reviewer") or not record.get("independent_restore_witness"):
+        raise RuntimeError("INDEPENDENT_INSTALL_AND_RESTORE_ATTESTATION_REQUIRED")
+    checked_backup(record.get("approved_backup_path", ""),
+                   record.get("approved_backup_sha256", ""), "BASELINE_BACKUP")
+    checked_backup(record.get("restore_evidence_path", ""),
+                   record.get("restore_evidence_sha256", ""), "RESTORE_EVIDENCE")
+    # Canonical SQL is the ONLY authorized action here; this signed admission
+    # cannot bootstrap corporate scope, create roles/keys, or activate P3.
 
 def main():
     cli = argparse.ArgumentParser()
@@ -170,7 +222,7 @@ def main():
     args = cli.parse_args()
     if sum(bool(x) for x in [args.inspect, args.preflight, args.apply]) != 1:
         raise RuntimeError("EXACTLY_ONE_OPERATION_REQUIRED")
-    plan = canonical()
+    plan, build_locked_statement = canonical()
     if args.inspect:
         print("MANIFEST_VALIDATED_NO_DATABASE_CONNECTION")
         for ver, path, digest, _ in plan:
