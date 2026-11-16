@@ -89,7 +89,7 @@ function pg(mode:Mode='standard'){
       extra_draft_function_grants:0,direct_relation_grants:0,
       operational_function_grants:0,restricted_login_count:1,
       privileged_memberships:0}];
-     if(sql.includes('hft_draft077.save_draft_v1(')){
+     if(sql==='SELECT hft_draft077.save_draft_v1($1::text,$2::jsonb) AS evidence'){
       const cmd=JSON.parse(String(params[0])) as {
        scopeId:string;kind:string;recordKey:string;expectedVersion:string;
        requestId:string;values:Record<string,string>;source:string};
@@ -107,7 +107,7 @@ function pg(mode:Mode='standard'){
       rows=[{evidence:{state:DRAFT_STATE,scopeId:cmd.scopeId,
        recordKey:cmd.recordKey,requestId:cmd.requestId,revision:old+1}}];
      }
-     if(sql.includes('hft_draft077.read_drafts_v1(')){
+     if(sql==='SELECT hft_draft077.read_drafts_v1($1::text,$2::jsonb) AS evidence'){
       const q=JSON.parse(String(params[0])) as {
        scopeId:string;kind:string;intent:string;recordKey:string;
        search:string;offset:string;limit:string};
