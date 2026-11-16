@@ -2,34 +2,39 @@
 import type {MasterKind} from './p3-contract.ts';
 export type TransferScope=Readonly<{legalEntityId:string;siteId:string;warehouseId:string}>;
 export type TransferChange=Readonly<{recordId:string;reason:string;values:Readonly<Record<string,string>>}>;
+export type DraftTransferKind=MasterKind|'LEGAL_ENTITY'|'SITE';
 export type FieldMarker='REQUIRED'|'OPTIONAL';
 const scopeFields=['legalEntityId','siteId','warehouseId'] as const;
-const fields:Readonly<Record<MasterKind,ReadonlyArray<readonly [string,FieldMarker]>>>=Object.freeze({
+const fields:Readonly<Record<DraftTransferKind,ReadonlyArray<readonly [string,FieldMarker]>>>=Object.freeze({
+ LEGAL_ENTITY:[['legalEntityId','REQUIRED'],['legalName','REQUIRED']],
+ SITE:[['siteId','REQUIRED'],['siteName','REQUIRED']],
  EMPLOYEE:[['employeeId','REQUIRED'],['fullName','REQUIRED'],['department','REQUIRED'],['designation','REQUIRED']],
  ITEM:[['itemCode','REQUIRED'],['uom','REQUIRED'],['controlType','REQUIRED']],
  SUPPLIER:[['supplierId','REQUIRED'],['legalName','REQUIRED']],
  WAREHOUSE:[['name','REQUIRED']],
  LOCATION:[['locationId','REQUIRED'],['parentLocationId','OPTIONAL']]
 });
-const names:Readonly<Record<MasterKind,string>>={EMPLOYEE:'employeeId',ITEM:'itemCode',SUPPLIER:'supplierId',WAREHOUSE:'warehouseId',LOCATION:'locationId'};
+const names:Readonly<Record<DraftTransferKind,string>>={LEGAL_ENTITY:'legalEntityId',SITE:'siteId',EMPLOYEE:'employeeId',ITEM:'itemCode',SUPPLIER:'supplierId',WAREHOUSE:'warehouseId',LOCATION:'locationId'};
 const reference=/^[A-Z0-9][A-Z0-9._-]{1,63}$/;
 export const MAX_CSV_IMPORT_ROWS=20;
 export const MAX_CSV_IMPORT_BYTES=81920;
-export function importHeaders(kind:MasterKind):readonly string[]{
+export function importHeaders(kind:DraftTransferKind):readonly string[]{
  if(kind==='WAREHOUSE')return [...scopeFields,'name','reason'];
+ if(kind==='LEGAL_ENTITY')return [...scopeFields,'legalName','reason'];
+ if(kind==='SITE')return [...scopeFields,'siteName','reason'];
  return [...scopeFields,...fields[kind].map(f=>f[0]),'reason'];
 }
-export function headerRequirements(kind:MasterKind):readonly FieldMarker[]{
+export function headerRequirements(kind:DraftTransferKind):readonly FieldMarker[]{
  return importHeaders(kind).map(h=>h==='parentLocationId'?'OPTIONAL':'REQUIRED');
 }
-export function blankImportCsv(kind:MasterKind):string{
+export function blankImportCsv(kind:DraftTransferKind):string{
  return '\ufeff'+importHeaders(kind).join(',')+'\r\n';
 }
 export type FieldGuideRow=Readonly<{field:string;marker:'REQUIRED'|'OPTIONAL'|'TEMP';note:string}>;
 /** TEMP means workflow metadata, not a field stored in an active Master.
  * 'reason' is a required submission explanation with temporary scope.
  */
-export function fieldGuide(kind:MasterKind):readonly FieldGuideRow[]{
+export function fieldGuide(kind:DraftTransferKind):readonly FieldGuideRow[]{
  return [...importHeaders(kind).map(field=>({
   field,marker:field==='reason'?'TEMP' as const:
    field==='parentLocationId'?'OPTIONAL' as const:'REQUIRED' as const,
@@ -69,7 +74,7 @@ export function parseP3CsvCells(text:string):string[][]{
  return out;
 }
 function validId(value:string):boolean{return reference.test(value)&&!value.startsWith('EXAMPLE_');}
-export function parseP3ImportCsv(csv:string,kind:MasterKind,scope:TransferScope):readonly TransferChange[]{
+export function parseP3ImportCsv(csv:string,kind:DraftTransferKind,scope:TransferScope):readonly TransferChange[]{
  if(new TextEncoder().encode(csv).length>MAX_CSV_IMPORT_BYTES)throw Error('CSV_FILE_TOO_LARGE');
  const rows=parseP3CsvCells(csv),headers=importHeaders(kind);
  if(rows.length<2)throw Error('CSV_HEADER_AND_ONE_REAL_ROW_REQUIRED');
@@ -117,7 +122,7 @@ export type TransferPreview=Readonly<{
 /** Collect bounded row-level validation without touching the protected writer.
  * Structural ambiguity rejects the entire file rather than guessing a row.
  */
-export function previewP3ImportCsv(text:string,kind:MasterKind,
+export function previewP3ImportCsv(text:string,kind:DraftTransferKind,
  scope:TransferScope):TransferPreview{
  if(new TextEncoder().encode(text).length>MAX_CSV_IMPORT_BYTES)
   throw Error('CSV_FILE_TOO_LARGE');
@@ -135,7 +140,8 @@ export function previewP3ImportCsv(text:string,kind:MasterKind,
   const columns=rows[index],row=index+1;
   const recordCol=headers.indexOf(
    kind==='EMPLOYEE'?'employeeId':kind==='ITEM'?'itemCode':
-   kind==='SUPPLIER'?'supplierId':kind==='WAREHOUSE'?'warehouseId':'locationId');
+   kind==='SUPPLIER'?'supplierId':kind==='WAREHOUSE'?'warehouseId':
+   kind==='LEGAL_ENTITY'?'legalEntityId':kind==='SITE'?'siteId':'locationId');
   const id=(columns[recordCol]||'').trim().slice(0,64);
   if(columns.length!==headers.length){
    issues.push({row,recordId:id,code:'CSV_COLUMN_COUNT_INVALID'});continue;
@@ -166,7 +172,7 @@ function escapedCsvCell(value:unknown):string{
 /** One canonical export matrix shared by CSV and Excel.
  * REQUESTS uses proposed_values, LIST uses authoritative master values.
  */
-export function exportP3Matrix(kind:MasterKind,scope:TransferScope,
+export function exportP3Matrix(kind:DraftTransferKind,scope:TransferScope,
  records:readonly Record<string,unknown>[]):string[][]{
  const headers=[...importHeaders(kind),'__state','__version','__requestId'];
  const output=[headers];
@@ -194,7 +200,7 @@ export function exportP3Matrix(kind:MasterKind,scope:TransferScope,
  }
  return output;
 }
-export function exportP3Csv(kind:MasterKind,scope:TransferScope,
+export function exportP3Csv(kind:DraftTransferKind,scope:TransferScope,
  records:readonly Record<string,unknown>[]):string{
  return '\ufeff'+exportP3Matrix(kind,scope,records)
   .map(row=>row.map(escapedCsvCell).join(',')).join('\r\n')+'\r\n';
