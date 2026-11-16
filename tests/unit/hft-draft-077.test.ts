@@ -89,7 +89,7 @@ function pg(mode:Mode='standard'){
       extra_draft_function_grants:0,direct_relation_grants:0,
       operational_function_grants:0,restricted_login_count:1,
       privileged_memberships:0}];
-     if(sql==='SELECT hft_draft077.save_v1($1::text,$2::jsonb) AS evidence'){
+     if(sql==='SELECT hft_draft077.save_draft_v1($1::text,$2::jsonb) AS evidence'){
       const cmd=JSON.parse(String(params[0])) as {
        scopeId:string;kind:string;recordKey:string;expectedVersion:string;
        requestId:string;values:Record<string,string>;source:string};
@@ -108,7 +108,7 @@ function pg(mode:Mode='standard'){
       rows=[{evidence:{state:DRAFT_STATE,scopeId:cmd.scopeId,
        recordKey:cmd.recordKey,requestId:cmd.requestId,revision:old+1}}];
      }
-     if(sql==='SELECT hft_draft077.read_v1($1::text,$2::jsonb) AS evidence'){
+     if(sql==='SELECT hft_draft077.read_drafts_v1($1::text,$2::jsonb) AS evidence'){
       const q=JSON.parse(String(params[0])) as {
        scopeId:string;kind:string;intent:string;recordKey:string;
        search:string;offset:string;limit:string};
@@ -166,8 +166,8 @@ test('SQL client saves and independently rereads a committed draft revision',asy
  const read=await readDrafts(db.pool,env,user,validateDraftRead({
   contractVersion:DRAFT_CONTRACT,intent:'READ',kind:'EMPLOYEE',...scope,search:''}));
  assert.equal(read[0].revision,2);
- assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.save_v1($1::text,$2::jsonb) AS evidence').length,2);
- assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.read_v1($1::text,$2::jsonb) AS evidence').length,3);
+ assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.save_draft_v1($1::text,$2::jsonb) AS evidence').length,2);
+ assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.read_drafts_v1($1::text,$2::jsonb) AS evidence').length,3);
  assert.equal(db.sqls.some(s=>/INSERT INTO hft\.|post_stock_command/.test(s)),false);
 });
 test('stale concurrent edit fails without changing retained draft revision',async()=>{
@@ -183,14 +183,14 @@ test('unknown COMMIT freezes original write id and does not automatically repost
  const db=pg('uncertain');
  await assert.rejects(saveDraft(db.pool,env,actor(),command('ITEM')),
   /COMMIT_OUTCOME_UNCERTAIN_NO_RETRY/);
- assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.save_v1($1::text,$2::jsonb) AS evidence').length,1);
+ assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.save_draft_v1($1::text,$2::jsonb) AS evidence').length,1);
  assert.ok(db.destroyed[0]);
 });
 test('missing fresh committed readback requires reconciliation, never repost',async()=>{
  const db=pg('missingReadback');
  await assert.rejects(saveDraft(db.pool,env,actor(),command('ITEM')),
   /COMMITTED_READBACK_REQUIRED_NO_RETRY/);
- assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.save_v1($1::text,$2::jsonb) AS evidence').length,1);
+ assert.equal(db.sqls.filter(s=>s==='SELECT hft_draft077.save_draft_v1($1::text,$2::jsonb) AS evidence').length,1);
 });
 test('forged actor and cross-warehouse scope denied before PostgreSQL access',async()=>{
  const db=pg(),user=actor();
