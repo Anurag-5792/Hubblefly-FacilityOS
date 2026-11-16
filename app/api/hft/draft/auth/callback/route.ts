@@ -7,7 +7,7 @@ export async function GET(request:Request):Promise<Response>{
  const url=new URL(request.url),code=url.searchParams.get('code');
  const state=url.searchParams.get('state');
  const headers=new Headers({'Cache-Control':'no-store'});
- let outcome='unavailable';
+ const outcome='unavailable';
  try{
   const config=oidcConfig(process.env);
   const flow=decodeFlow(cookieValue(request.headers.get('cookie'),
