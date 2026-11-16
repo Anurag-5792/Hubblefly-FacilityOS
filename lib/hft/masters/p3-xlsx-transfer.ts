@@ -172,7 +172,7 @@ function guide(kind:DraftTransferKind):string[][]{
 export function fictionalP3SampleRow(kind:DraftTransferKind):string[]{
  const sample:Record<string,string>={
   legalEntityId:'EXAMPLE_ENTITY',siteId:'EXAMPLE_SITE',warehouseId:'EXAMPLE_WH',
-  legalName:'Fictional Sample Legal Entity',siteName:'Fictional Sample Site',
+  siteName:'Fictional Sample Site',
   employeeId:'EXAMPLE_EMPLOYEE',fullName:'Fictional Sample Person',
   department:'DEMO_STORES',designation:'DEMO_OPERATOR',
   itemCode:'EXAMPLE_ITEM',uom:'PCS',controlType:'NONE',
@@ -180,6 +180,7 @@ export function fictionalP3SampleRow(kind:DraftTransferKind):string[]{
   name:'Fictional Sample Warehouse',locationId:'EXAMPLE_BIN',
   parentLocationId:'',reason:'FICTIONAL SAMPLE - NEVER SUBMIT'
  };
+ if(kind==='LEGAL_ENTITY')sample.legalName='Fictional Sample Legal Entity';
  return importHeaders(kind).map(x=>sample[x]??'');
 }
 export function blankP3Xlsx(kind:DraftTransferKind,
