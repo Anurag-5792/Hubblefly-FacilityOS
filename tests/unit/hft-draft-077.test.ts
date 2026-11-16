@@ -113,9 +113,9 @@ function pg(mode:Mode='standard'){
        search:string;offset:string;limit:string};
       const values=mode==='missingReadback'?[]:
        [...records.values()].filter(r=>r.kind===q.kind&&
-       (q.intent!=='GET'||r.record_id===q.recordKey)&&
-       (q.intent!=='LIST'||String(r.record_id).includes(q.search)));
-      rows=[{evidence:{state:'DRAFT_ONLY',scopeId:q.scopeId,actor:'STORE1',
+       (q.intent!=='GET'||r.record_key===q.recordKey)&&
+       (q.intent!=='LIST'||String(r.record_key).includes(q.search)));
+      rows=[{evidence:{state:DRAFT_STATE,scopeId:q.scopeId,actor:'STORE1',
        scopeProvisional:true,offset:Number(q.offset),limit:Number(q.limit),
        records:values.slice(Number(q.offset),Number(q.offset)+Number(q.limit))}}];
      }
