@@ -2,7 +2,7 @@
   "schema": "HF13_V2_077_PATH_B_DRAFT_ONLY_INSTALLATION_V1",
   "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
   "owner_decision": "PATH_B_DRAFT_ONLY_SOURCE_ENGINEERING",
-  "status": "SOURCE_COMMITTED_NOT_INDEPENDENTLY_ADMITTED_NOT_INSTALLED",
+  "status": "RECONCILED_SOURCE_CANDIDATE_UNREVIEWED_NOT_AUTHORIZED_NOT_POSTGRES_EXECUTED",
   "source": {
     "repo": "Anurag-5792/Hubblefly-FacilityOS",
     "engineering_head": "0d575e897249f2355564ee1c27085a2a4d8ae7d1",
@@ -23,17 +23,17 @@
   "exact_files": [
     {
       "path": "10-hft-draft077-install.EXECUTABLE-CANDIDATE.sql",
-      "sha256": "dcb0446f75257ff9bfbc4296eec82983bb1b076183ff2d954f627247e53a36f9",
+      "sha256": "b003c9f56c61402c6f5683440ae2375f7adb1a48b4e878752d04506e1f15d83b",
       "execution_state": "UNAUTHORIZED_NOT_EXECUTED"
     },
     {
       "path": "10-hft-draft077-install.NONEXECUTABLE.sql",
-      "sha256": "8589b3d85b730a157c61f1478db0776a739e305b4e9b40e57378aa244f516fd5",
+      "sha256": "dbacaee54ae959da45b27dc68e04d93067322baad7c6bd8dca9bc06fb7",
       "execution_state": "STOP_GUARDED_SOURCE"
     },
     {
       "path": "20-draft-api-and-preview-contract.md",
-      "sha256": "c16166c863be63e0d85cbec3f2c5b8f1e6f8b1ddb405bd4db12537138d5f65f2"
+      "sha256": "f14d964c4b0b10dc6c67357f2fa6cbdb760816fcb3faf80b374b7bc654245203"
     },
     {
       "path": "30-readonly-catalog-check.sql",
@@ -44,7 +44,7 @@
   "permitted_installation_operations_if_independently_approved": [
     "One BEGIN/COMMIT transactional installation against exact retained DB by verified Neon owner; CREATE ONLY three draft roles initially NOLOGIN and schema hft_draft077",
     "CREATE pgcrypto ONLY within draft namespace; CREATE ONLY draft scope/grants/key/nonces/records/revisions and draft private helpers/two SECURITY DEFINER functions",
-    "Grant schema USAGE and exactly save_draft_v1(text,jsonb),read_drafts_v1(text,jsonb) EXECUTE to hft_draft077_api_login; zero direct relation privileges",
+    "Grant schema USAGE and exactly save_v1(text,jsonb),read_v1(text,jsonb) EXECUTE to hft_draft077_api_login; zero direct relation privileges",
     "Grant controlled provisional scope/grant/key INSERT to separate hft_draft077_enroller_login; do not preseed keys, users, scopes or business data",
     "Postflight proves NO stock, no operational hft schema mutation, no P3 privileges and all draft runtime/issuer logins remain NOLOGIN"
   ],
@@ -63,8 +63,8 @@
     "current_preview_source_only": true,
     "same_origin_authenticated_session_required": true,
     "function_allowlist": [
-      "hft_draft077.save_draft_v1(text,jsonb)",
-      "hft_draft077.read_drafts_v1(text,jsonb)"
+      "hft_draft077.save_v1(text,jsonb)",
+      "hft_draft077.read_v1(text,jsonb)"
     ],
     "valid_kind": [
       "LEGAL_ENTITY",
@@ -80,7 +80,10 @@
     "import_source": [
       "CSV",
       "XLSX"
-    ]
+    ],
+    "current_chat16_source_observed": "c9c1a25fd651fa57fcb2c4624d442d25466ca631",
+    "must_fix_before_api_admission": "draft-service.ts currently uses unsigned single-argument save_v1(jsonb)/read_v1(jsonb); must call existing signDraftBody, sign exact mapped text and bind two SQL params; function-owner assertion must be hft_r1_draft_owner",
+    "response_contract": "save returns state DRAFT_NOT_APPROVED, recordId=natural record code, writeId=request UUID, revision; read returns state DRAFT_ONLY and records fields matching DraftRecord assertions"
   },
   "restrictions": [
     "NO_SQL_EXECUTION_WITHOUT_NEW_TECHNICAL_ADMISSION",
@@ -103,5 +106,6 @@
     "import_export_real_db_tested": false,
     "backup_restored": false
   },
-  "required_first_record_test": "Signed authorized Employee draft CREATE v1, fresh GET, signed EDIT v2, history readback, duplicate rejection, unauthorized denial, CSV/XLSX valid and invalid import, actual DB export, logout/login/restart persistence."
+  "required_first_record_test": "Signed authorized Employee draft CREATE v1, fresh GET, signed EDIT v2, history readback, duplicate rejection, unauthorized denial, CSV/XLSX valid and invalid import, actual DB export, logout/login/restart persistence.",
+  "role_enrollment": "hft_r1_draft_owner NOLOGIN; hft_draft077_api_login and hft_draft077_enroller_login initially NOLOGIN, only enable with independently approved managed credentials"
 }
