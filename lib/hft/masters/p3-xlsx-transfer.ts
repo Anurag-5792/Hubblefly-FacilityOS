@@ -3,7 +3,7 @@
  * Supports standard OOXML shared-strings, inline strings and deflate ZIP.
  * Rejects macros, external links, formulas, encrypted and oversized workbooks.
  */
-import type {MasterKind} from './p3-contract.ts';
+import type {DraftTransferKind} from './p3-csv-transfer.ts';
 import {exportP3Matrix,fieldGuide,importHeaders,previewP3ImportCsv,
  MAX_CSV_IMPORT_ROWS,type TransferPreview,type TransferScope}
  from './p3-csv-transfer.ts';
@@ -165,13 +165,14 @@ function workbook(sheets:readonly Readonly<{name:string;rows:readonly (readonly 
  files.push(['xl/styles.xml',styles]);
  return zipStore(files);
 }
-function guide(kind:MasterKind):string[][]{
+function guide(kind:DraftTransferKind):string[][]{
  return [['field','classification','validation / purpose'],
   ...fieldGuide(kind).map(f=>[f.field,f.marker,f.note])];
 }
-export function fictionalP3SampleRow(kind:MasterKind):string[]{
+export function fictionalP3SampleRow(kind:DraftTransferKind):string[]{
  const sample:Record<string,string>={
   legalEntityId:'EXAMPLE_ENTITY',siteId:'EXAMPLE_SITE',warehouseId:'EXAMPLE_WH',
+  legalName:'Fictional Sample Legal Entity',siteName:'Fictional Sample Site',
   employeeId:'EXAMPLE_EMPLOYEE',fullName:'Fictional Sample Person',
   department:'DEMO_STORES',designation:'DEMO_OPERATOR',
   itemCode:'EXAMPLE_ITEM',uom:'PCS',controlType:'NONE',
@@ -181,7 +182,7 @@ export function fictionalP3SampleRow(kind:MasterKind):string[]{
  };
  return importHeaders(kind).map(x=>sample[x]??'');
 }
-export function blankP3Xlsx(kind:MasterKind,
+export function blankP3Xlsx(kind:DraftTransferKind,
  dataRows:readonly (readonly string[])[]=[]):Uint8Array{
  check(dataRows.length<=MAX_CSV_IMPORT_ROWS&&
   dataRows.every(x=>x.length===importHeaders(kind).length),
@@ -189,14 +190,14 @@ export function blankP3Xlsx(kind:MasterKind,
  return workbook([{name:'IMPORT',rows:[importHeaders(kind),...dataRows]},
   {name:'FIELD_GUIDE',rows:guide(kind)}]);
 }
-export function sampleP3Xlsx(kind:MasterKind):Uint8Array{
+export function sampleP3Xlsx(kind:DraftTransferKind):Uint8Array{
  return workbook([{name:'IMPORT',rows:[importHeaders(kind),fictionalP3SampleRow(kind)]},
   {name:'FIELD_GUIDE',rows:guide(kind)},
   {name:'DEMONSTRATION_ONLY',rows:[
    ['NOT FOR LIVE IMPORT','FICTIONAL SAMPLE RECORDS'],
    ['All sample IDs begin EXAMPLE_','The validator rejects them by design']]}]);
 }
-export function exportP3Xlsx(kind:MasterKind,scope:TransferScope,
+export function exportP3Xlsx(kind:DraftTransferKind,scope:TransferScope,
  records:readonly Record<string,unknown>[]):Uint8Array{
  return workbook([{name:'MASTER_EXPORT',rows:exportP3Matrix(kind,scope,records)},
   {name:'FIELD_GUIDE',rows:guide(kind)}]);
@@ -363,7 +364,7 @@ function csvEncode(rows:readonly (readonly string[])[]):string{
  * Returns the same per-row PREVIEW contract as the CSV import.
  */
 export async function previewP3ImportXlsx(data:Uint8Array,
- kind:MasterKind,scope:TransferScope):Promise<TransferPreview>{
+ kind:DraftTransferKind,scope:TransferScope):Promise<TransferPreview>{
  const entries=await unzip(data);
  const source=firstImportSheet(entries);
  const matrix=parseSheet(source,readStrings(entries.get('xl/sharedStrings.xml')));
