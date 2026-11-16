@@ -2,7 +2,7 @@
   "schema": "HF13_V2_077_PATH_B_DRAFT_ONLY_INSTALLATION_V1",
   "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
   "owner_decision": "PATH_B_DRAFT_ONLY_SOURCE_ENGINEERING",
-  "status": "SOURCE_RECONCILED_TO_CHAT16_CONTRACT_UNEXECUTED_TECHNICAL_ADMISSION_PENDING",
+  "status": "SOURCE_RECONCILED_TO_SIGNED_CHAT16_TWO_ARG_SQL_NOT_AUTHORIZED_NOT_INSTALLED",
   "source": {
     "repo": "Anurag-5792/Hubblefly-FacilityOS",
     "engineering_head": "0d575e897249f2355564ee1c27085a2a4d8ae7d1",
@@ -23,17 +23,17 @@
   "exact_files": [
     {
       "path": "10-hft-draft077-install.EXECUTABLE-CANDIDATE.sql",
-      "sha256": "09c76d3cf81fc9e2c9c4d553f032b7f6c5f91491bca28660d6c526d95bd2eb63",
+      "sha256": "0d28164e15a3aed71bd2d718101b3f9fd745b8c17fa2451e88d13d180ff3e637",
       "execution_state": "UNAUTHORIZED_NOT_EXECUTED"
     },
     {
       "path": "10-hft-draft077-install.NONEXECUTABLE.sql",
-      "sha256": "9eeb6218e2cee27d4850d4bf4c9f045782fbf5d1cbcd2148a45a261e34773592",
+      "sha256": "2fb7fb9db5dffb248ee437010f0e58989f6861e66a71386d3483fd496b84c2d8",
       "execution_state": "STOP_GUARDED_SOURCE"
     },
     {
       "path": "20-draft-api-and-preview-contract.md",
-      "sha256": "f14d964c4b0b10dc6c67357f2fa6cbdb760816fcb3faf80b374b7bc654245203"
+      "sha256": "2bda39af221b1e98e5c81d255aaa0b122af54ba1609fefeefe9949b991f7b340"
     },
     {
       "path": "30-readonly-catalog-check.sql",
@@ -44,7 +44,7 @@
   "permitted_installation_operations_if_independently_approved": [
     "One BEGIN/COMMIT transactional installation against exact retained DB by verified Neon owner; CREATE ONLY three draft roles initially NOLOGIN and schema hft_draft077",
     "CREATE pgcrypto ONLY within draft namespace; CREATE ONLY draft scope/grants/key/nonces/records/revisions and draft private helpers/two SECURITY DEFINER functions",
-    "Grant schema USAGE and exactly save_v1(text,jsonb),read_v1(text,jsonb) EXECUTE to hft_draft077_api_login; zero direct relation privileges",
+    "Grant schema USAGE and exactly save_draft_v1(text,jsonb),read_drafts_v1(text,jsonb) EXECUTE to hft_draft077_api_login; zero direct relation privileges",
     "Grant controlled provisional scope/grant/key INSERT to separate hft_draft077_enroller_login; do not preseed keys, users, scopes or business data",
     "Postflight proves NO stock, no operational hft schema mutation, no P3 privileges and all draft runtime/issuer logins remain NOLOGIN"
   ],
@@ -63,8 +63,8 @@
     "current_preview_source_only": true,
     "same_origin_authenticated_session_required": true,
     "function_allowlist": [
-      "hft_draft077.save_v1(text,jsonb)",
-      "hft_draft077.read_v1(text,jsonb)"
+      "hft_draft077.save_draft_v1(text,jsonb)",
+      "hft_draft077.read_drafts_v1(text,jsonb)"
     ],
     "valid_kind": [
       "LEGAL_ENTITY",
@@ -81,12 +81,12 @@
       "CSV",
       "XLSX"
     ],
-    "current_chat16_source_observed": "c9c1a25fd651fa57fcb2c4624d442d25466ca631",
-    "must_fix_before_api_admission": "draft-service.ts currently uses unsigned single-argument save_v1(jsonb)/read_v1(jsonb); must call existing signDraftBody, sign exact mapped text and bind two SQL params; function-owner assertion must be hft_r1_draft_owner",
-    "response_contract": "save returns state DRAFT_NOT_APPROVED, recordId=natural record code, writeId=request UUID, revision; read returns state DRAFT_ONLY and records fields matching DraftRecord assertions",
-    "postgresql_scope_guards": "After signed actor proof, LEGAL_ENTITY and SITE record identities must equal enrolled provisional references, EMPLOYEE/WAREHOUSE values.siteId equals enrolled provisional site, LOCATION parent not self",
-    "required_legal_entity_fields": "legalName",
-    "required_site_fields": "siteName"
+    "current_chat16_source_observed": "0abbe343772f05ec764d06d7fdb5a54306eed795",
+    "must_fix_before_api_admission": "Chat16 source now signs DB body and proof, matches SQL two-argument functions; real OIDC issuer, scope/key/role/credential enrollment, DB admission, TLS and runtime QA remain UNVERIFIED",
+    "response_contract": "SAVE state DRAFT_NOT_APPROVED with recordKey, requestId, revision; READ state DRAFT_NOT_APPROVED with records kind,record_key,values,revision,created_by,edited_by,created_at,updated_at,scopeProvisional; Chat16 service maps to DRAFT_ONLY view",
+    "postgresql_scope_guards": "After valid signed HMAC actor, provisional LEGAL_ENTITY and SITE record keys equal enrolled references; LOCATION parent validated against self/ID; no corporate approval inferred",
+    "required_legal_entity_fields": "Chat16 legalName maps to SQL values.name; provisionally anchored recordKey",
+    "required_site_fields": "Chat16 siteName maps to SQL values.name; provisionally anchored recordKey"
   },
   "restrictions": [
     "NO_SQL_EXECUTION_WITHOUT_NEW_TECHNICAL_ADMISSION",
@@ -110,5 +110,5 @@
     "backup_restored": false
   },
   "required_first_record_test": "Signed authorized Employee draft CREATE v1, fresh GET, signed EDIT v2, history readback, duplicate rejection, unauthorized denial, CSV/XLSX valid and invalid import, actual DB export, logout/login/restart persistence.",
-  "role_enrollment": "hft_r1_draft_owner NOLOGIN; hft_draft077_api_login and hft_draft077_enroller_login initially NOLOGIN, only enable with independently approved managed credentials"
+  "role_enrollment": "hft_draft077_owner NOLOGIN function owner; hft_draft077_api_login and hft_draft077_enroller_login NOLOGIN at initial installation; activation only with independently approved managed credentials."
 }
