@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { assertSecureStartup } from './lib/hft/security/authorization';
 import {assertRetainedMastersProfile,isRetainedMastersProfile}
  from './lib/hft/masters/retained-nonproduction-profile';
+import {assertDraftProfile,isDraftMode} from './lib/hft/draft/draft-profile';
 
 /** Closed except EXACT Masters routes in a separately admitted retained
  * NONPRODUCTION profile. Stock, gallery, misc APIs, and production remain HOLD.
@@ -17,8 +18,25 @@ export function mastersPathAdmitted(path:string,env:Readonly<Record<string,strin
  assertRetainedMastersProfile(env);
  return retainedRoutes.has(path);
 }
+const draftRoutes=new Set([
+ '/','/draft','/draft/sign-in','/api/hft/draft','/api/hft/draft/signout'
+]);
+const publicDraftPages=new Set(['/','/draft','/draft/sign-in']);
 export function middleware(request:NextRequest){
  const path=request.nextUrl.pathname;
+ // Static UI may explain an unconfigured environment; protected APIs
+ // remain CLOSED. A READY build is not a database/identity admission.
+ if(process.env.HFT_DRAFT_RUNTIME_PROFILE!==undefined){
+  try{
+   if(isDraftMode(process.env)){
+    assertDraftProfile(process.env);
+    if(draftRoutes.has(path))return NextResponse.next();
+   }
+  }catch{/* fail closed for every API */}
+  if(publicDraftPages.has(path))return NextResponse.next();
+  return NextResponse.json({ok:false,error:'HFT_DRAFT077_NOT_ADMITTED'},
+   {status:503,headers:{'Cache-Control':'no-store'}});
+ }
  // If the retained profile is present but invalid, fail ALL requests closed.
  if(process.env.HFT_MASTERS_RUNTIME_PROFILE!==undefined){
   try{
@@ -29,6 +47,7 @@ export function middleware(request:NextRequest){
  }
  try{assertSecureStartup(process.env);}
  catch{
+  if(publicDraftPages.has(path))return NextResponse.next();
   return NextResponse.json(
    {ok:false,error:'HFT_R1_PRODUCTION_NOT_AUTHORIZED'},
    {status:503,headers:{'Cache-Control':'no-store'}});
