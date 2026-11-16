@@ -89,7 +89,7 @@ export function validateDraftSave(raw:unknown):DraftSave{
   kind:x.kind,operation:x.operation as DraftSave['operation'],
   recordId:x.recordId,writeId:x.writeId,expectedRevision:x.expectedRevision,
   reason:x.reason,source:x.source as DraftSave['source'],
-  values:Object.freeze(v as Record<string,string>)});
+  values:Object.freeze({...v} as Record<string,string>)});
 }
 export function validateDraftRead(raw:unknown):DraftRead{
  const x=obj(raw);
