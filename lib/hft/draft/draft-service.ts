@@ -4,7 +4,7 @@
 import {createRequire} from 'node:module';
 import {assertDraftProfile,draftPgOptions,type DraftEnv} from './draft-profile.ts';
 import {assertDraftRecords,DRAFT_STATE,DRAFT_CONTRACT,
- type DraftSave,type DraftRead,type DraftRecord}
+ type DraftSave,type DraftRead,type DraftRecord,type DraftScope}
  from './draft-contract.ts';
 import {assertVerifiedRequestOperator,type VerifiedRequestOperator}
  from '../security/verified-request.ts';
@@ -110,7 +110,7 @@ async function transaction<T>(pool:DraftPgPool,env:DraftEnv,
   throw error;
  }finally{c.release(startedCommit&&!committed);}
 }
-function dbQuery(scope:DraftRead,operator:VerifiedRequestOperator){
+function dbQuery(scope:DraftScope,operator:VerifiedRequestOperator){
  assertVerifiedRequestOperator(operator,scope);
  return {...scope,actorSubject:operator.subject,sessionId:operator.sessionId};
 }
