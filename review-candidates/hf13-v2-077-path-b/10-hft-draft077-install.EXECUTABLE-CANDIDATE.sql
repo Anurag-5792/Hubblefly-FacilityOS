@@ -15,22 +15,22 @@ BEGIN
     OR pg_is_in_recovery()
     OR to_regnamespace('hft_draft077') IS NOT NULL
     OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname IN (
-      'hft_draft077_owner','hft_draft077_api_login','hft_draft077_enroller_login'))
+      'hft_r1_draft_owner','hft_draft077_api_login','hft_draft077_enroller_login'))
     OR EXISTS (SELECT 1 FROM pg_extension WHERE extname='pgcrypto')
   THEN RAISE EXCEPTION 'DRAFT077_INSTALL_RESOURCE_OR_CLEAN_CATALOG_REQUIRED'; END IF;
 END $admission_preflight$;
 
 -- Credentials are deliberately NULL. Real passwords are separately issued via
 -- approved managed-secret enrollment; both roles remain NOLOGIN until admitted.
-CREATE ROLE hft_draft077_owner NOLOGIN NOINHERIT NOSUPERUSER
+CREATE ROLE hft_r1_draft_owner NOLOGIN NOINHERIT NOSUPERUSER
   NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE hft_draft077_api_login NOLOGIN NOINHERIT PASSWORD NULL NOSUPERUSER
   NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE hft_draft077_enroller_login NOLOGIN NOINHERIT PASSWORD NULL NOSUPERUSER
   NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-GRANT hft_draft077_owner TO hft_r1_retained_masters_np077_owner
+GRANT hft_r1_draft_owner TO hft_r1_retained_masters_np077_owner
   WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
-CREATE SCHEMA hft_draft077 AUTHORIZATION hft_draft077_owner;
+CREATE SCHEMA hft_draft077 AUTHORIZATION hft_r1_draft_owner;
 REVOKE ALL ON SCHEMA hft_draft077 FROM PUBLIC;
 -- pgcrypto functions are isolated to the draft schema. No other extension
 -- or existing tenant schema is modified. If pgcrypto is already installed,
@@ -38,9 +38,9 @@ REVOKE ALL ON SCHEMA hft_draft077 FROM PUBLIC;
 CREATE EXTENSION pgcrypto WITH SCHEMA hft_draft077;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA hft_draft077 FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION hft_draft077.digest(bytea,text),
-  hft_draft077.hmac(bytea,bytea,text) TO hft_draft077_owner;
+  hft_draft077.hmac(bytea,bytea,text) TO hft_r1_draft_owner;
 
-SET ROLE hft_draft077_owner;
+SET ROLE hft_r1_draft_owner;
 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 CREATE TABLE hft_draft077.provisional_scope (
@@ -186,7 +186,7 @@ BEGIN
  IF current_database()<>'hft_r1_retained_masters_np077'
  OR current_setting('server_version_num')::integer<>180007
  OR session_user<>'hft_draft077_api_login'
- OR current_user<>'hft_draft077_owner'
+ OR current_user<>'hft_r1_draft_owner'
  OR NOT EXISTS(SELECT 1 FROM pg_stat_ssl WHERE pid=pg_backend_pid()
     AND ssl AND version IN('TLSv1.2','TLSv1.3') AND cipher IS NOT NULL)
  THEN RAISE EXCEPTION 'DRAFT077_RUNTIME_SQL_IDENTITY_TLS_REQUIRED'; END IF;
@@ -274,7 +274,7 @@ END $fields$;
 
 -- CREATE and EDIT are the only permitted mutations; no ACTIVATE, APPROVE,
 -- P3 SUBMIT or stock command. Each request commits one immutable revision.
-CREATE FUNCTION hft_draft077.save_draft_v1(body_text text,proof jsonb)
+CREATE FUNCTION hft_draft077.save_v1(body_text text,proof jsonb)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,pg_temp AS $save$
 DECLARE b jsonb; actor text; scope uuid; req uuid;
@@ -335,14 +335,15 @@ BEGIN
  VALUES(rec.id,rec.revision,req,v_action,previous,rec.values_json,actor,src);
  RETURN jsonb_build_object('state','DRAFT_NOT_APPROVED',
    'displayStatus','DRAFT — NOT APPROVED',
-   'scopeProvisional',true,'recordId',rec.id::text,'scopeId',scope::text,
-   'kind',rec.kind,'recordKey',rec.record_key,'revision',rec.revision,
+   'scopeProvisional',true,'internalUuid',rec.id::text,'scopeId',scope::text,
+   'kind',rec.kind,'recordKey',rec.record_key,'recordId',rec.record_key,
+   'revision',rec.revision,'writeId',req::text,
    'requestId',req::text,'updatedAt',rec.updated_at);
 END $save$;
 
 -- A fresh READ uses exactly the same authenticated actor/scope HMAC. The
 -- application performs READ after COMMIT on a different database transaction.
-CREATE FUNCTION hft_draft077.read_drafts_v1(body_text text,proof jsonb)
+CREATE FUNCTION hft_draft077.read_v1(body_text text,proof jsonb)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path=pg_catalog,pg_temp AS $read$
 DECLARE b jsonb; scope uuid; actor text; result jsonb; n integer; skipped integer;
@@ -386,11 +387,14 @@ BEGIN
  ELSE
   SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.kind,t.record_key),'[]'::jsonb)
   INTO result FROM (
-   SELECT r.id::text AS "recordId",r.kind,r.record_key,r.values_json AS "values",
-    r.revision,r.created_by,r.edited_by,r.created_at,r.updated_at,
+   SELECT r.kind,sc.legal_entity_ref AS legal_entity_id,
+    sc.site_ref AS site_id,sc.warehouse_ref AS warehouse_id,
+    r.record_key AS record_id,r.revision,r.values_json AS "values",
+    r.created_by,r.edited_by AS updated_by,r.created_at,r.updated_at,
     r.source_type,'DRAFT_NOT_APPROVED'::text AS state,
     true AS "scopeProvisional"
    FROM hft_draft077.draft_record r
+   JOIN hft_draft077.provisional_scope sc ON sc.scope_id=r.scope_id
    WHERE r.scope_id=scope
    AND (b->>'kind'='ALL' OR r.kind=b->>'kind')
    AND (b->>'intent'<>'GET' OR r.record_key=b->>'recordKey')
@@ -399,7 +403,7 @@ BEGIN
    ORDER BY r.kind,r.record_key LIMIT n OFFSET skipped
   ) t;
  END IF;
- RETURN jsonb_build_object('state','DRAFT_NOT_APPROVED',
+ RETURN jsonb_build_object('state','DRAFT_ONLY',
   'displayStatus','DRAFT — NOT APPROVED',
   'scopeProvisional',true,'actor',actor,'scopeId',scope::text,
   'records',result,'limit',n,'offset',skipped);
@@ -416,13 +420,13 @@ REVOKE EXECUTE ON FUNCTION
  hft_draft077.length_prefixed_v1(text[]),
  hft_draft077.verify_proof_v1(text,jsonb,text,uuid),
  hft_draft077.validate_fields_v1(text,jsonb),
- hft_draft077.save_draft_v1(text,jsonb),
- hft_draft077.read_drafts_v1(text,jsonb)
+ hft_draft077.save_v1(text,jsonb),
+ hft_draft077.read_v1(text,jsonb)
  FROM PUBLIC,hft_draft077_api_login,hft_draft077_enroller_login;
 GRANT USAGE ON SCHEMA hft_draft077 TO hft_draft077_api_login,
  hft_draft077_enroller_login;
-GRANT EXECUTE ON FUNCTION hft_draft077.save_draft_v1(text,jsonb),
- hft_draft077.read_drafts_v1(text,jsonb)
+GRANT EXECUTE ON FUNCTION hft_draft077.save_v1(text,jsonb),
+ hft_draft077.read_v1(text,jsonb)
  TO hft_draft077_api_login;
 -- Genuine external issuance of a provisional scope, scope grant and HMAC
 -- key is permitted ONLY via a separately approved enroller credential.
@@ -434,7 +438,7 @@ GRANT INSERT ON hft_draft077.actor_scope_revocation,
 
 RESET ROLE;
 -- Remove elevated temporary NOLOGIN owner membership after installation.
-REVOKE hft_draft077_owner FROM hft_r1_retained_masters_np077_owner;
+REVOKE hft_r1_draft_owner FROM hft_r1_retained_masters_np077_owner;
 
 -- Catalog postflight: no unintended direct runtime relation privileges or
 -- extra execute; no runtime ability to become the owner or modify P3/stock.
@@ -442,10 +446,10 @@ DO $postflight$
 DECLARE t record; p record; n integer;
 BEGIN
  IF (SELECT count(*) FROM pg_roles WHERE rolname IN(
-    'hft_draft077_owner','hft_draft077_api_login','hft_draft077_enroller_login'))<>3
+    'hft_r1_draft_owner','hft_draft077_api_login','hft_draft077_enroller_login'))<>3
  OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname IN
     ('hft_draft077_api_login','hft_draft077_enroller_login') AND rolcanlogin)
- OR pg_has_role('hft_draft077_api_login','hft_draft077_owner','MEMBER')
+ OR pg_has_role('hft_draft077_api_login','hft_r1_draft_owner','MEMBER')
  OR pg_has_role('hft_draft077_api_login','hft_draft077_enroller_login','MEMBER')
  OR has_schema_privilege('hft_draft077_api_login','hft_draft077','CREATE')
  OR EXISTS(SELECT 1 FROM pg_namespace ns WHERE ns.nspname='hft'
@@ -454,8 +458,8 @@ BEGIN
  SELECT count(*) INTO n FROM pg_proc p JOIN pg_namespace s ON s.oid=p.pronamespace
  JOIN pg_roles r ON r.oid=p.proowner
  WHERE s.nspname='hft_draft077' AND p.proname IN
- ('save_draft_v1','read_drafts_v1')
- AND p.prosecdef AND r.rolname='hft_draft077_owner'
+ ('save_v1','read_v1')
+ AND p.prosecdef AND r.rolname='hft_r1_draft_owner'
  AND EXISTS(SELECT 1 FROM unnest(p.proconfig) cfg
   WHERE replace(cfg,' ','')='search_path=pg_catalog,pg_temp');
  IF n<>2 THEN RAISE EXCEPTION 'DRAFT077_FUNCTION_OWNER_OR_SEARCH_PATH_FAILED'; END IF;
@@ -473,8 +477,8 @@ BEGIN
  JOIN pg_namespace s ON s.oid=f.pronamespace
  WHERE s.nspname='hft_draft077' LOOP
   IF has_function_privilege('hft_draft077_api_login',p.oid,'EXECUTE')
-  AND p.oid NOT IN ('hft_draft077.save_draft_v1(text,jsonb)'::regprocedure,
-   'hft_draft077.read_drafts_v1(text,jsonb)'::regprocedure)
+  AND p.oid NOT IN ('hft_draft077.save_v1(text,jsonb)'::regprocedure,
+   'hft_draft077.read_v1(text,jsonb)'::regprocedure)
   THEN RAISE EXCEPTION 'DRAFT077_RUNTIME_HELPER_LEAK:%',p.proname; END IF;
  END LOOP;
 END $postflight$;
