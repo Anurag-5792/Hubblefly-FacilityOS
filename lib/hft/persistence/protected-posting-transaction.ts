@@ -79,8 +79,10 @@ async function runProtectedTransaction<T>(pool:PgPool,env:IsolatedPgEnvironment,
     if(isOnlinePgTransport(env)){
       assertOnlineBackendIdentity(env,id,'P2_STORES');
       await assertOnlinePgBackendTls(client);
-      await assertOnlineRuntimeCatalog(client,
-       isRetainedStoresProfile(env)?'OPS_A2_STORES':'P2_STORES');
+      if(isRetainedStoresProfile(env))
+       await assertOnlineRuntimeCatalog(client,'OPS_A2_STORES');
+      else
+       await assertOnlineRuntimeCatalog(client,'P2_STORES');
     }else if(id.server_address!=='127.0.0.1')
       throw Error('PROTECTED_LOCAL_DATABASE_ADDRESS_MISMATCH');
     const result=await callback(client);
