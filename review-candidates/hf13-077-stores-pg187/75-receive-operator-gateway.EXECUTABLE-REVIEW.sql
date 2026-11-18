@@ -235,6 +235,17 @@ BEGIN
  OR pg_has_role('hft_r1_stores_np_login','hft_r1_governance_issuer','SET')
  OR pg_has_role('hft_r1_stores_np_login','hft_engineering','SET')
  OR pg_has_role('hft_r1_stores_gateway_owner','hft_r1_posting_owner','SET')
+ -- Deny TRANSITIVE or indirect SET ROLE paths to every privileged identity.
+ OR EXISTS(SELECT 1 FROM pg_roles pr
+   WHERE pr.rolname IN ('hft_engineering','hft_r1_posting_owner',
+     'hft_r1_governance_issuer','hft_r1_audit_verify',
+     'hft_r1_p3_master_owner','hft_r1_p3_master_runtime',
+     'hft_r1_stores_gateway_owner')
+    AND (pg_has_role('hft_r1_stores_np_login',pr.oid,'MEMBER')
+      OR pg_has_role('hft_r1_stores_np_login',pr.oid,'SET')
+      OR (pr.rolname<>'hft_r1_stores_gateway_owner'
+        AND (pg_has_role('hft_r1_stores_gateway_owner',pr.oid,'MEMBER')
+          OR pg_has_role('hft_r1_stores_gateway_owner',pr.oid,'SET')))))
  THEN RAISE EXCEPTION 'HF13_OPERATOR_GATEWAY_ROLE_MEMBERSHIP_OR_CREATOR_LEAK'; END IF;
  -- The legacy P2 V1 entrypoints remain private after ACL-only closure.
  FOREACH f IN ARRAY ARRAY[
