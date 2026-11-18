@@ -4,6 +4,12 @@ import {resolveVerifiedRequestOperator,assertVerifiedRequestOperator}
 import {validateStoresQuery,readP0Stores} from '../../../../../lib/hft/stores/p0-readback.ts';
 import {openP0Pool,storesReadSignerFromEnvironment}
  from '../../../../../lib/hft/stores/p0-persistence.ts';
+import {isRetainedStoresProfile,assertRetainedStoresProfile}
+ from '../../../../../lib/hft/stores/ops-a2-retained-profile.ts';
+import {operationalStoresSigner,clearStoresSigner}
+ from '../../../../../lib/hft/stores/ops-a2-operator-signing.ts';
+import {readOpsA2QualifiedSource}
+ from '../../../../../lib/hft/persistence/ops-a2-stores-readback.ts';
 export const runtime='nodejs';export const dynamic='force-dynamic';
 const headers={'Cache-Control':'no-store, no-cache, must-revalidate',
  'X-Content-Type-Options':'nosniff'};
@@ -16,11 +22,27 @@ export async function POST(request:Request):Promise<Response>{
  if(length!==null&&(!/^\d+$/.test(length)||Number(length)>4096))
   return fail(413,'P0_READ_BODY_TOO_LARGE');
  try{
-  const actor=resolveVerifiedRequestOperator(request,process.env);
+  const stores=isRetainedStoresProfile(process.env);
+  const actor=resolveVerifiedRequestOperator(request,process.env,
+   stores?'RETAINED_STORES_OPERATOR':'DEFAULT');
   const text=await request.text();
   if(Buffer.byteLength(text,'utf8')>4096) return fail(413,'P0_READ_BODY_TOO_LARGE');
   const q=validateStoresQuery(JSON.parse(text) as unknown);
   assertVerifiedRequestOperator(actor,q);
+  if(stores){
+   assertRetainedStoresProfile(process.env);
+   const signer=operationalStoresSigner(process.env);
+   let db:ReturnType<typeof openP0Pool>|undefined;
+   try{
+    db=openP0Pool(process.env);
+    const verified=await readOpsA2QualifiedSource(db,process.env,
+     q,actor,signer.p0Key,signer.p0KeyVersion);
+    return Response.json(verified,{headers});
+   }finally{
+    clearStoresSigner(signer);
+    if(db)await db.end();
+   }
+  }
   const key=storesReadSignerFromEnvironment(process.env);
   let db:ReturnType<typeof openP0Pool>|undefined;
   try{
