@@ -153,10 +153,26 @@ class OpsA2ProtectedSource(unittest.TestCase):
   self.assertIn('OpsA2SourceResult',app)
   self.assertIn('SOURCE_ONLY_COMMITTED_FACT_VERIFIED_NOT_OPERATIONAL',app)
   self.assertIn('SOURCE_ONLY_VERSIONED_READ_NOT_OPERATIONAL',reader)
+  # Owner directive 077 (18 Nov): allow the independently admitted
+  # Stores-only operator RECEIVE/READ routes. Synthetic entrypoints remain
+  # test-only; stock APIs still fail closed without admitted SQL and signer.
+  permitted={
+   ROOT/'app/api/hft/stores/receive/route.ts',
+   ROOT/'app/api/hft/stores/read/route.ts'
+  }
   for path in (ROOT/'app/api/hft').rglob('route.ts'):
    source=path.read_text()
-   self.assertNotIn('ops-a2-stores-source',source)
-   self.assertNotIn('ops-a2-stores-readback',source)
+   if path in permitted:
+    self.assertIn('RETAINED_STORES_OPERATOR',source)
+    self.assertNotIn('hft_qa077',source)
+    self.assertNotIn('INSERT INTO hft.stock_entry',source)
+   else:
+    self.assertNotIn('ops-a2-stores-source',source)
+    self.assertNotIn('ops-a2-stores-readback',source)
+  middleware=(ROOT/'middleware.ts').read_text()
+  self.assertIn('assertRetainedStoresProfile',middleware)
+  self.assertIn('HFT_STORES_OPERATIONAL_NOT_ADMITTED',middleware)
+  self.assertNotIn("'/api/hft/stores/submit'",middleware)
 
  def test_all_source_holds_still_set(self):
   ps=[ROOT/f'config/hft-bootstrap019-stage-s{i}.sha256' for i in range(6)]
