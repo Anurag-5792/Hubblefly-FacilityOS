@@ -30,8 +30,9 @@ PIN_SOURCE = "3a1c4bc2737cfa478eee21ab8a6e4a832999fe9a"
 MANIFEST_HASH = "ce51d77af4db16b8d97dcbcc10cd0472ef806f7c581b16982f95f21120fa7355"
 VERSION = "180007"
 HELPER_SHA256 = "3cc1e19e2e72ad2a4f30c24285707e9331063cdb9fa45a3c59c7e3ba202b6e91"
-STORES_MANIFEST_SHA256 = "904969c1673c8c93b6b1ac8199feb798fde8a021a4659a64a30003f17d9497e3"
-OPERATOR_APP_SOURCE_SHA = "d5f53845c8e024b70bb80f26d1ad7b8c1eb4a469"
+STORES_MANIFEST_SHA256 = "dbb178c6445a07f6ea38bd53a153ceca380ac5d8a6303101d972e3e597692d06"
+STAGE30_SHA256 = "602cc8af3d15978fe302c20622a088abf1bce819e4b6576a85784c11120805b1"
+OPERATOR_APP_SOURCE_SHA = "9680c887db06a6d1802f2f2b92b9439c2825d0f7"
 OPERATOR_GATEWAY_SHA256 = "b2c10d799b8a16b609de5d94fe8296d2b9cc4bfb7dfe701b22aec0a1f4b9e10d"
 ACL_POSTFLIGHT_SHA256 = "d0aef027085de832bc0e40cd6a4c343a5ff7ec1f6895789656036d7e6985025f"
 # MUST be replaced ONLY by a separately reviewed new source commit after Chat 10
@@ -52,7 +53,10 @@ def canonical():
     if not stores.is_file() or stores.is_symlink() or sha(stores.read_bytes()) != STORES_MANIFEST_SHA256:
         raise RuntimeError("STORES_INSTALLER_MANIFEST_DRIFT")
     install = json.loads(stores.read_text(encoding="utf-8"))
+    stage30 = [x for x in install.get("stages",[]) if x.get("step")==30]
     if (install.get("app_source_sha") != OPERATOR_APP_SOURCE_SHA
+        or len(stage30)!=1 or stage30[0].get("sha256") != STAGE30_SHA256
+        or not stage30[0].get("staging_review_correction",{}).get("original_table_sequence_function_owner_acl_checks_preserved")
         or install.get("minimal_operator_gateway",{}).get("exact_gateway_sha256") != OPERATOR_GATEWAY_SHA256
         or install.get("independent_read_only_postflight",{}).get("sha256") != ACL_POSTFLIGHT_SHA256):
         raise RuntimeError("STORES_OPERATOR_ABI_OR_ACL_MANIFEST_DRIFT")
@@ -86,6 +90,7 @@ def trusted_transport():
         "HFT_APPROVED_ENDPOINT_ID": ENDPOINT,
         "HFT_APPROVED_SOURCE_SHA": PIN_SOURCE,
         "HFT_APPROVED_OPERATOR_APP_SHA": OPERATOR_APP_SOURCE_SHA,
+        "HFT_APPROVED_STORES_STAGE30_SHA256": STAGE30_SHA256,
         "HFT_APPROVED_OPERATOR_GATEWAY_SHA256": OPERATOR_GATEWAY_SHA256,
         "HFT_APPROVED_PG_SERVER_VERSION_NUM": VERSION,
     }.items():
@@ -208,6 +213,7 @@ def approve_admission(path: str):
         "manifest_sha256": MANIFEST_HASH,
         "stores_manifest_sha256": STORES_MANIFEST_SHA256,
         "operator_app_source_sha": OPERATOR_APP_SOURCE_SHA,
+        "stores_stage30_sha256": STAGE30_SHA256,
         "operator_gateway_sha256": OPERATOR_GATEWAY_SHA256,
         "independent_acl_postflight_sha256": ACL_POSTFLIGHT_SHA256,
         "resource_purpose": "NONPRODUCTION_OPERATIONAL_STORES",
