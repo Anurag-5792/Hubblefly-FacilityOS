@@ -1,7 +1,7 @@
 {
   "schema": "HF13_077_STORES_PG187_INSTALLATION_REVIEW_V1",
   "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
-  "status": "EXACT_REVIEW_CANDIDATES_SOURCE_COMPLETE_INSTALLATION_NOT_ADMITTED",
+  "status": "CORRECTED_RECEIVE_ONLY_OPERATOR_GATEWAY_REVIEW_CANDIDATE_NO_EXECUTION_ADMISSION",
   "engineering_source_sha": "3a1c4bc2737cfa478eee21ab8a6e4a832999fe9a",
   "original_sources_untouched": true,
   "source_reconciliation": "Operator RECEIVE uses OPS-A2 version-coupled protected writer and single authoritative hft.stock_entry/stock_account. R77 hft_qa077 gateway is excluded.",
@@ -50,7 +50,7 @@
     {
       "step": 10,
       "file": "10-role-bootstrap.EXECUTABLE-REVIEW.sql",
-      "sha256": "c8afa69e08c4c6ae180db59ed76b7b290e17091ffac8178cb17396c51faadf22",
+      "sha256": "e6d371ecce6473ae38422327d2dbafb8902bc8c5cc2c9837b5c217a7c1b479e4",
       "sql_session": "approved_neon_dba",
       "authorized": false,
       "accepted": false
@@ -114,24 +114,51 @@
       "accepted": false
     },
     {
+      "step": 75,
+      "file": "75-receive-operator-gateway.EXECUTABLE-REVIEW.sql",
+      "sha256": "3dc99bcc2d6e7a3ba7d0c05e8375b3baf87ba98a52d7a81d1645808d66358f0f",
+      "original": "NEW independent gateway, NOT QA gateway",
+      "source_depends": "OPS-A2 protected original d5b8bec248fa69151fcf25cdf8c7a33806c01fbff829e725ac0b449e6797e47e",
+      "sql_session": "hft_engineering",
+      "security_owner": "hft_r1_stores_gateway_owner NOLOGIN NOINHERIT",
+      "runtime_execute": [
+        "hft.ops_a2_operator_resolve_receive_v1(jsonb,jsonb)",
+        "hft.ops_a2_operator_post_receive_v1(jsonb,jsonb)",
+        "hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb)",
+        "hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)"
+      ],
+      "gateway_owner_private_execute": [
+        "hft.ops_a2_resolve_authorized_v2(jsonb,jsonb)",
+        "hft.ops_a2_post_stock_command_v2(jsonb,jsonb)",
+        "hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)",
+        "hft.ops_a2_read_authoritative_v2(jsonb,jsonb)"
+      ],
+      "runtime_private_execute_denied": true,
+      "runtime_protected_ledger_table_dml_denied": true,
+      "authorized": false,
+      "accepted": false,
+      "postgresql_executed": false
+    },
+    {
       "step": 80,
       "file": "80-disable-installer.EXECUTABLE-REVIEW.sql",
-      "sha256": "7032e068ba03f5313432c1d34c6da3e52db80e511481986031f09a88674c03df",
+      "sha256": "20aa9e12adb7d2017c793d5a210fafd62143911d651681d21bf30bb71557c8c3",
       "sql_session": "approved_neon_dba",
       "authorized": false,
       "accepted": false
     }
   ],
   "stage_order": [
-    "10 scoped DBA roles with NOLOGIN runtime; approved migrator credential enrolled separately",
-    "15 canonical 0001..0006 transactionally through remote TLS authorized signed transport",
-    "20 pgcrypto hft_crypto",
-    "30 P2 governance identities, holds and original single writer",
-    "40 item/version photo metadata (only dormant P3 photo-read roles, no P3 app activation)",
-    "50 P0 physical-bin identity and secure readers",
+    "10 create separate NOLOGIN gateway owner, P2 nonlogin authority roles, credentialless installer and runtime membership with SET FALSE",
+    "15 exact canonical migrations 0001..0006 via externally authenticated TLS and independently signed admission",
+    "20 pgcrypto hft_crypto restricted privilege",
+    "30 P2 governance/nonce/immutable writer sole ledger authority",
+    "40 item/version/photo identities and separately governed original photo media",
+    "50 P0 location/bin and signed request/reader dependencies",
     "60 OPS-A version coupling",
-    "70 OPS-A2 version-aware RECEIVE resolver, immutable writer, signed proof and authoritative reader",
-    "80 temporary installer owner membership revocation and NOLOGIN closure"
+    "70 OPS-A2 version-aware RECEIVE protected resolver/post/reconcile/read, unchanged original writer/ACL",
+    "75 independent NOLOGIN operator gateway with four exact receive-only function EXECUTEs; app runtime denied direct original writer",
+    "80 close gateway/stock temporary installer membership and disable installer login"
   ],
   "outside_scope": [
     "R77 hft_qa077 disposable test gateway",
@@ -143,13 +170,13 @@
     "ISSUE/RETURN/TRANSFER/COUNT operator release before first RECEIVE"
   ],
   "missing_technical_admissions": [
-    "MASTER explicit owner approval to designate the named empty retained Masters database as NONPRODUCTION operational Stores",
-    "Independent exact PG18.7 SQL parse/security privilege review of stages 10..80 and transactional canonical installer",
-    "Genuine remote verified TLS CA/hostname and SQL session login; signed installer key and managed credentials",
-    "Approved independent pg_dump custom baseline + separate restore destination and custody",
-    "Original legal entity, site, warehouse, rack/level/position/stack/bin, item/version/photo, supplier invoice/GRN/partial receipt, QC ACCEPTED, no active HOLD and human corporate maker/checker approvals",
-    "Trusted signing-key/session authority and exact owner/EXECUTE grants with no runtime DML",
-    "Chat16 operational Stores middleware exception plus OPS-A2 source-only to accepted HTTP writer/readback integration"
+    "Chat10 independent exact source review of 9 installer SQL stages, four gateway SECDEF wrappers and effective ACL/SET ROLE closure; review plus original signer custody is NOT accepted",
+    "MASTER separate actual protected SQL installation authorization naming the exact final manifest hash and signer trust root",
+    "Independent custom-format encrypted baseline and witnessed restore evidence under separate authorized resource",
+    "Authenticated external TLS CA and hostname, exact SQL session identity, dedicated runtime password and approved HMAC/session key enrollment",
+    "Chat11 genuine original supplier invoice, GRN partial receipt, accepted QC, physical bin, version and corporate human approval evidence",
+    "Chat16 signed operator API changes to call exactly four gateway functions and qualified authoritative readback; CI full dependency advisory scan currently fails",
+    "Chat17 one real PG18.7 RECEIVE COMMIT and duplicate/replay/ledger/balance verification"
   ],
   "actual_database": {
     "hft_schema_installed": false,
@@ -161,5 +188,23 @@
     "bin_balance_verified": false
   },
   "production": "NO_GO",
-  "nonproduction_stores": "NO_GO"
+  "nonproduction_stores": "NO_GO",
+  "app_source_sha": "14a85dfba4a239642116157caa84a6a29b06747d",
+  "minimal_operator_gateway": {
+    "design": "SECURITY DEFINER four-function RECEIVE-only delegation; original PostgreSQL session_user retained and underlying protected P0/P2 proofs, approvals, version/hold checks unchanged; not hft_qa077",
+    "owner": "hft_r1_stores_gateway_owner",
+    "sql_login": "hft_r1_stores_np_login credential enrollment separately admitted",
+    "gateway_owner_no_direct_stock_table_select_or_dml": true,
+    "app_no_private_function_execute": true,
+    "app_no_direct_table_dml": true,
+    "tls_session_required_every_gateway_call": true,
+    "postgres_server_version_num": 180007,
+    "source_app_call_changes_required": [
+      "Qualified RECEIVE: call hft.ops_a2_operator_resolve_receive_v1(jsonb,jsonb), not private resolver",
+      "Qualified RECEIVE posting: call hft.ops_a2_operator_post_receive_v1(jsonb,jsonb), not private writer",
+      "Qualified original attempt reconciliation: call hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb), not private reconcile",
+      "Qualified authoritatively signed readback: call hft.ops_a2_operator_read_receive_v1(jsonb,jsonb), not private reader",
+      "Leave synthetic source test entrypoints separate and disabled in operator Preview"
+    ]
+  }
 }
