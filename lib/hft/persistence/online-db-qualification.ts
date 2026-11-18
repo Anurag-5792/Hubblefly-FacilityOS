@@ -1,6 +1,6 @@
 /** Read-only online PostgreSQL effective function/role gate. */
 import type {PgQueryClient} from './isolated-pg-transaction.ts';
-export type OnlineRuntimeDuty='P2_STORES'|'P3_MASTERS';
+export type OnlineRuntimeDuty='P2_STORES'|'P3_MASTERS'|'OPS_A2_STORES';
 const functions:Readonly<Record<OnlineRuntimeDuty,readonly string[]>>={
  P2_STORES:[
   'hft.post_stock_command_protected_v1(jsonb,jsonb)',
@@ -9,6 +9,12 @@ const functions:Readonly<Record<OnlineRuntimeDuty,readonly string[]>>={
   'hft.p0_append_count_observation_v1(jsonb,jsonb)',
   'hft.p0_reconcile_count_observation_v1(jsonb,jsonb)',
   'hft.p0_read_authoritative_stores_v1(jsonb,jsonb)'
+ ],
+ OPS_A2_STORES:[
+  'hft.ops_a2_resolve_authorized_v2(jsonb,jsonb)',
+  'hft.ops_a2_post_stock_command_v2(jsonb,jsonb)',
+  'hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)',
+  'hft.ops_a2_read_authoritative_v2(jsonb,jsonb)'
  ],
  P3_MASTERS:[
   'hft.p3_submit_master_change_v1(jsonb,jsonb)',
