@@ -30,7 +30,10 @@ PIN_SOURCE = "3a1c4bc2737cfa478eee21ab8a6e4a832999fe9a"
 MANIFEST_HASH = "ce51d77af4db16b8d97dcbcc10cd0472ef806f7c581b16982f95f21120fa7355"
 VERSION = "180007"
 HELPER_SHA256 = "3cc1e19e2e72ad2a4f30c24285707e9331063cdb9fa45a3c59c7e3ba202b6e91"
-STORES_MANIFEST_SHA256 = "a4817073266cca12a536142876903a9f81265d35375ddb94d0ba1c03577bbf8d"
+STORES_MANIFEST_SHA256 = "904969c1673c8c93b6b1ac8199feb798fde8a021a4659a64a30003f17d9497e3"
+OPERATOR_APP_SOURCE_SHA = "d5f53845c8e024b70bb80f26d1ad7b8c1eb4a469"
+OPERATOR_GATEWAY_SHA256 = "b2c10d799b8a16b609de5d94fe8296d2b9cc4bfb7dfe701b22aec0a1f4b9e10d"
+ACL_POSTFLIGHT_SHA256 = "d0aef027085de832bc0e40cd6a4c343a5ff7ec1f6895789656036d7e6985025f"
 # MUST be replaced ONLY by a separately reviewed new source commit after Chat 10
 # independently enrolls the authentic technical-review Ed25519 public key.
 # Unassigned = guaranteed fail-closed --apply; never use an arbitrary env pin.
@@ -48,6 +51,11 @@ def canonical():
         raise RuntimeError("CANONICAL_MANIFEST_DIGEST_DRIFT")
     if not stores.is_file() or stores.is_symlink() or sha(stores.read_bytes()) != STORES_MANIFEST_SHA256:
         raise RuntimeError("STORES_INSTALLER_MANIFEST_DRIFT")
+    install = json.loads(stores.read_text(encoding="utf-8"))
+    if (install.get("app_source_sha") != OPERATOR_APP_SOURCE_SHA
+        or install.get("minimal_operator_gateway",{}).get("exact_gateway_sha256") != OPERATOR_GATEWAY_SHA256
+        or install.get("independent_read_only_postflight",{}).get("sha256") != ACL_POSTFLIGHT_SHA256):
+        raise RuntimeError("STORES_OPERATOR_ABI_OR_ACL_MANIFEST_DRIFT")
     if not helper.is_file() or helper.is_symlink() or sha(helper.read_bytes()) != HELPER_SHA256:
         raise RuntimeError("CANONICAL_HELPER_SOURCE_DRIFT")
     spec = importlib.util.spec_from_file_location("hft_pinned_migrator", helper)
@@ -77,6 +85,8 @@ def trusted_transport():
         "HFT_APPROVED_PROJECT_ID": PROJECT, "HFT_APPROVED_BRANCH_ID": BRANCH,
         "HFT_APPROVED_ENDPOINT_ID": ENDPOINT,
         "HFT_APPROVED_SOURCE_SHA": PIN_SOURCE,
+        "HFT_APPROVED_OPERATOR_APP_SHA": OPERATOR_APP_SOURCE_SHA,
+        "HFT_APPROVED_OPERATOR_GATEWAY_SHA256": OPERATOR_GATEWAY_SHA256,
         "HFT_APPROVED_PG_SERVER_VERSION_NUM": VERSION,
     }.items():
         if env.get(k) != value:
@@ -197,6 +207,9 @@ def approve_admission(path: str):
         "source_sha": PIN_SOURCE,
         "manifest_sha256": MANIFEST_HASH,
         "stores_manifest_sha256": STORES_MANIFEST_SHA256,
+        "operator_app_source_sha": OPERATOR_APP_SOURCE_SHA,
+        "operator_gateway_sha256": OPERATOR_GATEWAY_SHA256,
+        "independent_acl_postflight_sha256": ACL_POSTFLIGHT_SHA256,
         "resource_purpose": "NONPRODUCTION_OPERATIONAL_STORES",
         "canonical_helper_sha256": HELPER_SHA256,
         "remote_runner_sha256": sha(Path(__file__).read_bytes()),
