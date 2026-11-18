@@ -15,10 +15,11 @@ import {assertVerifiedRequestOperator,type VerifiedRequestOperator}
 import {lengthPrefixedUtf8} from '../security/posting-invocation-proof.ts';
 import {validateP0Operation,type P0In,type P0Out,type P0Transfer}
  from '../stores/p0-operations.ts';
-import {issueStoresProof} from '../stores/p0-persistence.ts';
+import {issueStoresProof,assertP0PersistenceEnvironment}
+ from '../stores/p0-persistence.ts';
 import {issueStoresReadProof} from '../stores/p0-readback.ts';
 import {formatQuantity} from '../domain/quantity.ts';
-import {assertP0PersistenceEnvironment} from '../stores/p0-persistence.ts';
+
 import {assertRetainedStoresProfile} from '../stores/ops-a2-retained-profile.ts';
 import {withProtectedReadbackTransaction,withProtectedPostingTransaction}
  from './protected-posting-transaction.ts';
