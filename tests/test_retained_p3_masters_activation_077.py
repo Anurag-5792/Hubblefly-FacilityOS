@@ -48,7 +48,13 @@ class RetainedMastersSourceR77(unittest.TestCase):
   for needle in ("'/api/hft/masters'","'/api/hft/masters/decision'",
     "HFT_R1_API_NOT_QUALIFIED","HFT_R1_MASTERS_PROFILE_NOT_ADMITTED"):
    self.assertIn(needle,m)
-  self.assertNotIn("'/api/hft/stores",m)
+  # The approved Stores operator route is separate from retained Masters:
+  # neither original Masters profile nor draft profile may open a stock API.
+  masters_section=m.split('const retainedRoutes=new Set([')[1].split(']);')[0]
+  self.assertNotIn("'/api/hft/stores",masters_section)
+  self.assertIn('assertRetainedStoresProfile(process.env)',m)
+  self.assertIn('HFT_STORES_OPERATIONAL_NOT_ADMITTED',m)
+  self.assertNotIn("'/api/hft/stores/submit'",m)
   self.assertIn("RETAINED_MASTERS_ONLY_NO_STOCK",s)
   self.assertIn("HFT_MASTERS_APPROVED_PG_DATABASE",s)
   self.assertIn("HFT_MASTERS_APPROVED_PG_SERVER_VERSION_NUM",s)
