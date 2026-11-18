@@ -8,6 +8,7 @@ import { createPublicKey, verify } from 'node:crypto';
 import { assertSecureStartup } from './authorization.ts';
 import {assertRetainedMastersProfile} from '../masters/retained-nonproduction-profile.ts';
 import {assertDraftProfile} from '../draft/draft-profile.ts';
+import {assertRetainedStoresProfile} from '../stores/ops-a2-retained-profile.ts';
 
 export type VerifiedRequestOperator = Readonly<{
   subject: string;
@@ -49,10 +50,12 @@ function tokenFromCookie(raw: string | null): string {
 
 export function resolveVerifiedRequestOperator(request:Request,
  env:RequestIdentityEnvironment,
- purpose:'DEFAULT'|'RETAINED_P3_MASTERS'|'DRAFT_MASTERS'='DEFAULT'
+ purpose:'DEFAULT'|'RETAINED_P3_MASTERS'|'DRAFT_MASTERS'|
+ 'RETAINED_STORES_OPERATOR'='DEFAULT'
 ):VerifiedRequestOperator{
   if(purpose==='RETAINED_P3_MASTERS')assertRetainedMastersProfile(env);
   else if(purpose==='DRAFT_MASTERS')assertDraftProfile(env);
+  else if(purpose==='RETAINED_STORES_OPERATOR')assertRetainedStoresProfile(env);
   else assertSecureStartup(env);
   if (request.method !== 'POST') throw new Error('POST_ONLY_IDENTITY_BINDING');
   const requiredOrigin = env.HFT_PUBLIC_ORIGIN;
