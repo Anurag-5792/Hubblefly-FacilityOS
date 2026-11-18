@@ -59,7 +59,15 @@ END $hf13_operator_install_preflight$;
 -- The gateway owner has EXECUTE on four existing SECURITY DEFINER entrypoints
 -- only, not ownership, no protected table rights and no signing-key SELECT.
 -- Original app runtime and login retain direct EXECUTE DENIAL on all four.
+-- P2 originally granted two legacy V1 functions to the broad application role.
+-- Revoke those grants NOW: the operator login must have exactly four wrappers,
+-- never the legacy writer/reconciler nor their V2 replacements. This changes
+-- ACL only, preserving both original SECURITY DEFINER implementations.
 SET ROLE hft_r1_posting_owner;
+REVOKE EXECUTE ON FUNCTION
+ hft.post_stock_command_protected_v1(jsonb,jsonb),
+ hft.reconcile_protected_stock_command_v1(jsonb,jsonb)
+ FROM PUBLIC,hft_r1_app_runtime,hft_r1_stores_np_login;
 REVOKE EXECUTE ON FUNCTION
  hft.ops_a2_resolve_authorized_v2(jsonb,jsonb),
  hft.ops_a2_post_stock_command_v2(jsonb,jsonb),
@@ -228,6 +236,14 @@ BEGIN
  OR pg_has_role('hft_r1_stores_np_login','hft_engineering','SET')
  OR pg_has_role('hft_r1_stores_gateway_owner','hft_r1_posting_owner','SET')
  THEN RAISE EXCEPTION 'HF13_OPERATOR_GATEWAY_ROLE_MEMBERSHIP_OR_CREATOR_LEAK'; END IF;
+ -- The legacy P2 V1 entrypoints remain private after ACL-only closure.
+ FOREACH f IN ARRAY ARRAY[
+  'hft.post_stock_command_protected_v1(jsonb,jsonb)',
+  'hft.reconcile_protected_stock_command_v1(jsonb,jsonb)'] LOOP
+  IF has_function_privilege('hft_r1_stores_np_login',f,'EXECUTE')
+   OR has_function_privilege('hft_r1_app_runtime',f,'EXECUTE')
+  THEN RAISE EXCEPTION 'HF13_OPERATOR_LEGACY_P2_ENTRYPOINT_EXPOSED:%',f; END IF;
+ END LOOP;
  allowed:=ARRAY[
   'hft.ops_a2_resolve_authorized_v2(jsonb,jsonb)',
   'hft.ops_a2_post_stock_command_v2(jsonb,jsonb)',
