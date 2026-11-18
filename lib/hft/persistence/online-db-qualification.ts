@@ -11,10 +11,10 @@ const functions:Readonly<Record<OnlineRuntimeDuty,readonly string[]>>={
   'hft.p0_read_authoritative_stores_v1(jsonb,jsonb)'
  ],
  OPS_A2_STORES:[
-  'hft.ops_a2_resolve_authorized_v2(jsonb,jsonb)',
-  'hft.ops_a2_post_stock_command_v2(jsonb,jsonb)',
-  'hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)',
-  'hft.ops_a2_read_authoritative_v2(jsonb,jsonb)'
+  'hft.ops_a2_operator_resolve_receive_v1(jsonb,jsonb)',
+  'hft.ops_a2_operator_post_receive_v1(jsonb,jsonb)',
+  'hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb)',
+  'hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)'
  ],
  P3_MASTERS:[
   'hft.p3_submit_master_change_v1(jsonb,jsonb)',
@@ -22,8 +22,9 @@ const functions:Readonly<Record<OnlineRuntimeDuty,readonly string[]>>={
   'hft.p3_read_masters_v1(jsonb,jsonb)'
  ]
 };
-export const ONLINE_RUNTIME_CATALOG_SQL="\nWITH required(signature) AS (\n SELECT pg_catalog.jsonb_array_elements_text($1::jsonb)\n), found AS (\n SELECT signature,pg_catalog.to_regprocedure(signature) AS oid FROM required\n), fstate AS (\n SELECT COUNT(*)::integer AS n,BOOL_AND(p.prosecdef AND NOT owner.rolcanlogin\n  AND pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE')) AS ok\n FROM found f JOIN pg_catalog.pg_proc p ON p.oid=f.oid\n JOIN pg_catalog.pg_roles owner ON owner.oid=p.proowner\n), extras AS (\n SELECT COUNT(*)::integer AS n FROM pg_catalog.pg_proc p\n JOIN pg_catalog.pg_namespace ns ON ns.oid=p.pronamespace\n WHERE ns.nspname IN ('hft','hft_secret','hft_crypto')\n AND pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE')\n AND p.oid NOT IN (SELECT oid FROM found WHERE oid IS NOT NULL)\n), dml AS (\n SELECT COUNT(*)::integer AS n FROM pg_catalog.pg_class c\n JOIN pg_catalog.pg_namespace ns ON ns.oid=c.relnamespace\n WHERE ns.nspname IN ('hft','hft_secret') AND\n (CASE WHEN c.relkind='S' THEN\n  pg_catalog.has_sequence_privilege(current_user,c.oid,'USAGE,SELECT,UPDATE')\n WHEN c.relkind IN ('r','p','v','m','f') THEN\n  pg_catalog.has_table_privilege(current_user,c.oid,\n   'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')\n ELSE false END)\n), elevated AS (\n SELECT COUNT(*)::integer AS n FROM pg_catalog.pg_roles r\n WHERE r.rolname IN ('hft_engineering','hft_r1_posting_owner',\n  'hft_r1_p3_master_owner','hft_r1_governance_issuer')\n AND pg_catalog.pg_has_role(current_user,r.oid,'MEMBER')\n)\nSELECT (SELECT n FROM fstate) AS function_count,\n (SELECT COALESCE(ok,false) FROM fstate) AS functions_secure,\n (SELECT n FROM extras) AS unexpected_functions,\n (SELECT n FROM dml) AS direct_relation_grants,\n (SELECT n FROM elevated) AS privileged_memberships,\n pg_catalog.has_schema_privilege(current_user,'hft','USAGE') AS schema_usage,\n pg_catalog.has_schema_privilege(current_user,'hft','CREATE') AS schema_create,\n pg_catalog.has_schema_privilege(current_user,'hft_secret','USAGE') AS secret_usage,\n pg_catalog.has_schema_privilege(current_user,'hft_crypto','USAGE') AS crypto_usage,\n (SELECT NOT r.rolsuper AND NOT r.rolcreatedb AND NOT r.rolcreaterole\n  AND NOT r.rolreplication AND NOT r.rolbypassrls\n  FROM pg_catalog.pg_roles r WHERE r.rolname=current_user) AS nonprivileged_login,\n pg_catalog.current_setting('server_version_num')::integer AS server_version_num\n";
+export const ONLINE_RUNTIME_CATALOG_SQL="\nWITH required(signature) AS (\n SELECT pg_catalog.jsonb_array_elements_text($1::jsonb)\n), found AS (\n SELECT signature,pg_catalog.to_regprocedure(signature) AS oid FROM required\n), fstate AS (\n SELECT COUNT(*)::integer AS n,BOOL_AND(p.prosecdef AND NOT owner.rolcanlogin\n  AND pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE')) AS ok,\n COUNT(*) FILTER (WHERE owner.rolname='hft_r1_stores_gateway_owner'\n  AND p.prosecdef AND NOT owner.rolcanlogin AND NOT owner.rolinherit\n  AND NOT owner.rolsuper AND NOT owner.rolbypassrls)::integer AS gateway_count\n FROM found f JOIN pg_catalog.pg_proc p ON p.oid=f.oid\n JOIN pg_catalog.pg_roles owner ON owner.oid=p.proowner\n), extras AS (\n SELECT COUNT(*)::integer AS n FROM pg_catalog.pg_proc p\n JOIN pg_catalog.pg_namespace ns ON ns.oid=p.pronamespace\n WHERE ns.nspname IN ('hft','hft_secret','hft_crypto')\n AND pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE')\n AND p.oid NOT IN (SELECT oid FROM found WHERE oid IS NOT NULL)\n), dml AS (\n SELECT COUNT(*)::integer AS n FROM pg_catalog.pg_class c\n JOIN pg_catalog.pg_namespace ns ON ns.oid=c.relnamespace\n WHERE ns.nspname IN ('hft','hft_secret') AND\n (CASE WHEN c.relkind='S' THEN\n  pg_catalog.has_sequence_privilege(current_user,c.oid,'USAGE,SELECT,UPDATE')\n WHEN c.relkind IN ('r','p','v','m','f') THEN\n  pg_catalog.has_table_privilege(current_user,c.oid,\n   'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')\n ELSE false END)\n), elevated AS (\n SELECT COUNT(*)::integer AS n FROM pg_catalog.pg_roles r\n WHERE r.rolname IN ('hft_engineering','hft_r1_posting_owner',\n  'hft_r1_p3_master_owner','hft_r1_governance_issuer')\n AND pg_catalog.pg_has_role(current_user,r.oid,'MEMBER')\n)\nSELECT (SELECT n FROM fstate) AS function_count,\n (SELECT COALESCE(ok,false) FROM fstate) AS functions_secure,\n (SELECT gateway_count FROM fstate) AS gateway_owner_count,\n (SELECT n FROM extras) AS unexpected_functions,\n (SELECT n FROM dml) AS direct_relation_grants,\n (SELECT n FROM elevated) AS privileged_memberships,\n pg_catalog.has_schema_privilege(current_user,'hft','USAGE') AS schema_usage,\n pg_catalog.has_schema_privilege(current_user,'hft','CREATE') AS schema_create,\n pg_catalog.has_schema_privilege(current_user,'hft_secret','USAGE') AS secret_usage,\n pg_catalog.has_schema_privilege(current_user,'hft_crypto','USAGE') AS crypto_usage,\n (SELECT NOT r.rolsuper AND NOT r.rolcreatedb AND NOT r.rolcreaterole\n  AND NOT r.rolreplication AND NOT r.rolbypassrls\n  FROM pg_catalog.pg_roles r WHERE r.rolname=current_user) AS nonprivileged_login,\n pg_catalog.current_setting('server_version_num')::integer AS server_version_num\n";
 type Row=Readonly<{function_count:number;functions_secure:boolean;
+ gateway_owner_count:number;
  unexpected_functions:number;direct_relation_grants:number;
  privileged_memberships:number;schema_usage:boolean;schema_create:boolean;
  secret_usage:boolean;crypto_usage:boolean;nonprivileged_login:boolean;
@@ -40,6 +41,8 @@ export async function assertOnlineRuntimeCatalog(
   r.schema_usage!==true||r.schema_create!==false||
   r.secret_usage!==false||r.crypto_usage!==false||
   r.nonprivileged_login!==true||
+  (duty==='OPS_A2_STORES'&&
+   (r.server_version_num!==180007||r.gateway_owner_count!==4))||
   !Number.isSafeInteger(r.server_version_num)||r.server_version_num<150000)
   throw Error('HFT_ONLINE_DB_RUNTIME_ACL_OR_SCHEMA_NOT_QUALIFIED');
 }
