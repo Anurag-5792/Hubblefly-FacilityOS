@@ -39,6 +39,9 @@ const env={...identityEnv,NODE_ENV:'production',
  HFT_ONLINE_P2_DB_PASSWORD:'SYNTHETIC_TEST_NO_REAL_SECRET_12345',
  HFT_ONLINE_DB_TLS_CA_PEM:rootCertificates[0],
  HFT_PUBLIC_ORIGIN:origin,
+ HFT_STORES_APPROVED_OPERATOR_GATEWAY_SHA256:
+  '3dc99bcc2d6e7a3ba7d0c05e8375b3baf87ba98a52d7a81d1645808d66358f0f',
+ HFT_STORES_OPERATOR_GATEWAY_ABI:'HF13_OPS_A2_OPERATOR_RECEIVE_V1',
  HFT_STORES_APPROVED_INSTALLER_SHA256:'a'.repeat(64),
  HFT_STORES_INDEPENDENT_EXECUTION_ADMISSION_SHA256:'b'.repeat(64),
  HFT_STORES_APPROVED_RESOURCE_SHA256:'c'.repeat(64),
@@ -74,6 +77,8 @@ test('nonproduction Stores profile rejects absent technical admissions and unsaf
   {HFT_TEST_PG_DATABASE:'hft_r1_disposable_qa'},
   {HFT_P2_RUNTIME_LOGIN:'hft_r1_posting_owner'},
   {HFT_POSTING_RUN_MODE:'ISOLATED_ONLINE_DB_TEST'},
+  {HFT_STORES_APPROVED_OPERATOR_GATEWAY_SHA256:'0'.repeat(64)},
+  {HFT_STORES_OPERATOR_GATEWAY_ABI:'WRONG_GATEWAY'},
   {HFT_STORES_APPROVED_INSTALLER_SHA256:'0'.repeat(64)},
   {HFT_STORES_INDEPENDENT_EXECUTION_ADMISSION_SHA256:undefined},
   {HFT_STORES_SIGNING_ENROLLMENT_SHA256:'bad'},
@@ -121,6 +126,19 @@ test('middleware allows only admitted operator RECEIVE and READ; no R77 or stock
  assert.match(receive,/submitOpsA2QualifiedReceive/);
  assert.match(receive,/OPS_A2_RECEIVE_OUTCOME_RECONCILE_NO_RETRY/);
  assert.match(read,/readOpsA2QualifiedSource/);
+ const verify=readFileSync('lib/hft/persistence/online-db-qualification.ts','utf8');
+ const reader=readFileSync('lib/hft/persistence/ops-a2-stores-readback.ts','utf8');
+ for(const signature of [
+  'ops_a2_operator_resolve_receive_v1(jsonb,jsonb)',
+  'ops_a2_operator_post_receive_v1(jsonb,jsonb)',
+  'ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb)',
+  'ops_a2_operator_read_receive_v1(jsonb,jsonb)'
+ ]) assert.ok(verify.includes(signature),signature);
+ assert.match(verify,/gateway_owner_count!==4/);
+ assert.match(reader,/ops_a2_operator_read_receive_v1/);
+ assert.match(a2,/ops_a2_operator_resolve_receive_v1/);
+ assert.match(a2,/ops_a2_operator_post_receive_v1/);
+ assert.match(a2,/ops_a2_operator_reconcile_receive_v1/);
  assert.match(a2,/assertSyntheticOnly\(env\)/);
  for(const content of [receive,read])
   assert.doesNotMatch(content,/hft_qa077|r77\.post_receive|INSERT INTO hft\.stock/);
