@@ -10,6 +10,10 @@ import {STORES_PROFILE,assertRetainedStoresProfile,isRetainedStoresProfile}
  from '../../lib/hft/stores/ops-a2-retained-profile.ts';
 import {assertProtectedPostingEnvironment}
  from '../../lib/hft/persistence/protected-posting-transaction.ts';
+import {assertOnlineRuntimeCatalog}
+ from '../../lib/hft/persistence/online-db-qualification.ts';
+import type {PgQueryClient}
+ from '../../lib/hft/persistence/isolated-pg-transaction.ts';
 import {assertP0PersistenceEnvironment} from '../../lib/hft/stores/p0-persistence.ts';
 import {assertOnlinePgTransport,onlinePgPoolOptions}
  from '../../lib/hft/persistence/online-pg-transport.ts';
@@ -142,4 +146,41 @@ test('middleware allows only admitted operator RECEIVE and READ; no R77 or stock
  assert.match(a2,/assertSyntheticOnly\(env\)/);
  for(const content of [receive,read])
   assert.doesNotMatch(content,/hft_qa077|r77\.post_receive|INSERT INTO hft\.stock/);
+});
+
+test('operator catalog enforces four gateway-only EXECUTEs and exact non-login owner',async()=>{
+ const base={function_count:4,functions_secure:true,
+  gateway_owner_count:4,unexpected_functions:0,direct_relation_grants:0,
+  privileged_memberships:0,schema_usage:true,schema_create:false,
+  secret_usage:false,crypto_usage:false,nonprivileged_login:true,
+  server_version_num:180007};
+ let requested:string[]=[];
+ function catalog(row:Record<string,unknown>):PgQueryClient{
+  return {
+   async query<T extends Record<string,unknown>>(_sql:string,params:readonly unknown[]=[]){
+    requested=JSON.parse(String(params[0])) as string[];
+    return {rows:[row as T],rowCount:1};
+   },release(){}
+  };
+ }
+ await assert.doesNotReject(assertOnlineRuntimeCatalog(catalog(base),'OPS_A2_STORES'));
+ assert.deepEqual(requested,[
+  'hft.ops_a2_operator_resolve_receive_v1(jsonb,jsonb)',
+  'hft.ops_a2_operator_post_receive_v1(jsonb,jsonb)',
+  'hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb)',
+  'hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)'
+ ]);
+ assert.equal(requested.some(s=>s.includes('post_stock_command_v2')||
+  s.includes('resolve_authorized_v2')||s.includes('reconcile_post_v3')||
+  s.includes('read_authoritative_v2')),false);
+ for(const defect of [
+  {gateway_owner_count:3},{server_version_num:180006},
+  {unexpected_functions:1},{direct_relation_grants:1},
+  {privileged_memberships:1},{schema_create:true},
+  {secret_usage:true},{functions_secure:false},{function_count:3}
+ ]){
+  await assert.rejects(assertOnlineRuntimeCatalog(
+   catalog({...base,...defect}),'OPS_A2_STORES'),
+   /HFT_ONLINE_DB_RUNTIME_ACL_OR_SCHEMA_NOT_QUALIFIED/);
+ }
 });
