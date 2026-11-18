@@ -50,11 +50,25 @@ const safeguards={
  'jsx-a11y/anchor-has-content':'error',
  'jsx-a11y/aria-props':'error',
  'jsx-a11y/aria-proptypes':'error',
- 'jsx-a11y/aria-unsupported-elements':'error'
+ 'jsx-a11y/aria-unsupported-elements':'error',
+ '@next/next/no-img-element':'warn'
 };
-const plugins={'react-hooks':reactHooks,react, 'jsx-a11y':jsxA11y,import:importPlugin};
+const localNextRules={
+ 'no-img-element':{
+  meta:{type:'suggestion',schema:[],
+   docs:{description:'Use optimized images unless separately reviewed'}},
+  create(context){
+   return {JSXOpeningElement(node){
+    if(node.name?.type==='JSXIdentifier'&&node.name.name==='img')
+     context.report({node,message:'Prefer optimized Next images.'});
+   }};
+  }
+ }
+};
+const plugins={'react-hooks':reactHooks,react, 'jsx-a11y':jsxA11y,
+ import:importPlugin,'@next/next':{rules:localNextRules}};
 export default [
- {ignores:['node_modules/**','.next/**','out/**','build/**','next-env.d.ts']},
+ {ignores:['node_modules/**','.next/**','out/**','build/**','next-env.d.ts','**/*.d.ts']},
  {
   files:['**/*.{js,mjs,cjs}'],
   languageOptions:{ecmaVersion:'latest',sourceType:'module',globals:globalNames},
@@ -69,5 +83,9 @@ export default [
   // TypeScript's strict noUnusedLocals/noUnusedParameters checks the original
   // TS source; avoid treating erased type imports as JavaScript unused vars.
   rules:safeguards
- }
+ },
+ // C050 test-only isolated React VM loader uses new Function on transpiled
+ // trusted repository sources; no runtime route or browser bundle imports it.
+ {files:['tests/unit/hft-c050-react-render.test.ts'],
+  rules:{'no-new-func':'off'}}
 ];
