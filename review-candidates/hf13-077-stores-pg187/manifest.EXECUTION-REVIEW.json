@@ -1,7 +1,7 @@
 {
   "schema": "HF13_077_STORES_PG187_INSTALLATION_REVIEW_V1",
   "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
-  "status": "CORRECTED_RECEIVE_ONLY_OPERATOR_GATEWAY_REVIEW_CANDIDATE_NO_EXECUTION_ADMISSION",
+  "status": "SEC_OP_187_01_AND_02_CORRECTED_SOURCE_ONLY_PENDING_INDEPENDENT_REVIEW_AND_PROTECTED_EXECUTION_ADMISSION",
   "engineering_source_sha": "3a1c4bc2737cfa478eee21ab8a6e4a832999fe9a",
   "original_sources_untouched": true,
   "source_reconciliation": "Operator RECEIVE uses OPS-A2 version-coupled protected writer and single authoritative hft.stock_entry/stock_account. R77 hft_qa077 gateway is excluded.",
@@ -13,7 +13,7 @@
     "endpoint_id": "ep-hidden-fire-b324s21q",
     "hostname": "ep-hidden-fire-b324s21q.c-4.ap-southeast-1.aws.neon.tech",
     "pg_server_version_num": 180007,
-    "resource_designation": "PENDING_EXPLICIT_OWNER_NONPRODUCTION_STORES_PURPOSE_APPROVAL",
+    "resource_designation": "APPROVED_RESTRICTED_NONPRODUCTION_OPERATIONAL_STORES_2026_11_16",
     "external_tls_verified": false
   },
   "canonical": {
@@ -116,7 +116,7 @@
     {
       "step": 75,
       "file": "75-receive-operator-gateway.EXECUTABLE-REVIEW.sql",
-      "sha256": "3dc99bcc2d6e7a3ba7d0c05e8375b3baf87ba98a52d7a81d1645808d66358f0f",
+      "sha256": "b2c10d799b8a16b609de5d94fe8296d2b9cc4bfb7dfe701b22aec0a1f4b9e10d",
       "original": "NEW independent gateway, NOT QA gateway",
       "source_depends": "OPS-A2 protected original d5b8bec248fa69151fcf25cdf8c7a33806c01fbff829e725ac0b449e6797e47e",
       "sql_session": "hft_engineering",
@@ -170,13 +170,13 @@
     "ISSUE/RETURN/TRANSFER/COUNT operator release before first RECEIVE"
   ],
   "missing_technical_admissions": [
-    "Chat10 independent exact source review of 9 installer SQL stages, four gateway SECDEF wrappers and effective ACL/SET ROLE closure; review plus original signer custody is NOT accepted",
-    "MASTER separate actual protected SQL installation authorization naming the exact final manifest hash and signer trust root",
-    "Independent custom-format encrypted baseline and witnessed restore evidence under separate authorized resource",
-    "Authenticated external TLS CA and hostname, exact SQL session identity, dedicated runtime password and approved HMAC/session key enrollment",
-    "Chat11 genuine original supplier invoice, GRN partial receipt, accepted QC, physical bin, version and corporate human approval evidence",
-    "Chat16 signed operator API changes to call exactly four gateway functions and qualified authoritative readback; CI full dependency advisory scan currently fails",
-    "Chat17 one real PG18.7 RECEIVE COMMIT and duplicate/replay/ledger/balance verification"
+    "Chat10 independent exact PG18.7 gateway SQL/role ACL/negative and catalog source-body hash review; no signature acceptance yet",
+    "Chat16 re-pin app STORES_GATEWAY_REVIEW_SHA256 from old 3dc99... to exact new b2c10... and independently qualify ABI at new source SHA",
+    "MASTER separate signed protected-installation authorization naming exact release manifest/runner/roles/signer trust root",
+    "Authenticated external TLS hostname/CA and actual SQL session, qualified installer/runtime credentials and managed original signing keys",
+    "Independent encrypted pg_dump baseline and witnessed restore to separately approved destination before business mutation",
+    "Chat11 genuine original supplier invoice/GRN/QC accepted/partial receipt/item-version/bin and human approvals",
+    "Chat17 only one genuine PG18.7 RECEIVE, duplicate denial and authoritative original-nonce/ledger/bin-balance readback"
   ],
   "actual_database": {
     "hft_schema_installed": false,
@@ -189,7 +189,7 @@
   },
   "production": "NO_GO",
   "nonproduction_stores": "NO_GO",
-  "app_source_sha": "14a85dfba4a239642116157caa84a6a29b06747d",
+  "app_source_sha": "d5f53845c8e024b70bb80f26d1ad7b8c1eb4a469",
   "minimal_operator_gateway": {
     "design": "SECURITY DEFINER four-function RECEIVE-only delegation; original PostgreSQL session_user retained and underlying protected P0/P2 proofs, approvals, version/hold checks unchanged; not hft_qa077",
     "owner": "hft_r1_stores_gateway_owner",
@@ -205,11 +205,30 @@
       "Qualified original attempt reconciliation: call hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb), not private reconcile",
       "Qualified authoritatively signed readback: call hft.ops_a2_operator_read_receive_v1(jsonb,jsonb), not private reader",
       "Leave synthetic source test entrypoints separate and disabled in operator Preview"
-    ]
+    ],
+    "runtime_execute_to": "hft_r1_stores_np_login ONLY, not the broad hft_r1_app_runtime group",
+    "security_corrections": [
+      "SEC-OP-187-01: FOUR RECEIVE-only wrappers owned by NOLOGIN hft_r1_stores_gateway_owner; operator SQL session_user remains exact hft_r1_stores_np_login",
+      "Protected V2 resolver/writer/reconcile/reader granted only to NOLOGIN gateway owner, not runtime group or login",
+      "Legacy P2 V1 post_stock_command_protected_v1 and reconcile_protected_stock_command_v1 runtime grants revoked at operator stage; function bodies unmodified",
+      "Runtime login has effective EXECUTE only on FOUR operator wrappers across hft/hft_secret/hft_crypto; no inherited/PUBLIC helpers or crypto",
+      "Both gateway owner and runtime login have no relation SELECT/DML/sequence rights and no privileged MEMBER/SET ROLE",
+      "All four operator wrappers revalidate PG180007, authenticated SQL TLS, exact original session_user, transaction mode, RECEIVE-only/accepted QC and signed-input structural fields",
+      "Independent read-only stage90 catalog/ACL + external SHA256 of pg_proc.prosrc required after admitted installation"
+    ],
+    "gateway_owner_private_execute": [
+      "hft.ops_a2_resolve_authorized_v2(jsonb,jsonb)",
+      "hft.ops_a2_post_stock_command_v2(jsonb,jsonb)",
+      "hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)",
+      "hft.ops_a2_read_authoritative_v2(jsonb,jsonb)"
+    ],
+    "excludes_qa_gateway": true,
+    "no_public_execute": true,
+    "exact_gateway_sha256": "b2c10d799b8a16b609de5d94fe8296d2b9cc4bfb7dfe701b22aec0a1f4b9e10d"
   },
   "independent_read_only_postflight": {
     "path": "90-independent-operator-acl.READONLY.sql",
-    "sha256": "f0dbef098b41aba890354bdfe077fc7808fe44014a4ddfd1f422e947df6c3224",
+    "sha256": "d0aef027085de832bc0e40cd6a4c343a5ff7ec1f6895789656036d7e6985025f",
     "executable_only_after_accepted_installation": true,
     "requires_actual_external_tls": true,
     "requires_independent_verifier": true,
@@ -228,7 +247,28 @@
     "sql_source_consistency_checked": true,
     "postgresql_compile_and_acl_not_tested": true,
     "engineering_head_ci_result": "FAIL_FULL_DEV_DEPENDENCY_AUDIT; SOURCE_VERIFY_AND_PRODUCTION_DEPENDENCY_AUDIT_PASS",
-    "app_current_integration": "14a85df direct protected calls still need exact gateway routing"
+    "app_current_integration": "14a85df direct protected calls still need exact gateway routing",
+    "gateway_abi_matches_current_app_four_signatures": true,
+    "current_app_gateway_sha_pin_stale": true,
+    "app_gateway_sha_pin_expected": "b2c10d799b8a16b609de5d94fe8296d2b9cc4bfb7dfe701b22aec0a1f4b9e10d",
+    "app_current_pin_at_d5f53845": "3dc99bcc2d6e7a3ba7d0c05e8375b3baf87ba98a52d7a81d1645808d66358f0f",
+    "postgres_parse_tested": false,
+    "original_protected_writer_untouched": true
   },
-  "final_installation_status": "UNAUTHORIZED_NOT_POSTGRESQL_PARSED_NOT_EXECUTED"
+  "final_installation_status": "UNAUTHORIZED_NOT_POSTGRESQL_PARSED_NOT_EXECUTED",
+  "app_source_ci": "ONE_EXACT_HEAD_SUCCESS; PRECEDING_ATTEMPT_FAILED",
+  "catalog_exact_pg_proc_prosrc_sha256": {
+    "hft.ops_a2_resolve_authorized_v2(jsonb,jsonb)": "8e81aab5984b6ac9348b55e197f841837af653c875604bc77163b65a3c7aaf2a",
+    "hft.ops_a2_post_stock_command_v2(jsonb,jsonb)": "9dd76426e38ba79b599ca648a537cef6a0e1d87f8f91aa7452eadad9213754de",
+    "hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)": "ecfba6a746f4a277124f4cf27fa58a8d0ab7513c7a8c61c3bffc9ead0d5f9624",
+    "hft.ops_a2_read_authoritative_v2(jsonb,jsonb)": "c75071a113ca0429e9ccc654213d7a3903883ff9031cba07e6340f9be2914aa7",
+    "hft.ops_a2_operator_resolve_receive_v1(jsonb,jsonb)": "e0a231f7b1c508e708b7e739aa6b2393a73cfa80d79ab43f6779255263c8d4a5",
+    "hft.ops_a2_operator_post_receive_v1(jsonb,jsonb)": "583998e36455d8bb971b21227b9b1cb3d4f3208668573be977e1ddfa17ada654",
+    "hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb)": "6d73bc03b31e5ef9c3d35b1ea0ea589e6b4e4af16dc91d93df661f28414b512b",
+    "hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)": "df1b41350b38c3598ebd8dfba19e1ec83aa0f0d38e2c59009c46d9594238f283"
+  },
+  "catalog_verification_method": "Independently fetch PostgreSQL pg_proc.prosrc exact UTF8 bytes and SHA-256 each of eight signatures, compare above; verify proowner/prosecdef/proconfig, pg_proc ACL, role graph and deny direct table DML in stage90. NOT YET EXECUTED.",
+  "protected_sql_executed": false,
+  "independent_security_acceptance": false,
+  "technical_installation_admission": false
 }
