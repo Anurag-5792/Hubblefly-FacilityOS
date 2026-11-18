@@ -62,7 +62,9 @@ type StockReadRow={legalEntityId:string;siteId:string;warehouseId:string;
 type StockReadReply={state?:string;code?:string;intent?:string;rows?:StockReadRow[];
  durable?:boolean;synthetic?:boolean;sourceEpoch?:string;nextCursor?:string};
 type Reply={state?:string;code?:string;requestId?:string;stockChanged?:boolean;durable?:boolean;
- locationVerified?:boolean;businessAuthorityVerified?:boolean;quantity?:string};
+ locationVerified?:boolean;businessAuthorityVerified?:boolean;quantity?:string;
+ binBalance?:string;movementCount?:number;sourceEpoch?:string;
+ automaticRetryAllowed?:boolean};
 export default function StoresOperationsPage(){
  const [kind,setKind]=useState<Kind>('IN');
  const [form,setForm]=useState<FormData>(initial);
@@ -91,7 +93,9 @@ export default function StoresOperationsPage(){
    batchNo:form.batchNo.trim()};
   const additional=Object.fromEntries(fields[kind].map(key=>[key,form[key].trim()]));
   try{
-   const res=await fetch(kind==='RETURN'?'/api/hft/stores/return-prepare':
+   const res=await fetch(intent==='POST'&&kind==='IN'?
+    '/api/hft/stores/receive':
+    kind==='RETURN'?'/api/hft/stores/return-prepare':
     intent==='POST'?'/api/hft/stores/submit':'/api/hft/stores/prepare',{
     method:'POST',credentials:'same-origin',
     cache:'no-store',headers:{'Content-Type':'application/json'},
@@ -108,7 +112,11 @@ export default function StoresOperationsPage(){
      output.requestId===common.requestId;
     if(!actual&&!observed)throw new Error('PROTECTED_DATABASE_PROOF_REQUIRED');
     setLast(output);
-    setFeedback(actual?'Protected stock posting reported committed. Independently verify balance and custody readback.':
+    setFeedback(actual?
+     ('RECEIVE committed and independently reread: BIN '+form.leafLocationId+
+      ', quantity '+String(output.binBalance??'unavailable')+
+      ', verified movements '+String(output.movementCount??'unavailable')+
+      '. Reopen the authoritative readback for independent confirmation.'):
      'Physical count observation committed. No stock adjustment was made.');
    }else{
     if(output.state!=='VALIDATED_NOT_POSTED'||output.stockChanged!==false||
@@ -161,7 +169,7 @@ export default function StoresOperationsPage(){
  return <main className="masters-shell">
   <header className="masters-head"><div>
    <Link href="/stores" className="mis-link">Stores / Operations</Link>
-   <p className="eyebrow">Hubblefly FacilityOS · P0 source candidate</p>
+   <p className="eyebrow">Hubblefly FacilityOS · Stores control</p>
    <h1>Stores receiving, issuing, returning and counting</h1>
    <p>Actual warehouse, rack, level, position, stack slot and bin are verified only by the qualified location registry.</p>
   </div><Link className="masters-back" href="/stores/masters">Masters</Link></header>
@@ -204,7 +212,10 @@ export default function StoresOperationsPage(){
    <h2>Result</h2><p>{feedback}</p>
    {last?<p>Request type: {last.state} · Quantity: {last.quantity??form.quantity} ·
      Stored: {last.durable===true?'YES':'NO'} ·
-     Stock moved: {last.stockChanged===true?'YES':'NO'}</p>:null}
+     Stock moved: {last.stockChanged===true?'YES':'NO'}
+     {last.state==='POSTED_VERIFIED'?(' · BIN balance: '+String(last.binBalance)+
+      ' · Immutable movements: '+String(last.movementCount)+
+      ' · Epoch: '+String(last.sourceEpoch)):''}</p>:null}
   </section>
   <section className="panel" aria-label="Authoritative PostgreSQL readback">
    <h2>Verified Stores readback</h2>
