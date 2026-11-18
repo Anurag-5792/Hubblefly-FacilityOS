@@ -189,7 +189,7 @@ function checkedReconciliation(value:unknown,payload:OpsAPayload,
 }
 async function authoritativeReconcile(pool:PgPool,env:IsolatedPgEnvironment,
  payload:OpsAPayload,proof:OpsAProof,actor:VerifiedRequestOperator,
- signer:OpsA2Signer):Promise<P2Reconciliation>{
+ signer:OpsA2Signer,operatorGateway=false):Promise<P2Reconciliation>{
  // Fresh signed READ authority, independent of the original P2 proof.
  // The caller may reauthenticate if the old posting session has expired;
  // no old session is reactivated and the original nonce is never replaced.
@@ -201,8 +201,10 @@ async function authoritativeReconcile(pool:PgPool,env:IsolatedPgEnvironment,
   leafLocationId:'',employeeId:'',cursor:'',limit:1};
  const freshProof=issueStoresReadProof(q,actor,signer.p0Key,signer.p0KeyVersion);
  const response=await withProtectedReadbackTransaction(pool,env,async client=>{
-  const r=await client.query<{recovery:unknown}>(
-   'SELECT hft.ops_a2_reconcile_post_v3($1::jsonb,$2::jsonb,$3::jsonb,$4::jsonb) AS recovery',
+  const sql=operatorGateway?
+   'SELECT hft.ops_a2_operator_reconcile_receive_v1($1::jsonb,$2::jsonb,$3::jsonb,$4::jsonb) AS recovery':
+   'SELECT hft.ops_a2_reconcile_post_v3($1::jsonb,$2::jsonb,$3::jsonb,$4::jsonb) AS recovery';
+  const r=await client.query<{recovery:unknown}>(sql,
    [JSON.stringify(payload),JSON.stringify(proof),
     JSON.stringify(q),JSON.stringify(freshProof)]);
   if(r.rows.length!==1)throw Error('OPS_A2_RECOVERY_ROW_MISSING');
@@ -213,15 +215,18 @@ async function authoritativeReconcile(pool:PgPool,env:IsolatedPgEnvironment,
 /** Single P2 post+original-nonce verification path used by each P0 kind.
  * Never carries an approved source from the browser. */
 async function postResolvedPayload(pool:PgPool,env:IsolatedPgEnvironment,
- payload:OpsAPayload,actor:VerifiedRequestOperator,signer:OpsA2Signer
+ payload:OpsAPayload,actor:VerifiedRequestOperator,signer:OpsA2Signer,
+ operatorGateway=false
 ):Promise<OpsA2SourceResult>{
  const proof=issueProof(payload,actor,signer);
  let attempted=false;
  try{
   await withProtectedPostingTransaction(pool,env,async client=>{
    attempted=true;
-   const r=await client.query<{result:unknown}>(
-    'SELECT hft.ops_a2_post_stock_command_v2($1::jsonb,$2::jsonb) AS result',
+   const sql=operatorGateway?
+    'SELECT hft.ops_a2_operator_post_receive_v1($1::jsonb,$2::jsonb) AS result':
+    'SELECT hft.ops_a2_post_stock_command_v2($1::jsonb,$2::jsonb) AS result';
+   const r=await client.query<{result:unknown}>(sql,
     [JSON.stringify(payload),JSON.stringify(proof)]);
    const result=object(r.rows[0]?.result,'OPS_A2_POSTING_RESPONSE_MISSING');
    if(r.rows.length!==1||result.state!=='POSTED_PENDING_READBACK'||
@@ -232,7 +237,7 @@ async function postResolvedPayload(pool:PgPool,env:IsolatedPgEnvironment,
  }catch(error){
   if(!(error instanceof CommitOutcomeUncertain))throw error;
   // NEVER repost on an uncertain COMMIT. Use original nonce/proof only.
-  const recovered=await authoritativeReconcile(pool,env,payload,proof,actor,signer);
+  const recovered=await authoritativeReconcile(pool,env,payload,proof,actor,signer,operatorGateway);
   if(recovered.state==='INDETERMINATE_NOT_FOUND')
    throw Error('OPS_A2_UNCERTAIN_COMMIT_UNRESOLVED_NO_RETRY');
   return {state:'SOURCE_ONLY_COMMITTED_FACT_VERIFIED_NOT_OPERATIONAL',
@@ -240,7 +245,7 @@ async function postResolvedPayload(pool:PgPool,env:IsolatedPgEnvironment,
    sourceEpoch:recovered.sourceEpoch!,fact:recovered.fact!};
  }
  if(!attempted)throw Error('OPS_A2_NO_POSTING_ATTEMPT');
- const recovered=await authoritativeReconcile(pool,env,payload,proof,actor,signer);
+ const recovered=await authoritativeReconcile(pool,env,payload,proof,actor,signer,operatorGateway);
  if(recovered.state!=='COMMITTED_VERIFIED')
   throw Error('OPS_A2_COMMIT_READBACK_NOT_VERIFIED_NO_RETRY');
  return {state:'SOURCE_ONLY_COMMITTED_FACT_VERIFIED_NOT_OPERATIONAL',
@@ -300,7 +305,7 @@ export async function submitOpsA2QualifiedReceive(
  const signedP0=issueStoresProof(op,actor,signer.p0Key,signer.p0KeyVersion);
  const resolution=await withProtectedPostingTransaction(pool,env,async client=>{
   const r=await client.query<{source:unknown}>(
-   'SELECT hft.ops_a2_resolve_authorized_v2($1::jsonb,$2::jsonb) AS source',
+   'SELECT hft.ops_a2_operator_resolve_receive_v1($1::jsonb,$2::jsonb) AS source',
    [JSON.stringify(op),JSON.stringify(signedP0)]);
   if(r.rows.length!==1)throw Error('OPS_A2_RESOLVER_ROW_MISSING');
   return sourceShape(r.rows[0].source,op,actor);
@@ -309,7 +314,7 @@ export async function submitOpsA2QualifiedReceive(
   resolution.sourceAccountId,resolution.destinationAccountId,
   resolution.approvalPayloadSha256);
  canonicalOpsAPayloadFields(payload);
- const persisted=await postResolvedPayload(pool,env,payload,actor,signer);
+ const persisted=await postResolvedPayload(pool,env,payload,actor,signer,true);
  // Reconciliation must authenticate the original P2 proof, nonce, seal, audit
  // and both conserved immutable ledger legs before we label a result POSTED.
  if(persisted.fact.command.kind!=='RECEIVE'||
