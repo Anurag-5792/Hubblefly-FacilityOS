@@ -70,7 +70,7 @@ export function assertOnlinePgTransport(
    throw Error('HFT_ONLINE_DB_RETAINED_MASTER_DB_NOT_ADMITTED');
  }else if(stores){
   assertRetainedStoresProfile(env);
-  if(database!==env.HFT_STORES_APPROVED_DATABASE)
+  if(!database||database!==env.HFT_STORES_APPROVED_DATABASE)
    throw Error('HFT_ONLINE_DB_STORES_RESOURCE_NOT_ADMITTED');
  }else if(!database||!dbName.test(database)||database!==env.HFT_TEST_PG_DATABASE)
   throw Error('HFT_ONLINE_DB_DISPOSABLE_DATABASE_REQUIRED');
