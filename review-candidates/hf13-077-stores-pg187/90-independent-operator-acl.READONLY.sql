@@ -32,6 +32,11 @@ BEGIN
  OR pg_has_role('hft_r1_stores_np_login','hft_r1_stores_gateway_owner','MEMBER')
  OR pg_has_role('hft_r1_stores_np_login','hft_r1_posting_owner','MEMBER')
  OR pg_has_role('hft_r1_stores_np_login','hft_r1_governance_issuer','MEMBER')
+ OR pg_has_role('hft_r1_stores_np_login','hft_r1_stores_gateway_owner','SET')
+ OR pg_has_role('hft_r1_stores_np_login','hft_r1_posting_owner','SET')
+ OR pg_has_role('hft_r1_stores_np_login','hft_r1_governance_issuer','SET')
+ OR pg_has_role('hft_r1_stores_np_login','hft_engineering','SET')
+ OR pg_has_role('hft_r1_stores_gateway_owner','hft_r1_posting_owner','SET')
  OR NOT EXISTS(SELECT 1 FROM pg_auth_members m
      JOIN pg_roles member ON member.oid=m.member
      JOIN pg_roles inherited ON inherited.oid=m.roleid
@@ -73,7 +78,7 @@ BEGIN
    'hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb)',
    'hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)'] LOOP
   IF NOT has_function_privilege('hft_r1_stores_np_login',f,'EXECUTE')
-   OR NOT has_function_privilege('hft_r1_app_runtime',f,'EXECUTE')
+   OR has_function_privilege('hft_r1_app_runtime',f,'EXECUTE')
    OR EXISTS(SELECT 1 FROM pg_proc p WHERE p.oid=to_regprocedure(f)
      AND EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,
        acldefault('f',p.proowner))) a
