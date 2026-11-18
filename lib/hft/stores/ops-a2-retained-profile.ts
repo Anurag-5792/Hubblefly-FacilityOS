@@ -8,7 +8,7 @@ export const STORES_PROFILE='HFT_R1_STORES_RETAINED_NONPRODUCTION_077_V1' as con
  * This pin alone is not installation authority.
  */
 export const STORES_GATEWAY_REVIEW_SHA256=
- '3dc99bcc2d6e7a3ba7d0c05e8375b3baf87ba98a52d7a81d1645808d66358f0f';
+ 'b2c10d799b8a16b609de5d94fe8296d2b9cc4bfb7dfe701b22aec0a1f4b9e10d';
 type Env=Readonly<Record<string,string|undefined>>;
 const digest=/^[a-f0-9]{64}$/;
 function pin(s:string|undefined){return !!s&&digest.test(s)&&s!=='0'.repeat(64);}
