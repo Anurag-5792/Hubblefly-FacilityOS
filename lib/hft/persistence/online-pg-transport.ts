@@ -3,6 +3,8 @@ import {X509Certificate} from 'node:crypto';
 import {isIP} from 'node:net';
 import {createRequire} from 'node:module';
 import {isRetainedMastersProfile,assertRetainedMastersProfile} from '../masters/retained-nonproduction-profile.ts';
+import {isRetainedStoresProfile,assertRetainedStoresProfile}
+ from '../stores/ops-a2-retained-profile.ts';
 import type {IsolatedPgEnvironment,PgPool,PgQueryClient} from './isolated-pg-transaction.ts';
 export type OnlinePgDuty='P2_STORES'|'P3_MASTERS';
 export type OnlinePgPool=PgPool&{end():Promise<void>};
@@ -61,20 +63,29 @@ export function assertOnlinePgTransport(
   throw Error('HFT_ONLINE_DB_PORT_NOT_ATTESTED');
  const database=env.PGDATABASE;
  const retained=duty==='P3_MASTERS'&&isRetainedMastersProfile(env);
+ const stores=duty==='P2_STORES'&&isRetainedStoresProfile(env);
  if(retained){
   assertRetainedMastersProfile(env);
   if(!database||database!==env.HFT_MASTERS_APPROVED_PG_DATABASE)
    throw Error('HFT_ONLINE_DB_RETAINED_MASTER_DB_NOT_ADMITTED');
+ }else if(stores){
+  assertRetainedStoresProfile(env);
+  if(database!==env.HFT_STORES_APPROVED_DATABASE)
+   throw Error('HFT_ONLINE_DB_STORES_RESOURCE_NOT_ADMITTED');
  }else if(!database||!dbName.test(database)||database!==env.HFT_TEST_PG_DATABASE)
   throw Error('HFT_ONLINE_DB_DISPOSABLE_DATABASE_REQUIRED');
  const p2=env.HFT_P2_RUNTIME_LOGIN,p3=env.HFT_P3_RUNTIME_LOGIN;
  // Masters-only retained deployments have no reason to provision a P2 role.
  // A present P2 identity must still be distinct; the P2 duty remains denied.
- if(!p3)throw Error('HFT_ONLINE_DB_SEPARATE_ROLES_REQUIRED');
- if(retained){
-  if(p2===p3)throw Error('HFT_ONLINE_DB_SEPARATE_ROLES_REQUIRED');
- }else if(!p2||p2===p3)
-  throw Error('HFT_ONLINE_DB_SEPARATE_ROLES_REQUIRED');
+ if(stores){
+  if(!p2||p2===p3)throw Error('HFT_ONLINE_DB_SEPARATE_ROLES_REQUIRED');
+ }else{
+  if(!p3)throw Error('HFT_ONLINE_DB_SEPARATE_ROLES_REQUIRED');
+  if(retained){
+   if(p2===p3)throw Error('HFT_ONLINE_DB_SEPARATE_ROLES_REQUIRED');
+  }else if(!p2||p2===p3)
+   throw Error('HFT_ONLINE_DB_SEPARATE_ROLES_REQUIRED');
+ }
  const login=duty==='P2_STORES'?p2:p3;
  if(!login||!roleName.test(login)||forbiddenRoles.has(login)||
   /(_owner|_admin|_superuser)$/.test(login))
@@ -94,7 +105,10 @@ export function onlinePgPoolOptions(env:IsolatedPgEnvironment,
   connectionTimeoutMillis:3500,idleTimeoutMillis:5000,max:2,
   keepAlive:true,allowExitOnIdle:true,
   application_name:duty==='P3_MASTERS'&&isRetainedMastersProfile(env)?
-   'hft-r1-retained-masters-nonproduction':'hft-r1-protected-online-disposable'};
+   'hft-r1-retained-masters-nonproduction':
+   duty==='P2_STORES'&&isRetainedStoresProfile(env)?
+   'hft-r1-ops-a2-stores-nonproduction':
+   'hft-r1-protected-online-disposable'};
 }
 export function openOnlinePgPool(env:IsolatedPgEnvironment,
  duty:OnlinePgDuty):OnlinePgPool{
