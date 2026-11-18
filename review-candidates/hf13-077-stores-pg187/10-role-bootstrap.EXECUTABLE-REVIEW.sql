@@ -18,11 +18,14 @@ DO $hf13_npstores_roles_preflight$ BEGIN
  ('hft_engineering','hft_r1_posting_owner','hft_r1_app_runtime',
   'hft_r1_audit_verify','hft_r1_governance_issuer',
   'hft_r1_p3_master_owner','hft_r1_p3_master_runtime',
-  'hft_r1_stores_np_login'))
+  'hft_r1_stores_np_login','hft_r1_stores_gateway_owner'))
  THEN RAISE EXCEPTION 'HF13_STORES_RESOURCE_PURPOSE_ROLE_OR_TLS_NOT_ADMITTED'; END IF;
 END $hf13_npstores_roles_preflight$;
 
 CREATE ROLE hft_r1_posting_owner NOLOGIN NOINHERIT NOSUPERUSER
+  NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+-- Dedicated SECDEF bridge owner. NEVER a posting-owner / governance member.
+CREATE ROLE hft_r1_stores_gateway_owner NOLOGIN NOINHERIT NOSUPERUSER
   NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE hft_r1_app_runtime NOLOGIN INHERIT NOSUPERUSER
   NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
@@ -47,6 +50,9 @@ GRANT hft_r1_posting_owner TO hft_engineering
  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
 GRANT hft_r1_p3_master_owner TO hft_engineering
  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
+-- Temporary ownership-transfer capability for the independent wrapper only.
+GRANT hft_r1_stores_gateway_owner TO hft_engineering
+ WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
 GRANT hft_r1_app_runtime TO hft_r1_stores_np_login
  WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
 GRANT CONNECT,CREATE ON DATABASE hft_r1_retained_masters_np077
