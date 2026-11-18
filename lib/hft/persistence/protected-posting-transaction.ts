@@ -4,6 +4,8 @@
  * non-owner runtime role, DB-side actor proof validation and pgcrypto.
  */
 import {assertSecureStartup} from '../security/authorization.ts';
+import {isRetainedStoresProfile,assertRetainedStoresProfile}
+ from '../stores/ops-a2-retained-profile.ts';
 import {assertOnlineRuntimeCatalog} from './online-db-qualification.ts';
 import {isOnlinePgTransport,assertOnlinePgTransport,assertOnlinePgBackendTls,
  assertOnlineBackendIdentity} from './online-pg-transport.ts';
@@ -18,18 +20,22 @@ function verifiedPort(v:unknown):string {
 export function assertProtectedPostingEnvironment(env:IsolatedPgEnvironment):Readonly<{
   database:string;port:string;login:string;
 }> {
-  assertSecureStartup(env);
+  if(isRetainedStoresProfile(env))assertRetainedStoresProfile(env);
+  else assertSecureStartup(env);
   if(env.HFT_LIVE_POSTING_ENABLED!=='false')
    throw Error('PROTECTED_POSTING_NONPRODUCTION_ONLY');
-  const online=isOnlinePgTransport(env);
-  if(online){
+  const online=isOnlinePgTransport(env),stores=isRetainedStoresProfile(env);
+  if(stores){
+   if(!online||env.HFT_POSTING_RUN_MODE!=='RETAINED_STORES_OPERATIONAL_077')
+    throw Error('PROTECTED_RETAINED_STORES_TLS_REQUIRED');
+  }else if(online){
    if(env.HFT_POSTING_RUN_MODE!=='ISOLATED_ONLINE_DB_TEST')
     throw Error('PROTECTED_ONLINE_TEST_MODE_REQUIRED');
   }else if(env.HFT_DATABASE_TRANSPORT!==undefined||
     env.HFT_POSTING_RUN_MODE!=='ISOLATED_DB_TEST')
    throw Error('PROTECTED_LOCAL_TEST_MODE_REQUIRED');
-  const database=env.HFT_TEST_PG_DATABASE;
-  if(!database||!/^hft_r1_disposable_[a-z0-9_]{6,40}$/.test(database)||
+  const database=stores?env.HFT_STORES_APPROVED_DATABASE:env.HFT_TEST_PG_DATABASE;
+  if(!database||(!stores&&!/^hft_r1_disposable_[a-z0-9_]{6,40}$/.test(database))||
     env.PGDATABASE!==database)throw Error('PROTECTED_POSTGRES_DATABASE_INVALID');
   const port=verifiedPort(env.PGPORT);
   if(port!==env.HFT_APPROVED_PG_PORT)
@@ -73,7 +79,8 @@ async function runProtectedTransaction<T>(pool:PgPool,env:IsolatedPgEnvironment,
     if(isOnlinePgTransport(env)){
       assertOnlineBackendIdentity(env,id,'P2_STORES');
       await assertOnlinePgBackendTls(client);
-      await assertOnlineRuntimeCatalog(client,'P2_STORES');
+      await assertOnlineRuntimeCatalog(client,
+       isRetainedStoresProfile(env)?'OPS_A2_STORES':'P2_STORES');
     }else if(id.server_address!=='127.0.0.1')
       throw Error('PROTECTED_LOCAL_DATABASE_ADDRESS_MISMATCH');
     const result=await callback(client);
