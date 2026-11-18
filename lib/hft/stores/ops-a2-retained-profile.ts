@@ -3,6 +3,12 @@
  * The backend reattests role/function ACLs, signer and TLS per connection.
  */
 export const STORES_PROFILE='HFT_R1_STORES_RETAINED_NONPRODUCTION_077_V1' as const;
+/** Current Chat13 stage-75 REVIEW hash; a changed final installer must be
+ * independently re-pinned in source, never trusted from arbitrary env text.
+ * This pin alone is not installation authority.
+ */
+export const STORES_GATEWAY_REVIEW_SHA256=
+ '3dc99bcc2d6e7a3ba7d0c05e8375b3baf87ba98a52d7a81d1645808d66358f0f';
 type Env=Readonly<Record<string,string|undefined>>;
 const digest=/^[a-f0-9]{64}$/;
 function pin(s:string|undefined){return !!s&&digest.test(s)&&s!=='0'.repeat(64);}
@@ -28,6 +34,8 @@ export function assertRetainedStoresProfile(env:Env):void{
     env.HFT_STORES_APPROVED_PG_VERSION!=='180007'||
     env.HFT_P2_RUNTIME_LOGIN!=='hft_r1_stores_np_login'||
     !!env.HFT_TEST_PG_DATABASE||
+    env.HFT_STORES_APPROVED_OPERATOR_GATEWAY_SHA256!==STORES_GATEWAY_REVIEW_SHA256||
+    env.HFT_STORES_OPERATOR_GATEWAY_ABI!=='HF13_OPS_A2_OPERATOR_RECEIVE_V1'||
     !pin(env.HFT_STORES_APPROVED_INSTALLER_SHA256)||
     !pin(env.HFT_STORES_INDEPENDENT_EXECUTION_ADMISSION_SHA256)||
     !pin(env.HFT_STORES_APPROVED_RESOURCE_SHA256)||
