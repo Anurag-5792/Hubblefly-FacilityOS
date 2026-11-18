@@ -206,5 +206,29 @@
       "Qualified authoritatively signed readback: call hft.ops_a2_operator_read_receive_v1(jsonb,jsonb), not private reader",
       "Leave synthetic source test entrypoints separate and disabled in operator Preview"
     ]
-  }
+  },
+  "independent_read_only_postflight": {
+    "path": "90-independent-operator-acl.READONLY.sql",
+    "sha256": "f0dbef098b41aba890354bdfe077fc7808fe44014a4ddfd1f422e947df6c3224",
+    "executable_only_after_accepted_installation": true,
+    "requires_actual_external_tls": true,
+    "requires_independent_verifier": true,
+    "postgresql_executed": false
+  },
+  "sources_preserved": {
+    "ops_a2_original_sha256": "d5b8bec248fa69151fcf25cdf8c7a33806c01fbff829e725ac0b449e6797e47e",
+    "canonical_0001_0006_unmodified": true,
+    "original_gateway_qa_excluded": true
+  },
+  "source_review_observation": {
+    "protected_four_functions_preserve_original_session_user": true,
+    "operator_gateway_owner_separate_from_posting_owner": true,
+    "runtime_calls_four_receive_only_gateway_functions": true,
+    "gateway_owner_no_direct_table_select_or_dml": true,
+    "sql_source_consistency_checked": true,
+    "postgresql_compile_and_acl_not_tested": true,
+    "engineering_head_ci_result": "FAIL_FULL_DEV_DEPENDENCY_AUDIT; SOURCE_VERIFY_AND_PRODUCTION_DEPENDENCY_AUDIT_PASS",
+    "app_current_integration": "14a85df direct protected calls still need exact gateway routing"
+  },
+  "final_installation_status": "UNAUTHORIZED_NOT_POSTGRESQL_PARSED_NOT_EXECUTED"
 }
