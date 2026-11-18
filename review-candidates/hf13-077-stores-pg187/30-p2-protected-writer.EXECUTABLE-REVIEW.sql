@@ -2151,15 +2151,37 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA hft FROM PUBLIC,hft_r1_app_runtime;
 -- P2-SEC-003-02/006: exhaustive relation, sequence and function ACLs.
 -- Runtime allowlist is hft schema USAGE and exactly two protected function
 -- EXECUTEs; ZERO direct protected-relation and sequence privileges.
+-- Stage30-only PG18.7 install staging: runtime LOGIN stays disabled.
+-- Original P2 function/ledger/owner/ACL checks below remain unchanged.
 DO $runtime_login_review$
-DECLARE who record; obj record; fn record; nlogin integer:=0;
+DECLARE who record; obj record; fn record; nlogin integer:=0; noperator integer:=0;
 BEGIN
- FOR who IN SELECT oid,rolname,rolcanlogin,rolsuper,rolcreatedb,rolcreaterole
+ FOR who IN SELECT oid,rolname,rolcanlogin,rolsuper,rolcreatedb,rolcreaterole,
+   rolreplication,rolbypassrls,rolinherit
   FROM pg_catalog.pg_roles
-  WHERE rolname='hft_r1_app_runtime' OR (rolcanlogin AND
-   pg_catalog.pg_has_role(oid,'hft_r1_app_runtime'::pg_catalog.regrole,'MEMBER'))
+  WHERE rolname IN ('hft_r1_app_runtime','hft_r1_stores_np_login')
+   OR (rolcanlogin AND pg_catalog.pg_has_role(
+     oid,'hft_r1_app_runtime'::pg_catalog.regrole,'MEMBER'))
  LOOP
   IF who.rolcanlogin THEN nlogin:=nlogin+1; END IF;
+  IF who.rolname='hft_r1_stores_np_login' THEN
+   noperator:=noperator+1;
+   IF who.rolcanlogin OR who.rolreplication OR who.rolbypassrls
+    OR NOT who.rolinherit
+    OR NOT pg_catalog.pg_has_role(
+      who.oid,'hft_r1_app_runtime'::pg_catalog.regrole,'MEMBER')
+    OR NOT pg_catalog.pg_has_role(
+      who.oid,'hft_r1_app_runtime'::pg_catalog.regrole,'USAGE')
+    OR pg_catalog.pg_has_role(
+      who.oid,'hft_r1_app_runtime'::pg_catalog.regrole,'SET')
+    OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m
+       WHERE m.member=who.oid
+       AND m.roleid='hft_r1_app_runtime'::pg_catalog.regrole
+       AND m.inherit_option AND NOT m.set_option AND NOT m.admin_option)
+   THEN RAISE EXCEPTION 'P2_STAGING_DISABLED_STORES_ROLE_OR_MEMBERSHIP_INVALID'; END IF;
+  END IF;
+  IF who.rolreplication OR who.rolbypassrls OR NOT who.rolinherit
+  THEN RAISE EXCEPTION 'P2_STAGING_RUNTIME_ROLE_FLAGS_INVALID:%',who.rolname; END IF;
   IF who.rolsuper OR who.rolcreatedb OR who.rolcreaterole
    OR pg_catalog.pg_has_role(who.oid,'hft_engineering'::pg_catalog.regrole,'MEMBER')
    OR pg_catalog.pg_has_role(who.oid,'hft_r1_posting_owner'::pg_catalog.regrole,'MEMBER')
@@ -2210,7 +2232,22 @@ BEGIN
     'hft.reconcile_protected_stock_command_v1(jsonb,jsonb)'::pg_catalog.regprocedure,'EXECUTE')
   THEN RAISE EXCEPTION 'P2_RUNTIME_ALLOWLIST_INCOMPLETE:%',who.rolname; END IF;
  END LOOP;
- IF nlogin=0 THEN RAISE EXCEPTION 'P2_NO_ATTESTED_RUNTIME_LOGIN'; END IF;
+ -- Exactly one initially disabled application member. Any enabled login,
+ -- extra direct member, inherited privileged role or SET ROLE path fails.
+ IF noperator<>1 OR nlogin<>0
+  OR (SELECT count(*) FROM pg_catalog.pg_auth_members
+       WHERE roleid='hft_r1_app_runtime'::pg_catalog.regrole)<>1
+  OR EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m
+       WHERE m.member='hft_r1_stores_np_login'::pg_catalog.regrole
+       AND m.roleid<>'hft_r1_app_runtime'::pg_catalog.regrole)
+  OR EXISTS(SELECT 1 FROM pg_catalog.pg_roles pr
+       WHERE pr.rolname IN('hft_engineering','hft_r1_posting_owner',
+         'hft_r1_governance_issuer','hft_r1_audit_verify',
+         'hft_r1_p3_master_owner','hft_r1_p3_master_runtime',
+         'hft_r1_stores_gateway_owner')
+        AND (pg_catalog.pg_has_role('hft_r1_stores_np_login',pr.oid,'MEMBER')
+          OR pg_catalog.pg_has_role('hft_r1_stores_np_login',pr.oid,'SET')))
+ THEN RAISE EXCEPTION 'P2_STAGING_ONLY_DISABLED_STORES_OPERATOR_REQUIRED'; END IF;
  IF pg_catalog.has_schema_privilege('hft_r1_posting_owner','hft','CREATE')
  THEN RAISE EXCEPTION 'P2_OWNER_CREATE_PRIVILEGE_STILL_EFFECTIVE'; END IF;
 END $runtime_login_review$;
