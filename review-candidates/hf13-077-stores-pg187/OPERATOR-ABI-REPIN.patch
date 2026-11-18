@@ -1,0 +1,16 @@
+diff --git a/lib/hft/stores/ops-a2-retained-profile.ts b/lib/hft/stores/ops-a2-retained-profile.ts
+--- a/lib/hft/stores/ops-a2-retained-profile.ts
++++ b/lib/hft/stores/ops-a2-retained-profile.ts
+@@ -7,7 +7,7 @@
+  * This pin alone is not installation authority.
+  */
+ export const STORES_GATEWAY_REVIEW_SHA256=
+- '3dc99bcc2d6e7a3ba7d0c05e8375b3baf87ba98a52d7a81d1645808d66358f0f';
++ 'b2c10d799b8a16b609de5d94fe8296d2b9cc4bfb7dfe701b22aec0a1f4b9e10d';
+ type Env=Readonly<Record<string,string|undefined>>;
+ const digest=/^[a-f0-9]{64}$/;
+
+# Source-only targeted patch for Chat 16 V7; NOT APPLIED to engineering.
+# Pinned ABI source: d5f53845c8e024b70bb80f26d1ad7b8c1eb4a469.
+# Apply only after Chat 10 independently accepts exact operator gateway SQL.
+# No Vercel environment mutation, P3/R77 gateway, protected SQL or stock posting.
