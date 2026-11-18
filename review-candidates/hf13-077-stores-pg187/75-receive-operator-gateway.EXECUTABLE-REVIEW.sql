@@ -84,7 +84,11 @@ CREATE FUNCTION hft.ops_a2_operator_resolve_receive_v1(p jsonb,proof jsonb)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,pg_temp AS $operator_resolve$
 BEGIN
- IF current_user<>'hft_r1_stores_gateway_owner'
+ IF current_database()<>'hft_r1_retained_masters_np077'
+ OR current_setting('server_version_num')::integer<>180007
+ OR NOT EXISTS(SELECT 1 FROM pg_stat_ssl WHERE pid=pg_backend_pid()
+    AND ssl AND version IN('TLSv1.2','TLSv1.3') AND cipher IS NOT NULL)
+ OR current_user<>'hft_r1_stores_gateway_owner'
  OR session_user<>'hft_r1_stores_np_login'
  OR NOT pg_has_role(session_user,'hft_r1_app_runtime','MEMBER')
  OR current_setting('transaction_isolation')<>'serializable'
@@ -105,7 +109,11 @@ CREATE FUNCTION hft.ops_a2_operator_post_receive_v1(p jsonb,proof jsonb)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,pg_temp AS $operator_post$
 BEGIN
- IF current_user<>'hft_r1_stores_gateway_owner'
+ IF current_database()<>'hft_r1_retained_masters_np077'
+ OR current_setting('server_version_num')::integer<>180007
+ OR NOT EXISTS(SELECT 1 FROM pg_stat_ssl WHERE pid=pg_backend_pid()
+    AND ssl AND version IN('TLSv1.2','TLSv1.3') AND cipher IS NOT NULL)
+ OR current_user<>'hft_r1_stores_gateway_owner'
  OR session_user<>'hft_r1_stores_np_login'
  OR NOT pg_has_role(session_user,'hft_r1_app_runtime','MEMBER')
  OR current_setting('transaction_isolation')<>'serializable'
@@ -128,7 +136,11 @@ CREATE FUNCTION hft.ops_a2_operator_reconcile_receive_v1(
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path=pg_catalog,pg_temp AS $operator_reconcile$
 BEGIN
- IF current_user<>'hft_r1_stores_gateway_owner'
+ IF current_database()<>'hft_r1_retained_masters_np077'
+ OR current_setting('server_version_num')::integer<>180007
+ OR NOT EXISTS(SELECT 1 FROM pg_stat_ssl WHERE pid=pg_backend_pid()
+    AND ssl AND version IN('TLSv1.2','TLSv1.3') AND cipher IS NOT NULL)
+ OR current_user<>'hft_r1_stores_gateway_owner'
  OR session_user<>'hft_r1_stores_np_login'
  OR NOT pg_has_role(session_user,'hft_r1_app_runtime','MEMBER')
  OR current_setting('transaction_read_only')<>'on'
@@ -151,13 +163,18 @@ CREATE FUNCTION hft.ops_a2_operator_read_receive_v1(q jsonb,proof jsonb)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path=pg_catalog,pg_temp AS $operator_read$
 BEGIN
- IF current_user<>'hft_r1_stores_gateway_owner'
+ IF current_database()<>'hft_r1_retained_masters_np077'
+ OR current_setting('server_version_num')::integer<>180007
+ OR NOT EXISTS(SELECT 1 FROM pg_stat_ssl WHERE pid=pg_backend_pid()
+    AND ssl AND version IN('TLSv1.2','TLSv1.3') AND cipher IS NOT NULL)
+ OR current_user<>'hft_r1_stores_gateway_owner'
  OR session_user<>'hft_r1_stores_np_login'
  OR NOT pg_has_role(session_user,'hft_r1_app_runtime','MEMBER')
  OR current_setting('transaction_read_only')<>'on'
  OR jsonb_typeof(q) IS DISTINCT FROM 'object'
  OR jsonb_typeof(proof) IS DISTINCT FROM 'object'
- OR q->>'intent' NOT IN ('BALANCES','MOVEMENTS')
+ OR (q->>'intent' IS DISTINCT FROM 'BALANCES'
+     AND q->>'intent' IS DISTINCT FROM 'MOVEMENTS')
  OR COALESCE(q->>'legalEntityId','')=''
  OR COALESCE(q->>'siteId','')=''
  OR COALESCE(q->>'warehouseId','')=''
