@@ -7,6 +7,7 @@
 import {validateStoresQuery,issueStoresReadProof}
  from '../stores/p0-readback.ts';
 import {assertP0PersistenceEnvironment} from '../stores/p0-persistence.ts';
+import {assertRetainedStoresProfile} from '../stores/ops-a2-retained-profile.ts';
 import {withProtectedReadbackTransaction} from './protected-posting-transaction.ts';
 import {parseQuantity} from '../domain/quantity.ts';
 import type {VerifiedRequestOperator} from '../security/verified-request.ts';
@@ -137,6 +138,37 @@ export function checkOpsA2Readback(input:unknown,query:unknown):OpsA2ReadResult{
   ...(x.snapshotTotalRows===undefined?{}:{snapshotTotalRows:x.snapshotTotalRows as number}),
   rows:Object.freeze(rows)});
 }
+/** Admitted version-aware read of the single authoritative ledger.
+ * This is NOT the source-only synthetic reader and cannot run without
+ * independent PostgreSQL 18.7 function/owner/ACL admission per connection.
+ */
+export async function readOpsA2QualifiedSource(pool:PgPool,
+ env:IsolatedPgEnvironment,request:unknown,actor:VerifiedRequestOperator,
+ key:Uint8Array,keyVersion:number):Promise<Readonly<{
+ state:'AUTHORITATIVE_READ';intent:'BALANCES'|'MOVEMENTS'|'CUSTODY';
+ durable:true;synthetic:false;sourceEpoch:string;nextCursor:string;
+ rows:readonly (VersionedReadRow&{stockState:string})[];
+}>>{
+ assertRetainedStoresProfile(env);
+ assertP0PersistenceEnvironment(env);
+ const query=validateStoresQuery(request);
+ assertVerifiedRequestOperator(actor,query);
+ const signed=issueStoresReadProof(query,actor,key,keyVersion);
+ const result=await withProtectedReadbackTransaction(pool,env,async client=>{
+  const rows=await client.query<{response:unknown}>(
+   'SELECT hft.ops_a2_read_authoritative_v2($1::jsonb,$2::jsonb) AS response',
+   [JSON.stringify(query),JSON.stringify(signed)]);
+  if(rows.rows.length!==1)throw Error('OPS_A2_READ_NOT_SINGULAR');
+  return checkOpsA2Readback(rows.rows[0].response,query);
+ });
+ return Object.freeze({state:'AUTHORITATIVE_READ' as const,
+  intent:result.intent,durable:true as const,synthetic:false as const,
+  sourceEpoch:result.sourceEpoch,nextCursor:result.nextCursor,
+  rows:Object.freeze(result.rows.map(row=>Object.freeze({
+   ...row,stockState:row.accountKind
+  })))});
+}
+
 export async function readOpsA2SyntheticSource(pool:PgPool,env:IsolatedPgEnvironment,
  request:unknown,actor:VerifiedRequestOperator,key:Uint8Array,keyVersion:number
 ):Promise<OpsA2ReadResult>{
