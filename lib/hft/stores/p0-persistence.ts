@@ -8,6 +8,8 @@
 import {createHash,createHmac,randomBytes} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {isOnlinePgTransport,openOnlinePgPool} from '../persistence/online-pg-transport.ts';
+import {isRetainedStoresProfile,assertRetainedStoresProfile}
+ from './ops-a2-retained-profile.ts';
 import {parseQuantity,formatSignedQuantity} from '../domain/quantity.ts';
 import {lengthPrefixedUtf8} from '../security/posting-invocation-proof.ts';
 import {assertVerifiedRequestOperator,type VerifiedRequestOperator} from '../security/verified-request.ts';
@@ -84,6 +86,10 @@ export function issueStoresProof(raw:unknown,actor:VerifiedRequestOperator,
 }
 export function assertP0PersistenceEnvironment(env:IsolatedPgEnvironment):void{
  assertProtectedPostingEnvironment(env);
+ if(isRetainedStoresProfile(env)){
+  assertRetainedStoresProfile(env);
+  return;
+ }
  if(env.HFT_STORES_P0_SOURCE!=='qualified_disposable_review'||
    env.HFT_STORES_P0_SQL_CONTRACT!=='HFT_R1_P0_PERSISTENCE_V1')
   throw new Error('P0_PROTECTED_DATABASE_SOURCE_NOT_QUALIFIED');
