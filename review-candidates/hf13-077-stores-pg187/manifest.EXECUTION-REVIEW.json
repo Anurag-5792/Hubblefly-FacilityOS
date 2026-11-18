@@ -1,7 +1,7 @@
 {
   "schema": "HF13_077_STORES_PG187_INSTALLATION_REVIEW_V1",
   "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
-  "status": "SEC_OP_187_01_AND_02_CORRECTED_SOURCE_ONLY_PENDING_INDEPENDENT_REVIEW_AND_PROTECTED_EXECUTION_ADMISSION",
+  "status": "SEC_OP_187_02_STAGE30_DISABLED_STORES_OPERATOR_CORRECTED_SOURCE_ONLY_INDEPENDENT_ACCEPTANCE_PENDING",
   "engineering_source_sha": "3a1c4bc2737cfa478eee21ab8a6e4a832999fe9a",
   "original_sources_untouched": true,
   "source_reconciliation": "Operator RECEIVE uses OPS-A2 version-coupled protected writer and single authoritative hft.stock_entry/stock_account. R77 hft_qa077 gateway is excluded.",
@@ -66,12 +66,25 @@
     {
       "step": 30,
       "file": "30-p2-protected-writer.EXECUTABLE-REVIEW.sql",
-      "sha256": "cc83330fdcd77d1ca0b48c70850efe5a59740dad7f17e03ae867cf06f1adf87f",
+      "sha256": "602cc8af3d15978fe302c20622a088abf1bce819e4b6576a85784c11120805b1",
       "original": "db/security/HFT-R1-P2-ONE-WRITER-REVIEW.sql",
       "source_sha256": "2cef3309608781a5a02ac3158d3886e847bb7d6b2acd9e5f2007ef69d21bf443",
       "sql_session": "hft_engineering",
       "authorized": false,
-      "accepted": false
+      "accepted": false,
+      "staging_review_correction": {
+        "defect": "SEC-OP-187-02",
+        "scope": "Derived Stage30 DO $runtime_login_review$ only, immutable original P2 source unchanged",
+        "original_P2_sha256": "2cef3309608781a5a02ac3158d3886e847bb7d6b2acd9e5f2007ef69d21bf443",
+        "required_role": "hft_r1_stores_np_login NOLOGIN INHERIT, NOSUPERUSER/NOCREATEDB/NOCREATEROLE/NOREPLICATION/NOBYPASSRLS",
+        "exactly_one_direct_group_membership": "hft_r1_app_runtime WITH ADMIN FALSE, INHERIT TRUE, SET FALSE",
+        "unauthorized_enabled_runtime_members": "DENIED",
+        "unexpected_app_runtime_members": "DENIED",
+        "privileged_membership_and_set_role": "DENIED",
+        "original_table_sequence_function_owner_acl_checks_preserved": true,
+        "operator_login_enrollment": "DEFERRED UNTIL SEPARATE APPROVED POST-INSTALL MANAGED CREDENTIAL/TLS/SIGNER",
+        "postflight_corroboration": "Stage75 still requires Stores operator NOLOGIN; Stage80 requires Stores operator NOLOGIN and closes hft_engineering"
+      }
     },
     {
       "step": 40,
@@ -152,7 +165,7 @@
     "10 create separate NOLOGIN gateway owner, P2 nonlogin authority roles, credentialless installer and runtime membership with SET FALSE",
     "15 exact canonical migrations 0001..0006 via externally authenticated TLS and independently signed admission",
     "20 pgcrypto hft_crypto restricted privilege",
-    "30 P2 governance/nonce/immutable writer sole ledger authority",
+    "30 P2 governance/nonce/immutable writer; staging confirms exactly one disabled Stores operator with inherited app-runtime membership and no extra enabled member",
     "40 item/version/photo identities and separately governed original photo media",
     "50 P0 location/bin and signed request/reader dependencies",
     "60 OPS-A version coupling",
@@ -170,13 +183,14 @@
     "ISSUE/RETURN/TRANSFER/COUNT operator release before first RECEIVE"
   ],
   "missing_technical_admissions": [
-    "Chat10 independent exact PG18.7 gateway SQL/role ACL/negative and catalog source-body hash review; no signature acceptance yet",
-    "Chat16 re-pin app STORES_GATEWAY_REVIEW_SHA256 from old 3dc99... to exact new b2c10... and independently qualify ABI at new source SHA",
-    "MASTER separate signed protected-installation authorization naming exact release manifest/runner/roles/signer trust root",
-    "Authenticated external TLS hostname/CA and actual SQL session, qualified installer/runtime credentials and managed original signing keys",
-    "Independent encrypted pg_dump baseline and witnessed restore to separately approved destination before business mutation",
-    "Chat11 genuine original supplier invoice/GRN/QC accepted/partial receipt/item-version/bin and human approvals",
-    "Chat17 only one genuine PG18.7 RECEIVE, duplicate denial and authoritative original-nonce/ledger/bin-balance readback"
+    "Chat10 one focused independent review of the corrected exact Stage30 PG18.7 disabled-login role/ACL and nine-stage installer source (SEC-OP-187-02), not source self-acceptance",
+    "MASTER signed exact-hash protected installation admission and independently enrolled genuine reviewer Ed25519 trust root; remote migrator remains fail-closed",
+    "Separate qualified Neon PG18.7 test execution resource and independent PostgreSQL parser/effective ACL proof before retained database install",
+    "Authenticated TLS server-hostname/CA/channel binding and actual session/user/role identity, managed installer and later Stores login credentials",
+    "Encrypted baseline backup before business data and independently witnessed restore into approved isolated resource",
+    "Original signer and operator short-lived session/key custody; genuine invoice/GRN/QC/bin/approval evidence, no fabricated fixtures",
+    "Original source and stage75/80 NOLOGIN status preserved; only AFTER technical admission may operator login be enabled through separate managed credential enrollment",
+    "Chat17 one genuine PG18.7 RECEIVE, duplicate denial and authoritative original-nonce/ledger/bin balance acceptance after install"
   ],
   "actual_database": {
     "hft_schema_installed": false,
@@ -189,7 +203,7 @@
   },
   "production": "NO_GO",
   "nonproduction_stores": "NO_GO",
-  "app_source_sha": "d5f53845c8e024b70bb80f26d1ad7b8c1eb4a469",
+  "app_source_sha": "9680c887db06a6d1802f2f2b92b9439c2825d0f7",
   "minimal_operator_gateway": {
     "design": "SECURITY DEFINER four-function RECEIVE-only delegation; original PostgreSQL session_user retained and underlying protected P0/P2 proofs, approvals, version/hold checks unchanged; not hft_qa077",
     "owner": "hft_r1_stores_gateway_owner",
@@ -247,16 +261,21 @@
     "sql_source_consistency_checked": true,
     "postgresql_compile_and_acl_not_tested": true,
     "engineering_head_ci_result": "FAIL_FULL_DEV_DEPENDENCY_AUDIT; SOURCE_VERIFY_AND_PRODUCTION_DEPENDENCY_AUDIT_PASS",
-    "app_current_integration": "14a85df direct protected calls still need exact gateway routing",
+    "app_current_integration": "9680c887 exact-head CI 44289191761 SUCCESS, gateway wrappers/ABI/source pin present",
     "gateway_abi_matches_current_app_four_signatures": true,
-    "current_app_gateway_sha_pin_stale": true,
+    "current_app_gateway_sha_pin_stale": false,
     "app_gateway_sha_pin_expected": "b2c10d799b8a16b609de5d94fe8296d2b9cc4bfb7dfe701b22aec0a1f4b9e10d",
     "app_current_pin_at_d5f53845": "3dc99bcc2d6e7a3ba7d0c05e8375b3baf87ba98a52d7a81d1645808d66358f0f",
     "postgres_parse_tested": false,
-    "original_protected_writer_untouched": true
+    "original_protected_writer_untouched": true,
+    "stage30_disabled_operator_correction": true,
+    "stage30_no_operational_login_enable": true,
+    "stage30_original_acl_loop_preserved": true,
+    "app_current_pin_at_9680": "b2c10d799b8a16b609de5d94fe8296d2b9cc4bfb7dfe701b22aec0a1f4b9e10d",
+    "pg18_7_live_stage30_tested": false
   },
-  "final_installation_status": "UNAUTHORIZED_NOT_POSTGRESQL_PARSED_NOT_EXECUTED",
-  "app_source_ci": "ONE_EXACT_HEAD_SUCCESS; PRECEDING_ATTEMPT_FAILED",
+  "final_installation_status": "STAGE30_SOURCE_CORRECTED_SQL_NOT_ADMITTED_OR_EXECUTED",
+  "app_source_ci": "EXACT_HEAD_44289191761_SUCCESS",
   "catalog_exact_pg_proc_prosrc_sha256": {
     "hft.ops_a2_resolve_authorized_v2(jsonb,jsonb)": "8e81aab5984b6ac9348b55e197f841837af653c875604bc77163b65a3c7aaf2a",
     "hft.ops_a2_post_stock_command_v2(jsonb,jsonb)": "9dd76426e38ba79b599ca648a537cef6a0e1d87f8f91aa7452eadad9213754de",
