@@ -1,0 +1,74 @@
+{
+  "schema": "HF13_077_PG187_OPERATOR_INSTALLATION_FINAL_REVIEW_LOCK_V1",
+  "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
+  "date": "2026-11-18",
+  "status": "SOURCE_CORRECTED_REVIEW_REQUESTED_NOT_SECURITY_ACCEPTED_NOT_AUTHORIZED_NOT_EXECUTED",
+  "resource": {
+    "designation": "APPROVED_RESTRICTED_NONPRODUCTION_STORES",
+    "project_id": "wandering-cake-50222227",
+    "branch_id": "br-shiny-night-b3qgsj8t",
+    "database": "hft_r1_retained_masters_np077",
+    "endpoint_id": "ep-hidden-fire-b324s21q",
+    "host": "ep-hidden-fire-b324s21q.c-4.ap-southeast-1.aws.neon.tech",
+    "pg_server_version_num": 180007
+  },
+  "source": {
+    "canonical_sql_source_sha": "3a1c4bc2737cfa478eee21ab8a6e4a832999fe9a",
+    "current_operator_app_sha": "d5f53845c8e024b70bb80f26d1ad7b8c1eb4a469",
+    "original_protected_writer_unchanged": true,
+    "original_stop_guarded_files_unchanged": true,
+    "qa_only_hft_qa077_excluded": true
+  },
+  "hash_pins": {
+    "canonical_manifest_sha256": "ce51d77af4db16b8d97dcbcc10cd0472ef806f7c581b16982f95f21120fa7355",
+    "sql_install_manifest_sha256": "904969c1673c8c93b6b1ac8199feb798fde8a021a4659a64a30003f17d9497e3",
+    "canonical_remote_runner_sha256": "69289d596949a3dfa4e8fc0042b15f970c8b60948e067c62ab30e4f2ee22ad11",
+    "gateway_sql_stage75_sha256": "b2c10d799b8a16b609de5d94fe8296d2b9cc4bfb7dfe701b22aec0a1f4b9e10d",
+    "independent_acl_stage90_sha256": "d0aef027085de832bc0e40cd6a4c343a5ff7ec1f6895789656036d7e6985025f",
+    "app_abi_repin_patch_sha256": "0005ae00103c02f36ee7b391c2593898ddf34f5e3340eeebe96ab493618c21be"
+  },
+  "operator_gateway": {
+    "owner": "hft_r1_stores_gateway_owner NOLOGIN NOINHERIT NO_SUPER NO_BYPASS_RLS",
+    "operator_login": "hft_r1_stores_np_login (created NOLOGIN; only separately approved managed secret enrollment may enable)",
+    "application_group": "hft_r1_app_runtime NOLOGIN (member INHERIT true, SET false)",
+    "exact_gateway_execute": [
+      "hft.ops_a2_operator_resolve_receive_v1(jsonb,jsonb)",
+      "hft.ops_a2_operator_post_receive_v1(jsonb,jsonb)",
+      "hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb)",
+      "hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)"
+    ],
+    "gateway_owner_only_protected_execute": [
+      "hft.ops_a2_resolve_authorized_v2(jsonb,jsonb)",
+      "hft.ops_a2_post_stock_command_v2(jsonb,jsonb)",
+      "hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)",
+      "hft.ops_a2_read_authoritative_v2(jsonb,jsonb)"
+    ],
+    "denied": [
+      "PUBLIC EXECUTE on all gateway and protected function entrypoints",
+      "hft_r1_app_runtime group EXECUTE on all four wrappers and original V2 functions",
+      "operator login EXECUTE on original V2 functions and P2 V1 post_stock_command_protected_v1/reconcile_protected_stock_command_v1",
+      "operator login EXECUTE on every other hft/hft_secret/hft_crypto helper",
+      "gateway owner EXECUTE on every other hft/hft_secret/hft_crypto helper",
+      "operator and gateway owner SELECT/DML on hft,hft_secret,hft_crypto relation and sequence",
+      "operator or gateway owner privileged owner/issuer/audit/P3/hft_engineering membership or SET ROLE",
+      "runtime and gateway owner schema CREATE",
+      "QA gateway hft_qa077 enrollment"
+    ],
+    "underlying_writer_keeps_original_signed_actor_proof_qc_hold_invoice_grn_nonce_serializable_checks": true,
+    "no_second_stock_ledger": true
+  },
+  "requisite_independent_verification": {
+    "security_chat10": "REQUEST CHANGES remains controlling until independent exact bundle review is completed",
+    "source_only_checks": "bounded source/ACL/role checks only; no PG parser or live catalog proof",
+    "pg18_7_catalog": "NOT INSTALLED; stage 90 must be run under qualified verifier with external SHA256 comparison of eight pg_proc.prosrc bodies",
+    "external_tls": "NOT VERIFIED from actual installer and runtime client sessions (provider's internal sql tool ssl=false does not qualify)",
+    "signer_enrollment": "NOT AUTHORIZED / NO ORIGINAL PRIVATE KEY OR REAL TRUST FINGERPRINT ENROLLED",
+    "technical_admission": "NOT SIGNED; migrator technical reviewer public key pin empty, apply fail closed",
+    "baseline_backup_restore": "NOT CAPTURED OR INDEPENDENTLY WITNESSED",
+    "business_source": "NO GENUINE INVOICE/GRN/QC/APPROVAL RECEIPT ENROLLED",
+    "application_pin": "Chat16 must update gateway source hash from 3dc99... to b2c10... on an exact committed application HEAD; existing operator SQL signatures already match",
+    "postgres_receive": "NOT EXECUTED"
+  },
+  "minimum_one_receive_acceptance": "After independent signed admission: canonical schema, restricted roles, protected P2/P0/OPS-A2 + stage75 + privileges installed; authenticated app signed RECEIVE of real approved supplier invoice/GRN/accepted QC -> committed original nonce and 2 immutable ledger legs -> fresh same-bin authoritative balance and duplicate denial.",
+  "permission_scope": "No new project, production, original source STOP removal, signer/key fabrication, unauthorized role/password changes, protected SQL execution, stock posting or PR11 merge."
+}
