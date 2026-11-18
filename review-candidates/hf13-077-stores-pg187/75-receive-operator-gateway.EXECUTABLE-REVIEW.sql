@@ -201,13 +201,13 @@ REVOKE EXECUTE ON FUNCTION
  hft.ops_a2_operator_post_receive_v1(jsonb,jsonb),
  hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb),
  hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)
- FROM PUBLIC,hft_r1_governance_issuer,hft_r1_audit_verify;
+ FROM PUBLIC,hft_r1_app_runtime,hft_r1_governance_issuer,hft_r1_audit_verify;
 GRANT EXECUTE ON FUNCTION
  hft.ops_a2_operator_resolve_receive_v1(jsonb,jsonb),
  hft.ops_a2_operator_post_receive_v1(jsonb,jsonb),
  hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb),
  hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)
- TO hft_r1_app_runtime;
+ TO hft_r1_stores_np_login;
 REVOKE CREATE ON SCHEMA hft FROM hft_r1_stores_gateway_owner;
 
 DO $hf13_operator_acl_postflight$
@@ -222,6 +222,11 @@ BEGIN
  OR pg_has_role('hft_r1_stores_gateway_owner','hft_r1_governance_issuer','MEMBER')
  OR pg_has_role('hft_r1_stores_np_login','hft_r1_posting_owner','MEMBER')
  OR pg_has_role('hft_r1_stores_np_login','hft_r1_governance_issuer','MEMBER')
+ OR pg_has_role('hft_r1_stores_np_login','hft_r1_stores_gateway_owner','SET')
+ OR pg_has_role('hft_r1_stores_np_login','hft_r1_posting_owner','SET')
+ OR pg_has_role('hft_r1_stores_np_login','hft_r1_governance_issuer','SET')
+ OR pg_has_role('hft_r1_stores_np_login','hft_engineering','SET')
+ OR pg_has_role('hft_r1_stores_gateway_owner','hft_r1_posting_owner','SET')
  THEN RAISE EXCEPTION 'HF13_OPERATOR_GATEWAY_ROLE_MEMBERSHIP_OR_CREATOR_LEAK'; END IF;
  allowed:=ARRAY[
   'hft.ops_a2_resolve_authorized_v2(jsonb,jsonb)',
@@ -243,7 +248,7 @@ BEGIN
   'hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb)',
   'hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)'] LOOP
   IF NOT has_function_privilege('hft_r1_stores_np_login',f,'EXECUTE')
-    OR NOT has_function_privilege('hft_r1_app_runtime',f,'EXECUTE')
+    OR has_function_privilege('hft_r1_app_runtime',f,'EXECUTE')
     OR EXISTS(SELECT 1 FROM pg_proc p WHERE p.oid=to_regprocedure(f)
       AND EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
         WHERE a.grantee=0 AND a.privilege_type='EXECUTE'))
