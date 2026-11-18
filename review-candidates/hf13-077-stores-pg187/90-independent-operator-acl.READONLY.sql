@@ -101,6 +101,33 @@ BEGIN
   THEN RAISE EXCEPTION 'HF13_POSTFLIGHT_DIRECT_RELATION_PRIVILEGE:%:%',
    r.nspname,r.relname; END IF;
  END LOOP;
+ -- Independently deny any extra EXECUTE on protected, helper, crypto or
+ -- secret functions, including inherited and implicit PUBLIC privileges.
+ FOR r IN SELECT p.oid,n.nspname,p.proname
+  FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname IN ('hft','hft_secret','hft_crypto')
+ LOOP
+  IF has_function_privilege('hft_r1_stores_np_login',r.oid,'EXECUTE')
+   AND r.oid NOT IN (
+    'hft.ops_a2_operator_resolve_receive_v1(jsonb,jsonb)'::regprocedure,
+    'hft.ops_a2_operator_post_receive_v1(jsonb,jsonb)'::regprocedure,
+    'hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb)'::regprocedure,
+    'hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)'::regprocedure)
+  THEN RAISE EXCEPTION 'HF13_POSTFLIGHT_RUNTIME_EXTRA_HELPER_EXECUTE:%:%',
+    r.nspname,r.proname; END IF;
+  IF has_function_privilege('hft_r1_stores_gateway_owner',r.oid,'EXECUTE')
+   AND r.oid NOT IN (
+    'hft.ops_a2_resolve_authorized_v2(jsonb,jsonb)'::regprocedure,
+    'hft.ops_a2_post_stock_command_v2(jsonb,jsonb)'::regprocedure,
+    'hft.ops_a2_reconcile_post_v3(jsonb,jsonb,jsonb,jsonb)'::regprocedure,
+    'hft.ops_a2_read_authoritative_v2(jsonb,jsonb)'::regprocedure,
+    'hft.ops_a2_operator_resolve_receive_v1(jsonb,jsonb)'::regprocedure,
+    'hft.ops_a2_operator_post_receive_v1(jsonb,jsonb)'::regprocedure,
+    'hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb)'::regprocedure,
+    'hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)'::regprocedure)
+  THEN RAISE EXCEPTION 'HF13_POSTFLIGHT_GATEWAY_EXTRA_HELPER_EXECUTE:%:%',
+    r.nspname,r.proname; END IF;
+ END LOOP;
 END $hf13_operator_independent_acl$;
 SELECT current_database() AS database_name,session_user AS verifier_login,
  current_setting('server_version_num')::integer AS pg_version,
