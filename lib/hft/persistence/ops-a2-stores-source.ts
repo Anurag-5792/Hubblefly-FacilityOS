@@ -19,6 +19,7 @@ import {issueStoresProof} from '../stores/p0-persistence.ts';
 import {issueStoresReadProof} from '../stores/p0-readback.ts';
 import {formatQuantity} from '../domain/quantity.ts';
 import {assertP0PersistenceEnvironment} from '../stores/p0-persistence.ts';
+import {assertRetainedStoresProfile} from '../stores/ops-a2-retained-profile.ts';
 import {withProtectedReadbackTransaction,withProtectedPostingTransaction}
  from './protected-posting-transaction.ts';
 import {CommitOutcomeUncertain,type PgPool,type IsolatedPgEnvironment}
@@ -274,6 +275,51 @@ export async function submitOpsA2SyntheticSource(pool:PgPool,env:IsolatedPgEnvir
   resolution.approvalPayloadSha256);
  canonicalOpsAPayloadFields(payload);
  return postResolvedPayload(pool,env,payload,actor,signer);
+}
+
+/** Separate admitted operator RECEIVE only. The original synthetic entrypoint
+ * remains test-only. The same protected resolver, one-writer and original-nonce
+ * reconciliation are used; zero direct stock-table DML is available here.
+ * This code cannot succeed until PostgreSQL, ACL and real original source
+ * authority independently admit the runtime login.
+ */
+export async function submitOpsA2QualifiedReceive(
+ pool:PgPool,env:IsolatedPgEnvironment,raw:unknown,
+ actor:VerifiedRequestOperator,signer:OpsA2Signer
+):Promise<Readonly<{
+ state:'POSTED_VERIFIED';kind:'IN';requestId:string;productVersion:string;
+ sourceEpoch:string;durable:true;stockChanged:true;fact:VersionedImmutableFact;
+}>>{
+ assertRetainedStoresProfile(env);
+ assertP0PersistenceEnvironment(env);
+ const op=validateP0Operation(raw);
+ if(op.kind!=='IN')throw Error('OPS_A2_OPERATOR_RECEIVE_ONLY');
+ assertVerifiedRequestOperator(actor,op);
+ if(op.qcState!=='ACCEPTED')throw Error('OPS_A2_QC_ACCEPTED_REQUIRED');
+ const signedP0=issueStoresProof(op,actor,signer.p0Key,signer.p0KeyVersion);
+ const resolution=await withProtectedPostingTransaction(pool,env,async client=>{
+  const r=await client.query<{source:unknown}>(
+   'SELECT hft.ops_a2_resolve_authorized_v2($1::jsonb,$2::jsonb) AS source',
+   [JSON.stringify(op),JSON.stringify(signedP0)]);
+  if(r.rows.length!==1)throw Error('OPS_A2_RESOLVER_ROW_MISSING');
+  return sourceShape(r.rows[0].source,op,actor);
+ });
+ const payload=proposedOpsAPayload(resolution.command,
+  resolution.sourceAccountId,resolution.destinationAccountId,
+  resolution.approvalPayloadSha256);
+ canonicalOpsAPayloadFields(payload);
+ const persisted=await postResolvedPayload(pool,env,payload,actor,signer);
+ // Reconciliation must authenticate the original P2 proof, nonce, seal, audit
+ // and both conserved immutable ledger legs before we label a result POSTED.
+ if(persisted.fact.command.kind!=='RECEIVE'||
+  persisted.fact.command.commandId!==op.requestId||
+  persisted.fact.command.productVersion!==op.productVersion||
+  persisted.fact.movements.length!==2)
+  throw Error('OPS_A2_OPERATOR_POSTED_FACT_NOT_QUALIFIED_NO_RETRY');
+ return Object.freeze({state:'POSTED_VERIFIED' as const,kind:'IN' as const,
+  requestId:op.requestId,productVersion:op.productVersion,
+  sourceEpoch:persisted.sourceEpoch,durable:true as const,
+  stockChanged:true as const,fact:persisted.fact});
 }
 
 /** RETURN source-only: separate signed transport, independently approved
