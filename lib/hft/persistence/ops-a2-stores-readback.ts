@@ -153,10 +153,16 @@ export async function readOpsA2QualifiedSource(pool:PgPool,
  assertP0PersistenceEnvironment(env);
  const query=validateStoresQuery(request);
  assertVerifiedRequestOperator(actor,query);
+ if(query.intent==='CUSTODY')
+  throw Error('OPS_A2_OPERATOR_GATEWAY_READ_RECEIVE_ONLY');
+ if(query.intent==='BALANCES'&&!query.leafLocationId)
+  throw Error('OPS_A2_OPERATOR_LEAF_BIN_REQUIRED');
+ if(!query.itemCode||!query.productVersion)
+  throw Error('OPS_A2_OPERATOR_ITEM_VERSION_REQUIRED');
  const signed=issueStoresReadProof(query,actor,key,keyVersion);
  const result=await withProtectedReadbackTransaction(pool,env,async client=>{
   const rows=await client.query<{response:unknown}>(
-   'SELECT hft.ops_a2_read_authoritative_v2($1::jsonb,$2::jsonb) AS response',
+   'SELECT hft.ops_a2_operator_read_receive_v1($1::jsonb,$2::jsonb) AS response',
    [JSON.stringify(query),JSON.stringify(signed)]);
   if(rows.rows.length!==1)throw Error('OPS_A2_READ_NOT_SINGULAR');
   return checkOpsA2Readback(rows.rows[0].response,query);
