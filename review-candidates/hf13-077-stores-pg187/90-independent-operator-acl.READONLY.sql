@@ -37,6 +37,17 @@ BEGIN
  OR pg_has_role('hft_r1_stores_np_login','hft_r1_governance_issuer','SET')
  OR pg_has_role('hft_r1_stores_np_login','hft_engineering','SET')
  OR pg_has_role('hft_r1_stores_gateway_owner','hft_r1_posting_owner','SET')
+ -- Deny TRANSITIVE or indirect SET ROLE paths to every privileged identity.
+ OR EXISTS(SELECT 1 FROM pg_roles pr
+   WHERE pr.rolname IN ('hft_engineering','hft_r1_posting_owner',
+     'hft_r1_governance_issuer','hft_r1_audit_verify',
+     'hft_r1_p3_master_owner','hft_r1_p3_master_runtime',
+     'hft_r1_stores_gateway_owner')
+    AND (pg_has_role('hft_r1_stores_np_login',pr.oid,'MEMBER')
+      OR pg_has_role('hft_r1_stores_np_login',pr.oid,'SET')
+      OR (pr.rolname<>'hft_r1_stores_gateway_owner'
+        AND (pg_has_role('hft_r1_stores_gateway_owner',pr.oid,'MEMBER')
+          OR pg_has_role('hft_r1_stores_gateway_owner',pr.oid,'SET')))))
  OR NOT EXISTS(SELECT 1 FROM pg_auth_members m
      JOIN pg_roles member ON member.oid=m.member
      JOIN pg_roles inherited ON inherited.oid=m.roleid
