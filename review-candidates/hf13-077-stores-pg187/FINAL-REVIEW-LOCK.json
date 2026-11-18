@@ -2,7 +2,7 @@
   "schema": "HF13_077_PG187_OPERATOR_INSTALLATION_FINAL_REVIEW_LOCK_V1",
   "directive": "HFT-R1-MASTER-V4-DELIVERY-QUALITY-077",
   "date": "2026-11-18",
-  "status": "SOURCE_CORRECTED_REVIEW_REQUESTED_NOT_SECURITY_ACCEPTED_NOT_AUTHORIZED_NOT_EXECUTED",
+  "status": "SEC_OP_187_02_STAGE30_SOURCE_CORRECTED_37_OF_37_CHECKS_PASS_INDEPENDENT_TECHNICAL_ADMISSION_PENDING",
   "resource": {
     "designation": "APPROVED_RESTRICTED_NONPRODUCTION_STORES",
     "project_id": "wandering-cake-50222227",
@@ -14,18 +14,23 @@
   },
   "source": {
     "canonical_sql_source_sha": "3a1c4bc2737cfa478eee21ab8a6e4a832999fe9a",
-    "current_operator_app_sha": "d5f53845c8e024b70bb80f26d1ad7b8c1eb4a469",
+    "current_operator_app_sha": "9680c887db06a6d1802f2f2b92b9439c2825d0f7",
     "original_protected_writer_unchanged": true,
     "original_stop_guarded_files_unchanged": true,
-    "qa_only_hft_qa077_excluded": true
+    "qa_only_hft_qa077_excluded": true,
+    "ci_exact_head": {
+      "workflow_run_id": 44289191761,
+      "result": "SUCCESS"
+    }
   },
   "hash_pins": {
     "canonical_manifest_sha256": "ce51d77af4db16b8d97dcbcc10cd0472ef806f7c581b16982f95f21120fa7355",
-    "sql_install_manifest_sha256": "904969c1673c8c93b6b1ac8199feb798fde8a021a4659a64a30003f17d9497e3",
-    "canonical_remote_runner_sha256": "69289d596949a3dfa4e8fc0042b15f970c8b60948e067c62ab30e4f2ee22ad11",
+    "sql_install_manifest_sha256": "dbb178c6445a07f6ea38bd53a153ceca380ac5d8a6303101d972e3e597692d06",
+    "canonical_remote_runner_sha256": "b74df609085e52cd3f3a7b9ec55df9d4b8602c748555b4ee9dd8c40b63e285b3",
     "gateway_sql_stage75_sha256": "b2c10d799b8a16b609de5d94fe8296d2b9cc4bfb7dfe701b22aec0a1f4b9e10d",
     "independent_acl_stage90_sha256": "d0aef027085de832bc0e40cd6a4c343a5ff7ec1f6895789656036d7e6985025f",
-    "app_abi_repin_patch_sha256": "0005ae00103c02f36ee7b391c2593898ddf34f5e3340eeebe96ab493618c21be"
+    "app_abi_repin_patch_sha256": "0005ae00103c02f36ee7b391c2593898ddf34f5e3340eeebe96ab493618c21be",
+    "stage30_p2_derived_sha256": "602cc8af3d15978fe302c20622a088abf1bce819e4b6576a85784c11120805b1"
   },
   "operator_gateway": {
     "owner": "hft_r1_stores_gateway_owner NOLOGIN NOINHERIT NO_SUPER NO_BYPASS_RLS",
@@ -59,16 +64,34 @@
   },
   "requisite_independent_verification": {
     "security_chat10": "REQUEST CHANGES remains controlling until independent exact bundle review is completed",
-    "source_only_checks": "bounded source/ACL/role checks only; no PG parser or live catalog proof",
-    "pg18_7_catalog": "NOT INSTALLED; stage 90 must be run under qualified verifier with external SHA256 comparison of eight pg_proc.prosrc bodies",
-    "external_tls": "NOT VERIFIED from actual installer and runtime client sessions (provider's internal sql tool ssl=false does not qualify)",
+    "source_only_checks": "37/37 targeted Stage30/St10/St75/St80/profile/runner checks PASS; source and original P2 outside runtime-review block preserved. No live PG parser/ACL execution.",
+    "pg18_7_catalog": "NOT INSTALLED; Stage30, Stage75 gateway, Stage80 closure, Stage90 effective ACL and exact catalog body SHA require separately authorized PG18.7 execution.",
+    "external_tls": "Actual external installer/runtime TLS hostname/CA, SQL backend pg_stat_ssl and channel binding NOT QUALIFIED; internal Neon provider SQL inspection is insufficient.",
     "signer_enrollment": "NOT AUTHORIZED / NO ORIGINAL PRIVATE KEY OR REAL TRUST FINGERPRINT ENROLLED",
-    "technical_admission": "NOT SIGNED; migrator technical reviewer public key pin empty, apply fail closed",
-    "baseline_backup_restore": "NOT CAPTURED OR INDEPENDENTLY WITNESSED",
+    "technical_admission": "NOT SIGNED. Signed technical reviewer Ed25519 trust root still empty and remote runner --apply fail closed.",
+    "baseline_backup_restore": "NOT CAPTURED OR WITNESSED in a separate admitted resource.",
     "business_source": "NO GENUINE INVOICE/GRN/QC/APPROVAL RECEIPT ENROLLED",
-    "application_pin": "Chat16 must update gateway source hash from 3dc99... to b2c10... on an exact committed application HEAD; existing operator SQL signatures already match",
-    "postgres_receive": "NOT EXECUTED"
+    "application_pin": "Engineering 9680c887db06a6d1802f2f2b92b9439c2825d0f7 pins stage75 b2c10d799... and exact-head CI 44289191761 SUCCESS; no runtime qualification implied.",
+    "postgres_receive": "NOT EXECUTED, no authentic GRN/QC/approval or stock balance."
   },
   "minimum_one_receive_acceptance": "After independent signed admission: canonical schema, restricted roles, protected P2/P0/OPS-A2 + stage75 + privileges installed; authenticated app signed RECEIVE of real approved supplier invoice/GRN/accepted QC -> committed original nonce and 2 immutable ledger legs -> fresh same-bin authoritative balance and duplicate denial.",
-  "permission_scope": "No new project, production, original source STOP removal, signer/key fabrication, unauthorized role/password changes, protected SQL execution, stock posting or PR11 merge."
+  "permission_scope": "No new project, production, original source STOP removal, signer/key fabrication, unauthorized role/password changes, protected SQL execution, stock posting or PR11 merge.",
+  "stage30_installation_correction": {
+    "defect": "SEC-OP-187-02",
+    "source_only": true,
+    "original_p2_file": "db/security/HFT-R1-P2-ONE-WRITER-REVIEW.sql",
+    "original_p2_source_sha256": "2cef3309608781a5a02ac3158d3886e847bb7d6b2acd9e5f2007ef69d21bf443",
+    "corrected_file": "30-p2-protected-writer.EXECUTABLE-REVIEW.sql",
+    "corrected_sha256": "602cc8af3d15978fe302c20622a088abf1bce819e4b6576a85784c11120805b1",
+    "fix": "One disabled nonprivileged hft_r1_stores_np_login app-runtime member with INHERIT TRUE SET FALSE ADMIN FALSE, exactly one direct group membership; deny enabled/extra runtime members, role escalation and SET ROLE while preserving original P2 ACL/relation/sequence/helper checks.",
+    "operator_login_must_stay_NOLOGIN_in_stages": [
+      10,
+      30,
+      75,
+      80
+    ],
+    "protected_sql_execution": false,
+    "postgresql_18_7_compilation_or_runtime_test": "NOT EXECUTED",
+    "later_managed_login_enrollment": "SEPARATE EXACT AUTHORIZATION AFTER ACCEPTED INSTALLATION"
+  }
 }
