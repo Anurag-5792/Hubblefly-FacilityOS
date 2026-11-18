@@ -51,6 +51,8 @@ export async function POST(request:Request):Promise<Response>{
   pool=openP0Pool(process.env);
   const result=await submitOpsA2QualifiedReceive(
    pool,process.env,op,actor,signer);
+  if(result.requestId!==op.requestId||result.fact.movements.length!==2)
+   throw Error('OPS_A2_OPERATOR_FACT_IDENTITY_NOT_VERIFIED_NO_RETRY');
   posted=true; // Only after authoritative original-nonce ledger reconciliation.
   const scope={contractVersion:'HFT-R1-P0-READ-V1' as const,
    legalEntityId:op.legalEntityId,siteId:op.siteId,
