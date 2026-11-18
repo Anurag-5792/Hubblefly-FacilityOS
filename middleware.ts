@@ -3,6 +3,8 @@ import { assertSecureStartup } from './lib/hft/security/authorization';
 import {assertRetainedMastersProfile,isRetainedMastersProfile}
  from './lib/hft/masters/retained-nonproduction-profile';
 import {assertDraftEdgeProfile,isDraftMode} from './lib/hft/draft/draft-edge-profile';
+import {assertRetainedStoresProfile,isRetainedStoresProfile}
+ from './lib/hft/stores/ops-a2-retained-profile';
 
 /** Closed except EXACT Masters routes in a separately admitted retained
  * NONPRODUCTION profile. Stock, gallery, misc APIs, and production remain HOLD.
@@ -23,8 +25,26 @@ const draftRoutes=new Set([
  '/api/hft/draft/auth/start','/api/hft/draft/auth/callback'
 ]);
 const publicDraftPages=new Set(['/','/draft','/draft/sign-in']);
+const publicStoresPages=new Set(['/','/stores','/stores/operations']);
+const storesOperatorRoutes=new Set([
+ '/','/stores','/stores/operations',
+ '/api/hft/stores/receive','/api/hft/stores/read'
+]);
 export function middleware(request:NextRequest){
  const path=request.nextUrl.pathname;
+ // The Stores operator path is completely separate from the R77 QA gateway.
+ // A misconfigured profile only serves explanatory HTML, never an HFT API.
+ if(process.env.HFT_STORES_RUNTIME_PROFILE!==undefined){
+  try{
+   if(isRetainedStoresProfile(process.env)){
+    assertRetainedStoresProfile(process.env);
+    if(storesOperatorRoutes.has(path))return NextResponse.next();
+   }
+  }catch{/* No sample identity fallback or operational posting bypass. */}
+  if(publicStoresPages.has(path))return NextResponse.next();
+  return NextResponse.json({ok:false,error:'HFT_STORES_OPERATIONAL_NOT_ADMITTED'},
+   {status:503,headers:{'Cache-Control':'no-store'}});
+ }
  // Static UI may explain an unconfigured environment; protected APIs
  // remain CLOSED. A READY build is not a database/identity admission.
  if(process.env.HFT_DRAFT_RUNTIME_PROFILE!==undefined){
@@ -34,7 +54,7 @@ export function middleware(request:NextRequest){
     if(draftRoutes.has(path))return NextResponse.next();
    }
   }catch{/* fail closed for every API */}
-  if(publicDraftPages.has(path))return NextResponse.next();
+  if(publicDraftPages.has(path)||publicStoresPages.has(path))return NextResponse.next();
   return NextResponse.json({ok:false,error:'HFT_DRAFT077_NOT_ADMITTED'},
    {status:503,headers:{'Cache-Control':'no-store'}});
  }
@@ -48,7 +68,7 @@ export function middleware(request:NextRequest){
  }
  try{assertSecureStartup(process.env);}
  catch{
-  if(publicDraftPages.has(path))return NextResponse.next();
+  if(publicDraftPages.has(path)||publicStoresPages.has(path))return NextResponse.next();
   return NextResponse.json(
    {ok:false,error:'HFT_R1_PRODUCTION_NOT_AUTHORIZED'},
    {status:503,headers:{'Cache-Control':'no-store'}});
