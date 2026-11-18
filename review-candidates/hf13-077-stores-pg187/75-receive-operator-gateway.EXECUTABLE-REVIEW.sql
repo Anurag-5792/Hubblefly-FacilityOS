@@ -278,10 +278,12 @@ BEGIN
      'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
   THEN RAISE EXCEPTION 'HF13_OPERATOR_DIRECT_RELATION_RIGHTS:%:%',t.nspname,t.relname; END IF;
  END LOOP;
- -- The gateway owner may call only the four named protected functions.
- FOR proc IN SELECT p.oid,p.proname FROM pg_proc p
+ -- Neither the gateway owner nor its login has effective EXECUTE on
+ -- ANY other hft, hft_secret or hft_crypto function (not just the writer).
+ -- This closes inherited/PUBLIC helper bypass and preserves a four-call ABI.
+ FOR proc IN SELECT p.oid,n.nspname,p.proname FROM pg_proc p
    JOIN pg_namespace n ON n.oid=p.pronamespace
-   WHERE n.nspname='hft'
+   WHERE n.nspname IN ('hft','hft_secret','hft_crypto')
  LOOP
   IF has_function_privilege('hft_r1_stores_gateway_owner',proc.oid,'EXECUTE')
    AND proc.oid NOT IN (
@@ -293,7 +295,16 @@ BEGIN
      'hft.ops_a2_operator_post_receive_v1(jsonb,jsonb)'::regprocedure,
      'hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb)'::regprocedure,
      'hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)'::regprocedure)
-  THEN RAISE EXCEPTION 'HF13_OPERATOR_GATEWAY_OWNER_EXTRA_FUNCTION:%',proc.proname; END IF;
+  THEN RAISE EXCEPTION 'HF13_OPERATOR_GATEWAY_OWNER_EXTRA_EXECUTE:%:%',
+     proc.nspname,proc.proname; END IF;
+  IF has_function_privilege('hft_r1_stores_np_login',proc.oid,'EXECUTE')
+   AND proc.oid NOT IN (
+     'hft.ops_a2_operator_resolve_receive_v1(jsonb,jsonb)'::regprocedure,
+     'hft.ops_a2_operator_post_receive_v1(jsonb,jsonb)'::regprocedure,
+     'hft.ops_a2_operator_reconcile_receive_v1(jsonb,jsonb,jsonb,jsonb)'::regprocedure,
+     'hft.ops_a2_operator_read_receive_v1(jsonb,jsonb)'::regprocedure)
+  THEN RAISE EXCEPTION 'HF13_OPERATOR_RUNTIME_EXTRA_EXECUTE:%:%',
+     proc.nspname,proc.proname; END IF;
  END LOOP;
 END $hf13_operator_acl_postflight$;
 COMMIT;
