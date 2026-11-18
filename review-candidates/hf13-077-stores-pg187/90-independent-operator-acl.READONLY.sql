@@ -55,6 +55,15 @@ BEGIN
  AND EXISTS(SELECT 1 FROM unnest(p.proconfig) cfg
      WHERE replace(cfg,' ','')='search_path=pg_catalog,pg_temp');
  IF n<>4 THEN RAISE EXCEPTION 'HF13_POSTFLIGHT_FOUR_GATEWAY_SECDEF_MISSING'; END IF;
+ -- P2 V1's historic blanket application grants MUST have been revoked
+ -- by the operator gateway transaction without changing either V1 function.
+ FOREACH f IN ARRAY ARRAY[
+   'hft.post_stock_command_protected_v1(jsonb,jsonb)',
+   'hft.reconcile_protected_stock_command_v1(jsonb,jsonb)'] LOOP
+  IF has_function_privilege('hft_r1_stores_np_login',f,'EXECUTE')
+   OR has_function_privilege('hft_r1_app_runtime',f,'EXECUTE')
+  THEN RAISE EXCEPTION 'HF13_POSTFLIGHT_P2_LEGACY_EXECUTE_LEAK:%',f; END IF;
+ END LOOP;
  FOREACH f IN ARRAY ARRAY[
    'hft.ops_a2_resolve_authorized_v2(jsonb,jsonb)',
    'hft.ops_a2_post_stock_command_v2(jsonb,jsonb)',
