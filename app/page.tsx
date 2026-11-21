@@ -5,7 +5,7 @@ export default function HomePage(){
   <aside className="sidebar"><div className="brand">HUBBLEFLY <span>FacilityOS</span></div>
    <nav><Link className="active" href="/">Dashboard</Link>
     <Link href="/stores">Stores</Link><Link href="/draft">Draft Masters</Link><Link href="/stores/masters">Governed Masters</Link>
-    <Link href="/mis">MIS & Analytics</Link></nav>
+    <Link href="/settings">Settings</Link><Link href="/mis">MIS & Analytics</Link></nav>
    <div className="sidebar-footer">Phase 1 standalone <strong>ERPNext deferred to Phase 2</strong></div></aside>
   <section className="workspace"><header className="topbar"><div>
    <p className="eyebrow">Hubblefly Technologies Limited</p><h1>Operations Dashboard</h1>
@@ -28,12 +28,15 @@ export default function HomePage(){
     <article className="panel"><p className="eyebrow">Stores</p><h2>Stock workflows</h2>
      <p className="masters-help">GRN, QC, Issue, Return, Custody and stock adjustments remain disabled until qualified protected posting.</p>
      <Link className="mis-link" href="/stores">View workflow availability</Link></article>
+    <article className="panel"><p className="eyebrow">Settings</p><h2>Users &amp; Roles</h2>
+     <p className="masters-help">Select active employees, review scoped permissions, and assign, change or revoke application roles. Saving requires the connected role backend.</p>
+     <Link className="mis-link" href="/settings/users-roles">Open Role Assignment</Link></article>
     <article className="panel"><p className="eyebrow">Analytics</p><h2>MIS</h2>
      <p className="masters-help">No synthetic stock charts or KPI totals. Reporting requires verified FacilityOS source data.</p>
      <Link className="mis-link" href="/mis">View reporting status</Link></article>
    </div>
   </section>
   <nav className="mobile-nav"><Link href="/">Home</Link><Link href="/stores">Stores</Link>
-   <Link href="/draft">Drafts</Link><Link href="/stores/masters">Masters</Link><Link href="/mis">MIS</Link></nav>
+   <Link href="/draft">Drafts</Link><Link href="/stores/masters">Masters</Link><Link href="/settings">Settings</Link></nav>
  </main>;
 }

@@ -32,6 +32,16 @@ const storesOperatorRoutes=new Set([
 ]);
 export function middleware(request:NextRequest){
  const path=request.nextUrl.pathname;
+ // Public settings shell contains no employee or assignment data. The exact
+ // new API independently verifies the signed session and denies absent backend.
+ // No existing Stores, P3, draft or production admission is broadened.
+ if(path==='/settings'||path==='/settings/users-roles')return NextResponse.next();
+ if(path==='/api/hft/settings/roles'){
+  if(process.env.VERCEL_ENV==='production'||process.env.HFT_ENVIRONMENT==='production')
+   return NextResponse.json({state:'UNAVAILABLE',code:'ROLE_NONPRODUCTION_ONLY'},
+    {status:503,headers:{'Cache-Control':'no-store'}});
+  return NextResponse.next();
+ }
  // The Stores operator path is completely separate from the R77 QA gateway.
  // A misconfigured profile only serves explanatory HTML, never an HFT API.
  if(process.env.HFT_STORES_RUNTIME_PROFILE!==undefined){
