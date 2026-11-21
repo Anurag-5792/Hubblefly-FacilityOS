@@ -1,0 +1,47 @@
+{
+  "schema": "HFT_R1_CANONICAL_MIGRATION_MANIFEST_V1",
+  "mode": "ISOLATED_NONPRODUCTION",
+  "minimum_postgresql_major": 15,
+  "executable_directory": "db/migrations",
+  "migrations": [
+    {
+      "version": 1,
+      "file": "0001_hft_masters.sql",
+      "sha256": "8e7253652591c5ce7ef3935d0dc8893e4f503479fa59e7748583ec9ec2215723"
+    },
+    {
+      "version": 2,
+      "file": "0002_hft_ledger.sql",
+      "sha256": "6e1981c6314b604f470c4a5d9e7c255891fc7e3f693e5cde7780ea77ff12da36"
+    },
+    {
+      "version": 3,
+      "file": "0003_hft_workflows.sql",
+      "sha256": "bf8a4987d1f3c82f3016a1d340edb79a6d238229e23f28dbc65cc75c0a181cf8"
+    },
+    {
+      "version": 4,
+      "file": "0004_hft_posting_authority.sql",
+      "sha256": "27375f432d476e8e88f8402af1970422d62de898a1fbcc91a9ec30efce79d7e2"
+    },
+    {
+      "version": 5,
+      "file": "0005_hft_quantitative_accounts_receipts.sql",
+      "sha256": "01fe977d55540b31cf6a0691e88969ecb01c63e6e25d30c75e5c06a61b70aedf"
+    },
+    {
+      "version": 6,
+      "file": "0006_hft_posted_fact_integrity.sql",
+      "sha256": "664c7fcb57bbc699cc8cd727046e8a1048ecb89792d27abe1dd3aef024754044"
+    }
+  ],
+  "incompatible_provenance": [
+    {
+      "version": 5,
+      "file": "db/provenance/rejected-0005-hft-quantitative-accounts-receipts.sql",
+      "sha256": "8e38ed17ecd4d2fdc7c3184d2f0ea2100feca67e30fa146b8965cb0c2c4ebc5e",
+      "execution": "PROHIBITED",
+      "applied_database_policy": "STOP_REQUIRES_SEPARATE_AUTHORIZED_FORWARD_MIGRATION"
+    }
+  ]
+}

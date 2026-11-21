@@ -1,0 +1,662 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Anurag-5792/Hubblefly-FacilityOS/blob/engineering/hft-r1-stores-foundation/tests/fixtures/hft_r77_receive_admission.schema.json",
+  "title": "HFT R77 real externally admitted RECEIVE fixture, PRIVATE INSTANCE ONLY",
+  "description": "Schema only: no synthetic or preauthorized records. Populate from genuine database source and independently signed original/session proof; do not commit populated instances. Every case requires separately qualified fixture registry row and original nonce.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "caseId",
+    "fixtureId",
+    "source",
+    "admission",
+    "payload",
+    "postingProof",
+    "reads"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": "HFT-R77-PG18-RECEIVE-ADMISSION-V2"
+    },
+    "caseId": {
+      "enum": [
+        "BULK_5",
+        "SERIAL_1",
+        "LATE_ROLLBACK",
+        "INVALID_ACTOR",
+        "WRONG_BIN",
+        "CHANGED_QUANTITY",
+        "FORGED_RECEIPT",
+        "INVALID_APPROVAL",
+        "REPLAY"
+      ]
+    },
+    "fixtureId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grnId",
+        "invoiceId",
+        "invoiceLineId",
+        "receiptId",
+        "accountId",
+        "grnLineNo",
+        "legalEntityId",
+        "siteId",
+        "warehouseId",
+        "itemCode",
+        "productVersion",
+        "physicalBin",
+        "qcEvidenceId",
+        "approvalId",
+        "approvedBy",
+        "controlType",
+        "serialNo",
+        "batchNo"
+      ],
+      "properties": {
+        "grnId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoiceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "invoiceLineId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "receiptId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "accountId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "grnLineNo": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "legalEntityId": {
+          "type": "string",
+          "minLength": 2
+        },
+        "siteId": {
+          "type": "string",
+          "minLength": 2
+        },
+        "warehouseId": {
+          "type": "string",
+          "minLength": 2
+        },
+        "itemCode": {
+          "type": "string",
+          "minLength": 2
+        },
+        "productVersion": {
+          "type": "string",
+          "minLength": 2
+        },
+        "physicalBin": {
+          "type": "string",
+          "minLength": 2
+        },
+        "qcEvidenceId": {
+          "type": "string",
+          "minLength": 2
+        },
+        "approvalId": {
+          "type": "string",
+          "minLength": 2
+        },
+        "approvedBy": {
+          "type": "string",
+          "minLength": 2
+        },
+        "controlType": {
+          "enum": [
+            "NONE",
+            "BATCH",
+            "SERIAL"
+          ]
+        },
+        "serialNo": {
+          "type": "string"
+        },
+        "batchNo": {
+          "type": "string"
+        }
+      }
+    },
+    "admission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qaLogin",
+        "sha256",
+        "migrationSha256",
+        "aclSha256",
+        "approvalDecisionSha256",
+        "invoiceEvidenceSha256",
+        "qcEvidenceSha256",
+        "physicalReceiptEvidenceSha256",
+        "resourceSha256"
+      ],
+      "properties": {
+        "qaLogin": {
+          "type": "string",
+          "minLength": 2
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "migrationSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "aclSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "approvalDecisionSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "invoiceEvidenceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "qcEvidenceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "physicalReceiptEvidenceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "resourceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "commandId",
+        "idempotencyKey",
+        "kind",
+        "legalEntityId",
+        "siteId",
+        "warehouseId",
+        "itemCode",
+        "productVersion",
+        "controlType",
+        "serialNo",
+        "batchNo",
+        "sourceLeafId",
+        "destinationLeafId",
+        "sourceAccountId",
+        "destinationAccountId",
+        "sourceAccountBeforeVersion",
+        "destinationAccountBeforeVersion",
+        "employeeId",
+        "originalIssueId",
+        "sourceDocumentId",
+        "sourceActionKey",
+        "fragmentId",
+        "quantityMicro",
+        "sourceRevision",
+        "approvalId",
+        "approvalRevision",
+        "policyGeneration",
+        "approvedPayloadSha256",
+        "approvedBy",
+        "actorSubject",
+        "inspectedCondition",
+        "inspectionEvidenceId"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "HFT-R1-OPS-A-P2-VERSIONED-POST-V2-PROPOSED"
+        },
+        "commandId": {
+          "type": "string"
+        },
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "RECEIVE"
+        },
+        "legalEntityId": {
+          "type": "string"
+        },
+        "siteId": {
+          "type": "string"
+        },
+        "warehouseId": {
+          "type": "string"
+        },
+        "itemCode": {
+          "type": "string"
+        },
+        "productVersion": {
+          "type": "string"
+        },
+        "controlType": {
+          "enum": [
+            "NONE",
+            "BATCH",
+            "SERIAL"
+          ]
+        },
+        "serialNo": {
+          "type": "string"
+        },
+        "batchNo": {
+          "type": "string"
+        },
+        "sourceLeafId": {
+          "type": "string"
+        },
+        "destinationLeafId": {
+          "type": "string"
+        },
+        "sourceAccountId": {
+          "type": "string"
+        },
+        "destinationAccountId": {
+          "type": "string"
+        },
+        "sourceAccountBeforeVersion": {
+          "type": "string"
+        },
+        "destinationAccountBeforeVersion": {
+          "type": "string"
+        },
+        "employeeId": {
+          "type": "string"
+        },
+        "originalIssueId": {
+          "type": "string"
+        },
+        "sourceDocumentId": {
+          "type": "string"
+        },
+        "sourceActionKey": {
+          "type": "string"
+        },
+        "fragmentId": {
+          "type": "string"
+        },
+        "quantityMicro": {
+          "type": "string"
+        },
+        "sourceRevision": {
+          "type": "string"
+        },
+        "approvalId": {
+          "type": "string"
+        },
+        "approvalRevision": {
+          "type": "string"
+        },
+        "policyGeneration": {
+          "type": "string"
+        },
+        "approvedPayloadSha256": {
+          "type": "string"
+        },
+        "approvedBy": {
+          "type": "string"
+        },
+        "actorSubject": {
+          "type": "string"
+        },
+        "inspectedCondition": {
+          "type": "string"
+        },
+        "inspectionEvidenceId": {
+          "type": "string"
+        }
+      }
+    },
+    "postingProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proofVersion",
+        "actorSubject",
+        "sessionId",
+        "payloadSha256",
+        "issuedAt",
+        "expiresAt",
+        "nonce",
+        "keyVersion",
+        "macSha256"
+      ],
+      "properties": {
+        "proofVersion": {
+          "const": "HFT-R1-OPS-A-P2-HMAC-V2-PROPOSED"
+        },
+        "actorSubject": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "payloadSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "issuedAt": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{48}$"
+        },
+        "keyVersion": {
+          "type": "string"
+        },
+        "macSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "not": {
+            "const": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        }
+      }
+    },
+    "reads": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "before",
+        "after",
+        "movements"
+      ],
+      "properties": {
+        "before": {
+          "$ref": "#/$defs/readPair"
+        },
+        "after": {
+          "$ref": "#/$defs/readPair"
+        },
+        "movements": {
+          "$ref": "#/$defs/readPair"
+        },
+        "recovery": {
+          "$ref": "#/$defs/readPair"
+        }
+      }
+    },
+    "expectedReject": {
+      "type": "string",
+      "pattern": "^OPS_A2_[A-Z0-9_]+$"
+    }
+  },
+  "$defs": {
+    "readPair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "query",
+        "proof"
+      ],
+      "properties": {
+        "query": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "intent",
+            "legalEntityId",
+            "siteId",
+            "warehouseId",
+            "itemCode",
+            "productVersion",
+            "leafLocationId",
+            "employeeId",
+            "cursor",
+            "limit"
+          ],
+          "properties": {
+            "contractVersion": {
+              "const": "HFT-R1-P0-READ-V1"
+            },
+            "intent": {
+              "enum": [
+                "BALANCES",
+                "MOVEMENTS"
+              ]
+            },
+            "legalEntityId": {
+              "type": "string"
+            },
+            "siteId": {
+              "type": "string"
+            },
+            "warehouseId": {
+              "type": "string"
+            },
+            "itemCode": {
+              "type": "string"
+            },
+            "productVersion": {
+              "type": "string"
+            },
+            "leafLocationId": {
+              "type": "string"
+            },
+            "employeeId": {
+              "type": "string"
+            },
+            "cursor": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "proof": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "proofVersion",
+            "actorSubject",
+            "sessionId",
+            "payloadSha256",
+            "issuedAt",
+            "expiresAt",
+            "nonce",
+            "keyVersion",
+            "macSha256"
+          ],
+          "properties": {
+            "proofVersion": {
+              "const": "HFT-R1-P0-STORES-READ-HMAC-V1"
+            },
+            "actorSubject": {
+              "type": "string"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "payloadSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "not": {
+                "const": "0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            },
+            "issuedAt": {
+              "type": "string"
+            },
+            "expiresAt": {
+              "type": "string"
+            },
+            "nonce": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{48}$"
+            },
+            "keyVersion": {
+              "type": "string"
+            },
+            "macSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "not": {
+                "const": "0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "caseId": {
+            "const": "BULK_5"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "properties": {
+              "quantityMicro": {
+                "const": "5000000"
+              },
+              "controlType": {
+                "enum": [
+                  "NONE",
+                  "BATCH"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "caseId": {
+            "const": "SERIAL_1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "properties": {
+              "quantityMicro": {
+                "const": "1000000"
+              },
+              "controlType": {
+                "const": "SERIAL"
+              },
+              "batchNo": {
+                "const": ""
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "caseId": {
+            "enum": [
+              "BULK_5",
+              "SERIAL_1",
+              "LATE_ROLLBACK"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reads": {
+            "required": [
+              "before",
+              "after",
+              "movements",
+              "recovery"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "caseId": {
+            "enum": [
+              "INVALID_ACTOR",
+              "WRONG_BIN",
+              "CHANGED_QUANTITY",
+              "FORGED_RECEIPT",
+              "INVALID_APPROVAL",
+              "REPLAY"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "expectedReject"
+        ]
+      }
+    }
+  ]
+}

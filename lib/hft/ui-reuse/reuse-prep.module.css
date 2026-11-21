@@ -1,0 +1,22 @@
+.panel{border:1px solid #d5dce5;border-radius:12px;padding:22px;background:#fff;color:#17253b;max-width:1060px;margin:18px 0}
+.header{display:flex;gap:20px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}
+.header h2{font-size:1.3rem;margin:4px 0 8px}
+.header p{margin:0 0 14px;color:#526175;font-size:.9rem}
+.eyebrow{font-size:.7rem!important;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:#586b7e!important}
+.neutralStatus{border:1px solid #cbd5e1;border-radius:99px;padding:6px 10px;white-space:nowrap;font-size:.75rem;color:#526175}
+.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px;margin:12px 0 18px}
+.filters label{display:flex;gap:7px;flex-direction:column;font-weight:600;font-size:.81rem}
+.filters input,.filters select{border:1px solid #bdc8d8;background:white;border-radius:7px;padding:9px;font:inherit;color:inherit}
+.tableScroll{overflow-x:auto}.table{border-collapse:collapse;width:100%;font-size:.86rem}
+.table th{text-align:left;background:#f3f6fa;border-bottom:1px solid #d8e0e9;padding:10px}
+.table td{border-bottom:1px solid #e4eaf0;padding:9px 10px}
+.panel button{border:1px solid #244c6e;border-radius:7px;background:#244c6e;color:#fff;font:inherit;padding:8px 12px;cursor:pointer}
+.panel button:disabled{opacity:.42;cursor:not-allowed}
+.fieldset{border:1px solid #d7dfe8;border-radius:8px;padding:12px;margin-bottom:16px}
+.fieldset legend{font-weight:700;font-size:.9rem}
+.permissionRow{display:flex;gap:12px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #e5eaf0}
+.permissionRow:last-child{border-bottom:0}
+.permissionRow small{display:block;font-size:.75rem;color:#5c6c7f;padding-top:2px}
+.form{padding-top:6px}
+.note{font-size:.82rem;color:#566579;margin:9px 0}
+.footnote{border-top:1px solid #e1e6ed;padding-top:14px;font-size:.8rem;color:#5d6c7d;line-height:1.5}
