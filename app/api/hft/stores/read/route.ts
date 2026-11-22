@@ -10,6 +10,9 @@ import {operationalStoresSigner,clearStoresSigner}
  from '../../../../../lib/hft/stores/ops-a2-operator-signing.ts';
 import {readOpsA2QualifiedSource}
  from '../../../../../lib/hft/persistence/ops-a2-stores-readback.ts';
+import {requireApiBusinessRole}
+ from '../../../../../lib/hft/roles/role-api-permission.ts';
+import {RoleError} from '../../../../../lib/hft/roles/role-assignment.ts';
 export const runtime='nodejs';export const dynamic='force-dynamic';
 const headers={'Cache-Control':'no-store, no-cache, must-revalidate',
  'X-Content-Type-Options':'nosniff'};
@@ -31,6 +34,11 @@ export async function POST(request:Request):Promise<Response>{
   assertVerifiedRequestOperator(actor,q);
   if(stores){
    assertRetainedStoresProfile(process.env);
+   // Fresh DB business role, never a cached role in the signed JWT.
+   await requireApiBusinessRole(process.env,actor,{
+    legalEntityId:q.legalEntityId,siteId:q.siteId,
+    warehouseId:q.warehouseId
+   },'stock.read');
    const signer=operationalStoresSigner(process.env);
    let db:ReturnType<typeof openP0Pool>|undefined;
    try{
@@ -51,6 +59,8 @@ export async function POST(request:Request):Promise<Response>{
     key.storesKey,key.storesKeyVersion),{headers});
   }finally{key.storesKey.fill(0);if(db)await db.end();}
  }catch(error){
+  if(error instanceof RoleError)
+   return fail(403,'P0_READ_CURRENT_BUSINESS_ROLE_DENIED');
   const message=error instanceof Error?error.message:'';
   if(message.includes('SESSION')||message.includes('REQUEST_ORIGIN')||
    message.includes('CROSS_SITE')||message.includes('SIGNED_SCOPE')||
