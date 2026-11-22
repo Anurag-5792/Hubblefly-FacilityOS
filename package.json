@@ -24,7 +24,7 @@
     "verify:hygiene": "node tools/hft_verify_repository_hygiene.mjs && tsc --noEmit --incremental false --noUnusedLocals --noUnusedParameters"
   },
   "dependencies": {
-    "next": "15.5.28",
+    "next": "15.5.29",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "pg": "8.23.1"
