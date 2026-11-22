@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {ROLE_CATALOG,RoleError,deny,exactKeys,identifier,object,scopeFrom,parseChange,planChange,requirePermission,
- requireScope,sameScope,validateAssignment,assignmentStatus,type Assignment,type AuditEvent,type Employee,
+ requireScope,sameScope,validateAssignment,assignmentStatus,permissionsFor,rolesAt,type Assignment,type AuditEvent,type Employee,
  type Permission,type Principal,type RoleId,type Scope} from './role-assignment.ts';
 export type SessionIdentity=Readonly<{subject:string;sessionId:string;expiresAt:number;
  scope:Readonly<{legalEntityId:string;siteId:string;warehouseIds:readonly string[]}>}>;
@@ -31,6 +31,31 @@ export function eventDigest(value:unknown):string{
  }
  return createHash('sha256').update(canonical(value)).digest('hex');
 }
+/** Fresh authoritative business-role eligibility for protected API calls.
+ * A signed JWT may establish identity/scope, never a cached role grant.
+ * This check cannot replace original SQL invoice/QC/approver SoD controls.
+ */
+export async function requireCurrentBusinessPermission(
+ store:RoleStore,session:SessionIdentity,scope:Scope,permission:Permission,
+ now=new Date().toISOString()):Promise<Principal>{
+ return store.read(async tx=>{
+  const actor=await tx.principal(session);
+  requireScope(actor,scope,now);
+  if(!(await tx.scopes(actor)).some(s=>sameScope(s,scope)))
+   deny('ROLE_ACTOR_OR_SCOPE_DENIED');
+  const employee=await tx.employee(scope,actor.employeeId);
+  if(!employee.active||employee.personId!==actor.personId)
+   deny('ROLE_ACTOR_EMPLOYEE_NOT_ACTIVE');
+  const assignment=await tx.assignment(scope,actor.employeeId);
+  validateAssignment(assignment);
+  if(assignment.employeeId!==actor.employeeId||
+   !sameScope(assignment.scope,scope)||
+   !permissionsFor(rolesAt(assignment,now)).includes(permission))
+   deny('ROLE_PERMISSION_DENIED');
+  return actor;
+ });
+}
+
 export class RoleService {
  constructor(store:RoleStore,session:SessionIdentity,clock:()=>string=()=>new Date().toISOString()){
   this.store=store;this.session=session;this.clock=clock;
