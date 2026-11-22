@@ -3,6 +3,7 @@
  * No HTTP exposure and no activation: requires independently provisioned
  * non-owner runtime role, DB-side actor proof validation and pgcrypto.
  */
+import {requireBoundRoleOperationFence} from '../roles/role-operation-fence.ts';
 import {assertSecureStartup} from '../security/authorization.ts';
 import {isRetainedStoresProfile,assertRetainedStoresProfile}
  from '../stores/ops-a2-retained-profile.ts';
@@ -85,6 +86,8 @@ async function runProtectedTransaction<T>(pool:PgPool,env:IsolatedPgEnvironment,
        await assertOnlineRuntimeCatalog(client,'P2_STORES');
     }else if(id.server_address!=='127.0.0.1')
       throw Error('PROTECTED_LOCAL_DATABASE_ADDRESS_MISMATCH');
+    if(isRetainedStoresProfile(env))
+      await requireBoundRoleOperationFence(pool,client,expected.database,readOnly);
     const result=await callback(client);
     commitStarted=true;
     await client.query('COMMIT');

@@ -73,6 +73,34 @@ BEGIN
 END $audit$;
 CREATE CONSTRAINT TRIGGER assignment_requires_audit AFTER INSERT OR UPDATE ON hft_app_roles.assignment
  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION hft_app_roles.require_assignment_event();
+-- All role/identity/scope mutations participate, including separately authorized
+-- revocation writers. Stock login only acquires a shared advisory fence; the
+-- role-only login receives NO stock/helper EXECUTE or stock table DML.
+CREATE FUNCTION hft_app_roles.fence_role_mutation() RETURNS trigger LANGUAGE plpgsql
+ SET search_path=pg_catalog,pg_temp AS $fence$
+BEGIN
+ -- Database-local exclusive transaction fence; conflicts with stock operations.
+ PERFORM pg_catalog.pg_advisory_xact_lock(1212568624,77);
+ RETURN NULL;
+END $fence$;
+CREATE TRIGGER role_revocation_fence BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
+ ON hft_app_roles.assignment FOR EACH STATEMENT
+ EXECUTE FUNCTION hft_app_roles.fence_role_mutation();
+ALTER TABLE hft_app_roles.assignment ENABLE ALWAYS TRIGGER role_revocation_fence;
+CREATE TRIGGER role_revocation_fence BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
+ ON hft_app_roles.identity_binding FOR EACH STATEMENT
+ EXECUTE FUNCTION hft_app_roles.fence_role_mutation();
+ALTER TABLE hft_app_roles.identity_binding ENABLE ALWAYS TRIGGER role_revocation_fence;
+CREATE TRIGGER role_revocation_fence BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
+ ON hft_app_roles.scope_lock FOR EACH STATEMENT
+ EXECUTE FUNCTION hft_app_roles.fence_role_mutation();
+ALTER TABLE hft_app_roles.scope_lock ENABLE ALWAYS TRIGGER role_revocation_fence;
+ALTER TABLE hft_app_roles.assignment ENABLE ALWAYS TRIGGER assignment_requires_audit;
+ALTER TABLE hft_app_roles.assignment_event ENABLE ALWAYS TRIGGER immutable_assignment_event;
+-- Installer must own schema, four tables and these three functions under the
+-- same admitted nonlogin/nonsuperuser hft_r1_roles_owner. This source creates
+-- neither that owner nor any login/grant. Admission pins full trigger semantics
+-- and exact function bodies, not names/count alone. Never disable the fence.
 REVOKE ALL ON ALL TABLES IN SCHEMA hft_app_roles FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA hft_app_roles FROM PUBLIC;
 -- NO CREATE ROLE, GRANT, enrollment, bootstrap owner or activation is performed.

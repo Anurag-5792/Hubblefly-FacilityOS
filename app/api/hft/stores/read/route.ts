@@ -34,15 +34,15 @@ export async function POST(request:Request):Promise<Response>{
   assertVerifiedRequestOperator(actor,q);
   if(stores){
    assertRetainedStoresProfile(process.env);
-   // Fresh DB business role, never a cached role in the signed JWT.
-   await requireApiBusinessRole(process.env,actor,{
+   // Fresh role is rechecked under the read-only stock transaction fence.
+   const roleBinding=await requireApiBusinessRole(process.env,actor,{
     legalEntityId:q.legalEntityId,siteId:q.siteId,
     warehouseId:q.warehouseId
    },'stock.read');
    const signer=operationalStoresSigner(process.env);
    let db:ReturnType<typeof openP0Pool>|undefined;
    try{
-    db=openP0Pool(process.env);
+    db=roleBinding.bind(openP0Pool(process.env));
     const verified=await readOpsA2QualifiedSource(db,process.env,
      q,actor,signer.p0Key,signer.p0KeyVersion);
     return Response.json(verified,{headers});

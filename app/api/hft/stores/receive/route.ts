@@ -50,14 +50,14 @@ export async function POST(request:Request):Promise<Response>{
  let signer:ReturnType<typeof operationalStoresSigner>|undefined;
  let posted=false;
  try{
-  // Business role assignments are re-read from the dedicated role DB for
-  // each operation. This NEVER replaces protected GRN/QC/HOLD/person checks.
-  await requireApiBusinessRole(process.env,actor,{
+  // Preliminary role eligibility plus a binding rechecked under the STOCK
+  // transaction fence. Protected GRN/QC/HOLD/person checks are unchanged.
+  const roleBinding=await requireApiBusinessRole(process.env,actor,{
    legalEntityId:op.legalEntityId,siteId:op.siteId,
    warehouseId:op.warehouseId
   },'stores.receive');
   signer=operationalStoresSigner(process.env);
-  pool=openP0Pool(process.env);
+  pool=roleBinding.bind(openP0Pool(process.env));
   const result=await submitOpsA2QualifiedReceive(
    pool,process.env,op,actor,signer);
   if(result.requestId!==op.requestId||result.fact.movements.length!==2)

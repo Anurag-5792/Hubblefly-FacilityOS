@@ -3,6 +3,8 @@
  * connector: requires independently admitted hft_app_roles SQL and LOGIN.
  */
 import {X509Certificate} from 'node:crypto';
+import {ROLE_TRIGGER_CATALOG_SQL,ROLE_ENFORCEMENT_SHA256,assertRoleEnforcement}
+ from './role-enforcement.ts';
 import {isIP} from 'node:net';
 import {createRequire} from 'node:module';
 import type {RoleSqlClient,RoleSqlPool} from './role-postgres.ts';
@@ -40,6 +42,7 @@ export function assertRoleBackendProfile(env:RoleBackendEnv):void{
    !id.test(label)||label.length>63)||
   !hex.test(env.HFT_ROLE_APPROVED_INSTALLER_SHA256||'')||
   !hex.test(env.HFT_ROLE_INDEPENDENT_ADMISSION_SHA256||'')||
+  env.HFT_ROLE_APPROVED_ENFORCEMENT_SHA256!==ROLE_ENFORCEMENT_SHA256||
   !env.HFT_SESSION_ED25519_PUBLIC_KEY_PEM||
   !env.HFT_SESSION_ISSUER||!env.HFT_SESSION_AUDIENCE||
   !env.HFT_PUBLIC_ORIGIN||
@@ -87,27 +90,34 @@ export const ROLE_BACKEND_CATALOG_SQL=`
 SELECT current_database() AS db,session_user AS db_login,
  current_user AS db_role,current_setting('server_version_num')::integer AS pg_version,
  pg_is_in_recovery() AS replica,
+ ARRAY(SELECT required.name FROM (VALUES('hft'),('hft_secret'),('hft_app_roles')) required(name)
+  WHERE pg_catalog.to_regnamespace(required.name) IS NULL ORDER BY required.name) AS missing_required_schemas,
+ (${ROLE_TRIGGER_CATALOG_SQL}) AS enforcement,
+ current_setting('session_replication_role') AS replication_mode,
  (SELECT ssl FROM pg_catalog.pg_stat_ssl
   WHERE pid=pg_catalog.pg_backend_pid()) AS tls,
  (SELECT version FROM pg_catalog.pg_stat_ssl
   WHERE pid=pg_catalog.pg_backend_pid()) AS tls_version,
- pg_catalog.has_schema_privilege(current_user,'hft_app_roles','USAGE') AS schema_usage,
- pg_catalog.has_schema_privilege(current_user,'hft_app_roles','CREATE') AS schema_create,
- pg_catalog.coalesce(pg_catalog.has_table_privilege(current_user,
+ COALESCE(pg_catalog.has_schema_privilege(current_user,pg_catalog.to_regnamespace('hft_app_roles')::oid,'USAGE'),false) AS schema_usage,
+ COALESCE(pg_catalog.has_schema_privilege(current_user,pg_catalog.to_regnamespace('hft_app_roles')::oid,'CREATE'),false) AS schema_create,
+ COALESCE(pg_catalog.has_table_privilege(current_user,
   pg_catalog.to_regclass('hft_app_roles.scope_lock'),'SELECT'),false) AS scope_read,
- pg_catalog.coalesce(pg_catalog.has_column_privilege(current_user,
-  pg_catalog.to_regclass('hft_app_roles.scope_lock'),'epoch','UPDATE'),false) AS scope_epoch_update,
- pg_catalog.coalesce(pg_catalog.has_table_privilege(current_user,
+ COALESCE(pg_catalog.has_column_privilege(current_user,
+  pg_catalog.to_regclass('hft_app_roles.scope_lock'),
+  (SELECT a.attnum FROM pg_catalog.pg_attribute a
+   WHERE a.attrelid=pg_catalog.to_regclass('hft_app_roles.scope_lock')
+    AND a.attname='epoch' AND NOT a.attisdropped),'UPDATE'),false) AS scope_epoch_update,
+ COALESCE(pg_catalog.has_table_privilege(current_user,
   pg_catalog.to_regclass('hft_app_roles.identity_binding'),'SELECT'),false) AS binding_read,
- pg_catalog.coalesce(pg_catalog.has_table_privilege(current_user,
+ COALESCE(pg_catalog.has_table_privilege(current_user,
   pg_catalog.to_regclass('hft_app_roles.assignment'),'SELECT'),false) AS assignment_read,
- pg_catalog.coalesce(pg_catalog.has_table_privilege(current_user,
+ COALESCE(pg_catalog.has_table_privilege(current_user,
   pg_catalog.to_regclass('hft_app_roles.assignment'),'INSERT'),false) AS assignment_insert,
- pg_catalog.coalesce(pg_catalog.has_table_privilege(current_user,
+ COALESCE(pg_catalog.has_table_privilege(current_user,
   pg_catalog.to_regclass('hft_app_roles.assignment'),'UPDATE'),false) AS assignment_update,
- pg_catalog.coalesce(pg_catalog.has_table_privilege(current_user,
+ COALESCE(pg_catalog.has_table_privilege(current_user,
   pg_catalog.to_regclass('hft_app_roles.assignment_event'),'SELECT'),false) AS audit_read,
- pg_catalog.coalesce(pg_catalog.has_table_privilege(current_user,
+ COALESCE(pg_catalog.has_table_privilege(current_user,
   pg_catalog.to_regclass('hft_app_roles.assignment_event'),'INSERT'),false) AS audit_insert,
  (SELECT COUNT(*)::integer FROM pg_catalog.pg_class c
    JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
@@ -136,7 +146,7 @@ SELECT current_database() AS db,session_user AS db_login,
    pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE')
  ) AS protected_function_execute_count,
  (SELECT COUNT(*)::integer FROM pg_catalog.pg_roles r
-  WHERE r.rolname IN('hft_engineering','hft_r1_posting_owner',
+  WHERE r.rolname IN('hft_engineering','hft_r1_roles_owner','hft_r1_posting_owner',
    'hft_r1_stores_gateway_owner','hft_r1_governance_issuer',
    'hft_r1_p3_master_owner','hft_r1_app_runtime')
    AND pg_catalog.pg_has_role(current_user,r.oid,'MEMBER')
@@ -144,20 +154,21 @@ SELECT current_database() AS db,session_user AS db_login,
  (SELECT r.rolcanlogin AND NOT r.rolsuper AND NOT r.rolcreatedb
     AND NOT r.rolcreaterole AND NOT r.rolreplication AND NOT r.rolbypassrls
   FROM pg_catalog.pg_roles r WHERE r.rolname=current_user) AS restricted_login,
- pg_catalog.has_schema_privilege(current_user,'hft','CREATE') AS operational_schema_create,
- pg_catalog.has_schema_privilege(current_user,'hft_secret','USAGE') AS secret_schema_usage,
- pg_catalog.coalesce(pg_catalog.has_table_privilege(current_user,
+ COALESCE(pg_catalog.has_schema_privilege(current_user,pg_catalog.to_regnamespace('hft')::oid,'CREATE'),false) AS operational_schema_create,
+ COALESCE(pg_catalog.has_schema_privilege(current_user,pg_catalog.to_regnamespace('hft_secret')::oid,'USAGE'),false) AS secret_schema_usage,
+ COALESCE(pg_catalog.has_table_privilege(current_user,
   pg_catalog.to_regclass('hft_app_roles.identity_binding'),'INSERT,UPDATE,DELETE'),false)
   AS identity_binding_write,
- pg_catalog.coalesce(pg_catalog.has_table_privilege(current_user,
-  pg_catalog.to_regclass('hft_app_roles.assignment_event'),'UPDATE,DELETE'),false)
+ COALESCE(pg_catalog.has_table_privilege(current_user,
+  pg_catalog.to_regclass('hft_app_roles.assignment_event'),'UPDATE,DELETE,TRUNCATE'),false)
   AS audit_write_or_delete,
- pg_catalog.coalesce(pg_catalog.has_table_privilege(current_user,
+ COALESCE(pg_catalog.has_table_privilege(current_user,
   pg_catalog.to_regclass('hft.stock_entry'),'SELECT'),false) AS stock_history_read,
- pg_catalog.coalesce(pg_catalog.has_table_privilege(current_user,
+ COALESCE(pg_catalog.has_table_privilege(current_user,
   pg_catalog.to_regclass('hft.stock_account'),'SELECT'),false) AS stock_account_read
 `;
 type Catalog=Readonly<{
+ missing_required_schemas:string[];enforcement:unknown;replication_mode:string;
  db:string;db_login:string;db_role:string;pg_version:number;
  replica:boolean;tls:boolean;tls_version:string|null;
  schema_usage:boolean;schema_create:boolean;scope_read:boolean;
@@ -176,7 +187,10 @@ export async function assertRoleConnection(client:RoleSqlClient,
  assertRoleBackendProfile(env);
  const result=await client.query<Catalog>(ROLE_BACKEND_CATALOG_SQL);
  const v=result.rows[0];
- if(result.rows.length!==1||!v||v.db!==env.HFT_ROLE_PG_DATABASE||
+ if(v&&Array.isArray(v.missing_required_schemas)&&v.missing_required_schemas.length)
+  throw Error('ROLE_REQUIRED_SCHEMAS_NOT_INSTALLED');
+ if(result.rows.length!==1||!v||!Array.isArray(v.missing_required_schemas)||
+  v.replication_mode!=='origin'||v.db!==env.HFT_ROLE_PG_DATABASE||
   v.db_login!==env.HFT_ROLE_PG_LOGIN||v.db_role!==v.db_login||
   String(v.pg_version)!==env.HFT_ROLE_PG_SERVER_VERSION_NUM||
   v.replica!==false||v.tls!==true||
@@ -194,4 +208,5 @@ export async function assertRoleConnection(client:RoleSqlClient,
   v.identity_binding_write!==false||v.audit_write_or_delete!==false||
   v.stock_history_read!==false||v.stock_account_read!==false)
   throw Error('ROLE_DATABASE_IDENTITY_ACL_OR_AUDIT_NOT_ADMITTED');
+ assertRoleEnforcement(v.enforcement);
 }
