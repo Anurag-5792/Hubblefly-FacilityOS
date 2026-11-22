@@ -15,6 +15,9 @@ import {submitOpsA2QualifiedReceive}
  from '../../../../../lib/hft/persistence/ops-a2-stores-source.ts';
 import {readOpsA2QualifiedSource}
  from '../../../../../lib/hft/persistence/ops-a2-stores-readback.ts';
+import {requireApiBusinessRole}
+ from '../../../../../lib/hft/roles/role-api-permission.ts';
+import {RoleError} from '../../../../../lib/hft/roles/role-assignment.ts';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 const headers={'Cache-Control':'private, no-store, max-age=0',
@@ -47,6 +50,12 @@ export async function POST(request:Request):Promise<Response>{
  let signer:ReturnType<typeof operationalStoresSigner>|undefined;
  let posted=false;
  try{
+  // Business role assignments are re-read from the dedicated role DB for
+  // each operation. This NEVER replaces protected GRN/QC/HOLD/person checks.
+  await requireApiBusinessRole(process.env,actor,{
+   legalEntityId:op.legalEntityId,siteId:op.siteId,
+   warehouseId:op.warehouseId
+  },'stores.receive');
   signer=operationalStoresSigner(process.env);
   pool=openP0Pool(process.env);
   const result=await submitOpsA2QualifiedReceive(
@@ -93,6 +102,8 @@ export async function POST(request:Request):Promise<Response>{
   const e=error instanceof Error?error.message:'';
   if(posted||e.includes('UNCERTAIN')||e.includes('NO_RETRY'))
    return fail(409,'OPS_A2_RECEIVE_OUTCOME_RECONCILE_NO_RETRY');
+  if(error instanceof RoleError)
+   return fail(403,'OPS_A2_CURRENT_BUSINESS_ROLE_DENIED');
   if(e.includes('SESSION')||e.includes('SIGNED_SCOPE')||
    e.includes('VERIFIED_REQUEST_IDENTITY'))
    return fail(401,'OPS_A2_OPERATOR_SESSION_OR_SCOPE_DENIED');
