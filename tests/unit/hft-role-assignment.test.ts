@@ -3,7 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ROLE_CATALOG,RoleError,assignmentStatus,parseChange,permissionsFor,planChange,requirePermission,rolesAt,roleSet,sameScope,validateAssignment,
  type Assignment,type AuditEvent,type Change,type Employee,type Principal,type RoleId,type Scope} from '../../lib/hft/roles/role-assignment.ts';
-import {RoleService,eventDigest,handleRoleApi,type RoleStore,type RoleTransaction,type SessionIdentity} from '../../lib/hft/roles/role-service.ts';
+import {RoleService,eventDigest,handleRoleApi,requireCurrentBusinessPermission,
+ type RoleStore,type RoleTransaction,type SessionIdentity} from '../../lib/hft/roles/role-service.ts';
 import {PostgresRoleStore,type RoleSqlClient} from '../../lib/hft/roles/role-postgres.ts';
 const scope:Scope={legalEntityId:'HFT',siteId:'SITE01',warehouseId:'WH01'};
 const now=new Date().toISOString();const later=new Date(Date.parse(now)+3600000).toISOString();
@@ -93,6 +94,29 @@ test('overlapping periods and backdated operations rejected',()=>{
  assert.throws(()=>validateAssignment({...assigned(['VIEWER']),periods:[{from:earlier,to:null,roles:['VIEWER']},{from:now,to:null,roles:['VIEWER']}]}),/OVERLAPPING/);
  assert.throws(()=>plan({effectiveFrom:earlier}),/BACKDATING/);
 });
+
+test('live API permission reads current role and rejects revoked or wrong-scope access',async()=>{
+ const store=new MemoryStore();
+ // Owner Admin can administer roles but is never automatically a Stores maker.
+ await assert.rejects(requireCurrentBusinessPermission(store,session,scope,'stores.receive',now),
+  /ROLE_PERMISSION_DENIED/);
+ store.states.set('ADMIN01',assigned(['STORES_OPERATOR'],'ADMIN01'));
+ await assert.doesNotReject(requireCurrentBusinessPermission(store,session,scope,'stores.receive',now));
+ assert.equal(store.reads,2);
+ await assert.rejects(requireCurrentBusinessPermission(store,session,
+  {...scope,warehouseId:'OTHER'},'stores.receive',now),
+  /ROLE_ACTOR_OR_SCOPE_DENIED/);
+ // A revocation invalidates the next API check even while the signed JWT is valid.
+ store.states.set('ADMIN01',{employeeId:'ADMIN01',scope,revision:2,
+  periods:[],revokedFrom:now});
+ await assert.rejects(requireCurrentBusinessPermission(store,session,scope,'stores.receive',now),
+  /ROLE_PERMISSION_DENIED/);
+ store.states.set('ADMIN01',assigned(['VIEWER'],'ADMIN01'));
+ await assert.doesNotReject(requireCurrentBusinessPermission(store,session,scope,'stock.read',now));
+ await assert.rejects(requireCurrentBusinessPermission(store,session,scope,'stores.receive',now),
+  /ROLE_PERMISSION_DENIED/);
+});
+
 test('stock permission requires live authoritative transaction and independent people',()=>{
  const op={...actor,employeeId:'EMP02',personId:'PERSON02'};const state=assigned(['STORES_OPERATOR']);
  assert.throws(()=>requirePermission(op,state,'stores.receive',scope,now),/TRANSACTION_AUTHORITY/);
@@ -111,7 +135,10 @@ class MemoryStore implements RoleStore {
  states=new Map<string,Assignment>([['ADMIN01',owner]]);events=new Map<string,AuditEvent>();reads=0;writes=0;saves=0;
  uncertain=false;readbackFailure=false;target=employee;queue=Promise.resolve();
  tx(states=this.states,events=this.events):RoleTransaction{return {
-  principal:async()=>actor,scopes:async()=>[scope],employee:async()=>this.target,search:async()=>[this.target],
+  principal:async()=>actor,scopes:async()=>[scope],
+  employee:async(_scope,id)=>id==='ADMIN01'?
+   {employeeId:'ADMIN01',personId:'PERSON01',fullName:'Synthetic role administrator',active:true,version:1}:
+   this.target,search:async()=>[this.target],
   assignment:async(_s,id)=>structuredClone(states.get(id)??empty(id)),owners:async()=>[...states.values()].filter(s=>s.employeeId==='ADMIN01'),
   event:async id=>structuredClone(events.get(id)??null),history:async(s,id,before)=>[...events.values()].filter(e=>sameScope(e.after.scope,s)&&e.after.employeeId===id&&e.after.revision<before).reverse(),
   save:async e=>{this.saves++;states.set(e.after.employeeId,structuredClone(e.after));events.set(e.requestId,structuredClone(e));},
