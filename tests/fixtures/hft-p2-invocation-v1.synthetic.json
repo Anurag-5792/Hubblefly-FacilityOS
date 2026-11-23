@@ -1,0 +1,43 @@
+{
+  "fixture": "SYNTHETIC_PUBLIC_TEST_ONLY_NOT_PRODUCTION_KEY",
+  "testKeyUtf8": "HFT-ONLY-TEST-KEY-UNUSABLE-FOR-REAL-SIGNING-2026",
+  "payload": {
+    "contractVersion": "HFT_STOCK_POST_V1",
+    "commandId": "CMD-ISS-101",
+    "idempotencyKey": "IDEM-101",
+    "kind": "ISSUE",
+    "legalEntityId": "HFT",
+    "siteId": "SITE1",
+    "warehouseId": "WH1",
+    "itemCode": "ITEM1",
+    "locationId": "LOC1",
+    "batchNo": "",
+    "serialNo": "",
+    "condition": "GOOD",
+    "employeeId": "EMP1",
+    "originalIssueId": "",
+    "sourceDocumentId": "DOC-ISS-1",
+    "sourceActionKey": "LINE-1",
+    "fragmentId": "PART-A",
+    "quantityMicro": "2000000",
+    "sourceRevision": "7",
+    "approvalId": "APR-1",
+    "approvalRevision": "1",
+    "policyGeneration": "4",
+    "expectedBalanceVersion": "2",
+    "approvedPayloadSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "inspectionEvidenceId": ""
+  },
+  "proofFields": {
+    "proofVersion": "HFT-R1-P2-HMAC-SHA256-V1",
+    "actorSubject": "STORE1",
+    "sessionId": "SESSION-1",
+    "payloadSha256": "f47bb860e5f36f6f4dd75cdaf22498c204f3279263a56e0c03c2e0a0b493174c",
+    "issuedAt": "1793145600",
+    "expiresAt": "1793145660",
+    "nonce": "abababababababababababababababababababababababab",
+    "keyVersion": "3"
+  },
+  "expectedPayloadSha256": "f47bb860e5f36f6f4dd75cdaf22498c204f3279263a56e0c03c2e0a0b493174c",
+  "expectedMacSha256": "590eb06f5751d01cc0b6c07143f8bd9f99c38484c20149a5f10d71b20530eccb"
+}
