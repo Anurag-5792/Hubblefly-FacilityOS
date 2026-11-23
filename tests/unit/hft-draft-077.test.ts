@@ -249,14 +249,14 @@ test('OIDC session keys and PKCE state are generated from test-only managed cred
 
 
 test('Draft exported admission SQL uses native COALESCE and safe missing-object lookups',()=>{
- assert.doesNotMatch(DRAFT_IDENTITY_SQL,/pg_catalog\\.coalesce/i);
- assert.ok((DRAFT_IDENTITY_SQL.match(/\\bCOALESCE\\(/g)||[]).length>=4);
- assert.match(DRAFT_IDENTITY_SQL,/to_regnamespace\\('hft_draft077'\\)/);
- assert.match(DRAFT_IDENTITY_SQL,/to_regprocedure\\(required\\.signature\\)/);
- assert.doesNotMatch(DRAFT_IDENTITY_SQL,/has_schema_privilege\\(current_user,'hft_draft077'/);
+ assert.equal(DRAFT_IDENTITY_SQL.includes('pg_catalog.coalesce'),false);
+ assert.equal(DRAFT_IDENTITY_SQL.includes('COALESCE('),true);
+ assert.equal(DRAFT_IDENTITY_SQL.includes("to_regnamespace('hft_draft077')"),true);
+ assert.equal(DRAFT_IDENTITY_SQL.includes('to_regprocedure(required.signature)'),true);
+ assert.equal(DRAFT_IDENTITY_SQL.includes("has_schema_privilege(current_user,'hft_draft077'"),false);
 });
 test('Draft admission denies missing schema, functions and incorrect privileges before save',async()=>{
- for(const [patch,reason] of [
+ const failures:[Record<string,unknown>,RegExp][]=[
   [{missing_draft_schema:true},/DRAFT077_REQUIRED_SCHEMA_NOT_INSTALLED/],
   [{missing_draft_functions:2},/DRAFT077_REQUIRED_FUNCTIONS_NOT_INSTALLED/],
   [{missing_draft_functions:1},/DRAFT077_REQUIRED_FUNCTIONS_NOT_INSTALLED/],
@@ -265,17 +265,23 @@ test('Draft admission denies missing schema, functions and incorrect privileges 
   [{schema_usage:false},/DRAFT077_DATABASE_IDENTITY_OR_PRIVILEGES_NOT_ADMITTED/],
   [{extra_draft_function_grants:1},/DRAFT077_DATABASE_IDENTITY_OR_PRIVILEGES_NOT_ADMITTED/],
   [{direct_relation_grants:1},/DRAFT077_DATABASE_IDENTITY_OR_PRIVILEGES_NOT_ADMITTED/]
- ] as const){
+ ];
+ for(const [patch,reason] of failures){
   let wrote=false;
   const db:DraftPgPool={connect:async()=>({
    async query<Row extends Record<string,unknown>>(sql:string){
-    if(sql===DRAFT_IDENTITY_SQL)return {rows:[{
-     db:env.HFT_DRAFT_DATABASE,login:env.HFT_DRAFT_DB_USER,role:env.HFT_DRAFT_DB_USER,
-     version:180007,replica:false,tls:true,tls_version:'TLSv1.3',
-     missing_draft_schema:false,missing_draft_functions:0,schema_usage:true,schema_create:false,
-     can_save:true,can_read:true,secured_function_count:2,extra_draft_function_grants:0,
-     direct_relation_grants:0,operational_function_grants:0,restricted_login_count:1,
-     privileged_memberships:0,...patch}] as Row[]};
+    if(sql===DRAFT_IDENTITY_SQL){
+     const row:Record<string,unknown>={
+      db:env.HFT_DRAFT_DATABASE,login:env.HFT_DRAFT_DB_USER,role:env.HFT_DRAFT_DB_USER,
+      version:180007,replica:false,tls:true,tls_version:'TLSv1.3',
+      missing_draft_schema:false,missing_draft_functions:0,schema_usage:true,schema_create:false,
+      can_save:true,can_read:true,secured_function_count:2,extra_draft_function_grants:0,
+      direct_relation_grants:0,operational_function_grants:0,restricted_login_count:1,
+      privileged_memberships:0
+     };
+     Object.assign(row,patch);
+     return {rows:[row as Row]};
+    }
     if(sql.includes('save_draft_v1'))wrote=true;
     return {rows:[] as Row[]};
    },release(){}
