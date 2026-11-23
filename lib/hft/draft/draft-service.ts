@@ -25,14 +25,19 @@ SELECT current_database() AS db,session_user AS login,current_user AS role,
   WHERE pid=pg_catalog.pg_backend_pid()) AS tls,
  (SELECT version FROM pg_catalog.pg_stat_ssl
   WHERE pid=pg_catalog.pg_backend_pid()) AS tls_version,
- pg_catalog.has_schema_privilege(current_user,'hft_draft077','USAGE')
-  AS schema_usage,
- pg_catalog.has_schema_privilege(current_user,'hft_draft077','CREATE')
-  AS schema_create,
- pg_catalog.coalesce(pg_catalog.has_function_privilege(current_user,
+ (pg_catalog.to_regnamespace('hft_draft077') IS NULL) AS missing_draft_schema,
+ (SELECT COUNT(*)::integer FROM (VALUES
+   ('hft_draft077.save_draft_v1(text,jsonb)'),
+   ('hft_draft077.read_drafts_v1(text,jsonb)')) AS required(signature)
+  WHERE pg_catalog.to_regprocedure(required.signature) IS NULL) AS missing_draft_functions,
+ COALESCE(pg_catalog.has_schema_privilege(current_user,
+  pg_catalog.to_regnamespace('hft_draft077')::oid,'USAGE'),false) AS schema_usage,
+ COALESCE(pg_catalog.has_schema_privilege(current_user,
+  pg_catalog.to_regnamespace('hft_draft077')::oid,'CREATE'),false) AS schema_create,
+ COALESCE(pg_catalog.has_function_privilege(current_user,
   pg_catalog.to_regprocedure('hft_draft077.save_draft_v1(text,jsonb)'),'EXECUTE'),
   false) AS can_save,
- pg_catalog.coalesce(pg_catalog.has_function_privilege(current_user,
+ COALESCE(pg_catalog.has_function_privilege(current_user,
   pg_catalog.to_regprocedure('hft_draft077.read_drafts_v1(text,jsonb)'),'EXECUTE'),
   false) AS can_read,
  (SELECT count(*)::integer FROM pg_catalog.pg_proc p
@@ -78,6 +83,7 @@ SELECT current_database() AS db,session_user AS login,current_user AS role,
 type AdmissionRow=Readonly<{
  db:string;login:string;role:string;version:number;replica:boolean;
  tls:boolean;tls_version:string|null;schema_usage:boolean;schema_create:boolean;
+ missing_draft_schema:boolean;missing_draft_functions:number;
  can_save:boolean;can_read:boolean;secured_function_count:number;
  extra_draft_function_grants:number;direct_relation_grants:number;
  operational_function_grants:number;restricted_login_count:number;
@@ -91,8 +97,13 @@ export function openDraftPool(env:DraftEnv):DraftPgPool{
 async function assertDb(c:DraftPgClient,env:DraftEnv){
  const rows=(await c.query<AdmissionRow>(DRAFT_IDENTITY_SQL)).rows;
  const x=rows[0];
+ if(x?.missing_draft_schema===true)
+  throw Error('DRAFT077_REQUIRED_SCHEMA_NOT_INSTALLED');
+ if(x?.missing_draft_functions!==undefined&&x.missing_draft_functions>0)
+  throw Error('DRAFT077_REQUIRED_FUNCTIONS_NOT_INSTALLED');
  if(rows.length!==1||!x||x.db!==env.HFT_DRAFT_DATABASE||
   x.login!==env.HFT_DRAFT_DB_USER||x.role!==x.login||
+  x.missing_draft_schema!==false||x.missing_draft_functions!==0||
   String(x.version)!==env.HFT_DRAFT_DB_VERSION||
   x.replica!==false||x.tls!==true||
   !['TLSv1.2','TLSv1.3'].includes(x.tls_version??'')||
