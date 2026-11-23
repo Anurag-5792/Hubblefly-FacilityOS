@@ -1,4 +1,5 @@
 import {assertRoleQualificationProfile} from '../roles/role-isolated-profile.ts';
+import {assertLiveProfile} from '../live/live-profile.ts';
 /**
  * Nonproduction request-bound identity adapter. Verifies an Ed25519 issuer-
  * signed, short-lived cookie. It NEVER issues sessions, trusts forwarded
@@ -53,9 +54,11 @@ function tokenFromCookie(raw: string | null): string {
 export function resolveVerifiedRequestOperator(request:Request,
  env:RequestIdentityEnvironment,
  purpose:'DEFAULT'|'RETAINED_P3_MASTERS'|'DRAFT_MASTERS'|
- 'RETAINED_STORES_OPERATOR'|'RETAINED_APP_ROLES'|'ISOLATED_ROLE_QUALIFICATION'='DEFAULT'
+ 'RETAINED_STORES_OPERATOR'|'RETAINED_APP_ROLES'|'ISOLATED_ROLE_QUALIFICATION'|
+ 'LIVE_R1_MASTERS'='DEFAULT'
 ):VerifiedRequestOperator{
-  if(purpose==='ISOLATED_ROLE_QUALIFICATION')assertRoleQualificationProfile(env);
+  if(purpose==='LIVE_R1_MASTERS')assertLiveProfile(env);
+  else if(purpose==='ISOLATED_ROLE_QUALIFICATION')assertRoleQualificationProfile(env);
   else if(purpose==='RETAINED_P3_MASTERS')assertRetainedMastersProfile(env);
   else if(purpose==='DRAFT_MASTERS')assertDraftProfile(env);
   else if(purpose==='RETAINED_STORES_OPERATOR')assertRetainedStoresProfile(env);

@@ -30,6 +30,9 @@ const storesOperatorRoutes=new Set([
  '/','/stores','/stores/operations',
  '/api/hft/stores/receive','/api/hft/stores/read'
 ]);
+const liveRoutes=new Set(['/masters/live','/api/hft/live-masters',
+ '/api/hft/live-masters/health','/api/hft/live-masters/auth/start',
+ '/api/hft/live-masters/auth/callback','/api/hft/live-masters/signout']);
 export function middleware(request:NextRequest){
  const path=request.nextUrl.pathname;
  // Public settings shell contains no employee or assignment data. The exact
@@ -41,6 +44,21 @@ export function middleware(request:NextRequest){
    return NextResponse.json({state:'UNAVAILABLE',code:'ROLE_NONPRODUCTION_ONLY'},
     {status:503,headers:{'Cache-Control':'no-store'}});
   return NextResponse.next();
+ }
+ // The distinct production boundary never admits protected stock/P3/Draft APIs.
+ // All allowed handlers independently recheck the full TLS/database/OIDC profile.
+ if(process.env.HFT_LIVE_R1_PROFILE!==undefined){
+  const live=process.env.HFT_LIVE_R1_PROFILE==='HFT_R1_PRODUCTION_LIVE_MASTERS_V1'&&
+   ['production','production-qualification'].includes(process.env.HFT_ENVIRONMENT??'')&&
+   process.env.HFT_LIVE_POSTING_ENABLED==='false'&&
+   (process.env.HFT_ENVIRONMENT!=='production'||process.env.VERCEL_ENV==='production')&&
+   process.env.HFT_ROLE_ASSIGNMENT_RUNTIME_PROFILE===undefined&&
+   process.env.HFT_DRAFT_RUNTIME_PROFILE===undefined&&
+   process.env.HFT_STORES_RUNTIME_PROFILE===undefined&&
+   process.env.HFT_MASTERS_RUNTIME_PROFILE===undefined;
+  if(live&&liveRoutes.has(path))return NextResponse.next();
+  return NextResponse.json({state:'UNAVAILABLE',code:'LIVE_R1_RUNTIME_NOT_ADMITTED'},
+   {status:503,headers:{'Cache-Control':'no-store'}});
  }
  // The Stores operator path is completely separate from the R77 QA gateway.
  // A misconfigured profile only serves explanatory HTML, never an HFT API.
