@@ -1,3 +1,4 @@
+import {isRoleQualificationAttempt,assertRoleQualificationProfile,assertQualificationConnection} from '../roles/role-isolated-profile.ts';
 /**
  * HFT R1 P2: single database protected-writer transaction envelope.
  * No HTTP exposure and no activation: requires independently provisioned
@@ -21,13 +22,15 @@ function verifiedPort(v:unknown):string {
 export function assertProtectedPostingEnvironment(env:IsolatedPgEnvironment):Readonly<{
   database:string;port:string;login:string;
 }> {
-  if(isRetainedStoresProfile(env))assertRetainedStoresProfile(env);
+  const qualification=isRoleQualificationAttempt(env);
+  if(qualification)assertRoleQualificationProfile(env);
+  else if(isRetainedStoresProfile(env))assertRetainedStoresProfile(env);
   else assertSecureStartup(env);
   if(env.HFT_LIVE_POSTING_ENABLED!=='false')
    throw Error('PROTECTED_POSTING_NONPRODUCTION_ONLY');
-  const online=isOnlinePgTransport(env),stores=isRetainedStoresProfile(env);
+  const online=isOnlinePgTransport(env),stores=isRetainedStoresProfile(env)||qualification;
   if(stores){
-   if(!online||env.HFT_POSTING_RUN_MODE!=='RETAINED_STORES_OPERATIONAL_077')
+   if(!online||env.HFT_POSTING_RUN_MODE!==(qualification?'ROLE077_ISOLATED_POSTGRES':'RETAINED_STORES_OPERATIONAL_077'))
     throw Error('PROTECTED_RETAINED_STORES_TLS_REQUIRED');
   }else if(online){
    if(env.HFT_POSTING_RUN_MODE!=='ISOLATED_ONLINE_DB_TEST')
@@ -80,13 +83,14 @@ async function runProtectedTransaction<T>(pool:PgPool,env:IsolatedPgEnvironment,
     if(isOnlinePgTransport(env)){
       assertOnlineBackendIdentity(env,id,'P2_STORES');
       await assertOnlinePgBackendTls(client);
-      if(isRetainedStoresProfile(env))
+      if(isRetainedStoresProfile(env)||isRoleQualificationAttempt(env))
        await assertOnlineRuntimeCatalog(client,'OPS_A2_STORES');
       else
        await assertOnlineRuntimeCatalog(client,'P2_STORES');
     }else if(id.server_address!=='127.0.0.1')
       throw Error('PROTECTED_LOCAL_DATABASE_ADDRESS_MISMATCH');
-    if(isRetainedStoresProfile(env))
+    if(isRoleQualificationAttempt(env))await assertQualificationConnection(client,env,'stock');
+    if(isRetainedStoresProfile(env)||isRoleQualificationAttempt(env))
       await requireBoundRoleOperationFence(pool,client,expected.database,readOnly);
     const result=await callback(client);
     commitStarted=true;

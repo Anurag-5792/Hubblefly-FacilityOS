@@ -1,3 +1,4 @@
+import type {RoleDatabaseIdentity} from './role-backend.ts';
 /** ROLE077-REVOCATION-03: the STOCK connection owns the shared transaction lock.
  * Role reads use the distinct role-only login and a fresh READ ONLY snapshot.
  * No cross-connection lease is trusted and no stock privilege is given to roles.
@@ -5,9 +6,9 @@
 import type {PgPool,PgQueryClient} from '../persistence/isolated-pg-transaction.ts';
 import {ROLE_FENCE_KEYS} from './role-enforcement.ts';
 import {deny} from './role-assignment.ts';
-const bindings=new WeakMap<PgPool,Readonly<{database:string;fresh:()=>Promise<void>}>>();
+const bindings=new WeakMap<PgPool,Readonly<{database:string;fresh:()=>Promise<RoleDatabaseIdentity>}>>();
 export function bindRoleOperationFence<T extends PgPool>(pool:T,database:string,
- fresh:()=>Promise<void>):T{
+ fresh:()=>Promise<RoleDatabaseIdentity>):T{
  if(!database||bindings.has(pool))deny('ROLE_OPERATION_FENCE_REBIND_DENIED');
  bindings.set(pool,{database,fresh});return pool;
 }
@@ -20,9 +21,11 @@ export async function requireBoundRoleOperationFence(pool:PgPool,client:PgQueryC
  database:string,readOnly:boolean):Promise<void>{
  const binding=bindings.get(pool);
  if(!binding||binding.database!==database)deny('ROLE_OPERATION_FENCE_NOT_ADMITTED');
- const r=await client.query<{acquired:boolean;db:string;isolation:string;read_only:string}>(
+ const r=await client.query<{acquired:boolean;db:string;isolation:string;read_only:string;db_oid:string;address:string;port:number}>(
   `SELECT pg_catalog.pg_try_advisory_xact_lock_shared($1::integer,$2::integer) AS acquired,
    pg_catalog.current_database() AS db,
+   (SELECT oid::text FROM pg_catalog.pg_database WHERE datname=current_database()) AS db_oid,
+   inet_server_addr()::text AS address,inet_server_port() AS port,
    pg_catalog.current_setting('transaction_isolation') AS isolation,
    pg_catalog.current_setting('transaction_read_only') AS read_only`,ROLE_FENCE_KEYS);
  const row=r.rows[0];
@@ -31,5 +34,7 @@ export async function requireBoundRoleOperationFence(pool:PgPool,client:PgQueryC
   row.read_only!==(readOnly?'on':'off'))deny('ROLE_OPERATION_FENCE_DENIED');
  // This is deliberately AFTER lock acquisition and AFTER the preliminary read.
  // The stock transaction's earlier RR snapshot does not claim current role data.
- await binding.fresh();
+ const actual=await binding.fresh();
+ if(!actual||actual.database!==row.db||actual.oid!==row.db_oid||
+  actual.address!==row.address||actual.port!==row.port)deny('ROLE_STOCK_ACTUAL_DATABASE_MISMATCH');
 }

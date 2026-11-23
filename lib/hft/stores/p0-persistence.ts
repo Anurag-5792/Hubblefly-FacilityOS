@@ -8,8 +8,8 @@
 import {createHash,createHmac,randomBytes} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {isOnlinePgTransport,openOnlinePgPool} from '../persistence/online-pg-transport.ts';
-import {isRetainedStoresProfile,assertRetainedStoresProfile}
- from './ops-a2-retained-profile.ts';
+import {isOperatorRuntimeProfile,assertOperatorRuntimeProfile}
+ from '../roles/role-isolated-profile.ts';
 import {parseQuantity,formatSignedQuantity} from '../domain/quantity.ts';
 import {lengthPrefixedUtf8} from '../security/posting-invocation-proof.ts';
 import {assertVerifiedRequestOperator,type VerifiedRequestOperator} from '../security/verified-request.ts';
@@ -86,8 +86,8 @@ export function issueStoresProof(raw:unknown,actor:VerifiedRequestOperator,
 }
 export function assertP0PersistenceEnvironment(env:IsolatedPgEnvironment):void{
  assertProtectedPostingEnvironment(env);
- if(isRetainedStoresProfile(env)){
-  assertRetainedStoresProfile(env);
+ if(isOperatorRuntimeProfile(env)){
+  assertOperatorRuntimeProfile(env);
   return;
  }
  if(env.HFT_STORES_P0_SOURCE!=='qualified_disposable_review'||

@@ -212,10 +212,12 @@ test('API bounds streamed body even without Content-Length',async()=>{
 });
 test('SQL adapter checks admitted connection, increments scope epoch before callback, then commits',async()=>{
  const sql:string[]=[];let admitted=false;let released=false;
- const client={query:async(s:string)=>{sql.push(s);return {rows:[{}],rowCount:1};},release:()=>{released=true;}} as RoleSqlClient;
+ const client={query:async(s:string)=>{sql.push(s);return {rows:[{released:true,pid:123,held:true}],rowCount:1};},release:()=>{released=true;}} as RoleSqlClient;
  const pg=new PostgresRoleStore({connect:async()=>client},async()=>{admitted=true;});
  await pg.write(scope,async()=>{assert.equal(admitted,true);assert.match(sql.at(-1)!,/SET epoch=epoch\+1/);return 1;});
- assert.equal(sql.at(-1),'COMMIT');assert.equal(released,true);
+ assert.match(sql.at(-1)!,/pg_advisory_unlock/);assert.equal(released,true);
+ assert.ok(sql.findIndex(s=>s.includes('pg_advisory_lock('))<sql.findIndex(s=>s.startsWith('BEGIN')));
+ assert.ok(sql.indexOf('COMMIT')<sql.findIndex(s=>s.includes('pg_advisory_unlock')));
 });
 test('SQL adapter fresh read is genuine READ ONLY and does not lock or mutate',async()=>{
  const sql:string[]=[];let connections=0;
@@ -225,9 +227,20 @@ test('SQL adapter fresh read is genuine READ ONLY and does not lock or mutate',a
 });
 test('SQL callback failure rolls back, COMMIT loss discards and never retries',async()=>{
  for(const commitLoss of [false,true]){const sql:string[]=[];let destroyed=false;
-  const c={query:async(s:string)=>{sql.push(s);if(s==='COMMIT'&&commitLoss)throw Error('lost');return {rows:[{}],rowCount:1};},release:(d?:boolean)=>{destroyed=!!d;}} as RoleSqlClient;
+  const c={query:async(s:string)=>{sql.push(s);if(s==='COMMIT'&&commitLoss)throw Error('lost');return {rows:[{pid:123,held:true}],rowCount:1};},release:(d?:boolean)=>{destroyed=!!d;}} as RoleSqlClient;
   const pg=new PostgresRoleStore({connect:async()=>c},async()=>{});
   await assert.rejects(pg.write(scope,async()=>{if(!commitLoss)throw Error('callback');}));
   assert.equal(destroyed,true);assert.equal(sql.includes('ROLLBACK'),!commitLoss);
+ }
+});
+
+test('write fence rejects backend reassignment or a reset before policy callback (SQL doubles)',async()=>{
+ for(const row of [{pid:124,held:true},{pid:123,held:false}]){
+  const sql:string[]=[];let callback=false,destroyed=false;
+  const c={query:async(s:string)=>{sql.push(s);return {rows:[s.includes('pg_locks')?row:{pid:123}],rowCount:1};},
+   release:(d?:boolean)=>{destroyed=!!d;}} as RoleSqlClient;
+  const pg=new PostgresRoleStore({connect:async()=>c},async()=>{});
+  await assert.rejects(pg.write(scope,async()=>{callback=true;}),/ROLE_SESSION_FENCE_AFFINITY_DENIED/);
+  assert.equal(callback,false);assert.equal(destroyed,true);assert.ok(sql.includes('ROLLBACK'));
  }
 });

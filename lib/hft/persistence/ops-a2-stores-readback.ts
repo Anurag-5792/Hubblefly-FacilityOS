@@ -7,7 +7,7 @@
 import {validateStoresQuery,issueStoresReadProof}
  from '../stores/p0-readback.ts';
 import {assertP0PersistenceEnvironment} from '../stores/p0-persistence.ts';
-import {assertRetainedStoresProfile} from '../stores/ops-a2-retained-profile.ts';
+import {assertOperatorRuntimeProfile} from '../roles/role-isolated-profile.ts';
 import {withProtectedReadbackTransaction} from './protected-posting-transaction.ts';
 import {parseQuantity} from '../domain/quantity.ts';
 import type {VerifiedRequestOperator} from '../security/verified-request.ts';
@@ -149,7 +149,7 @@ export async function readOpsA2QualifiedSource(pool:PgPool,
  durable:true;synthetic:false;sourceEpoch:string;nextCursor:string;
  rows:readonly (VersionedReadRow&{stockState:string})[];
 }>>{
- assertRetainedStoresProfile(env);
+ assertOperatorRuntimeProfile(env);
  assertP0PersistenceEnvironment(env);
  const query=validateStoresQuery(request);
  assertVerifiedRequestOperator(actor,query);

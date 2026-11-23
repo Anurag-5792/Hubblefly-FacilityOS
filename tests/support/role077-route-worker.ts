@@ -25,7 +25,9 @@ const tx={
  async assignment(){return {employeeId:'EMP01',scope,revision:state.allowed?1:2,revokedFrom:null,
   periods:state.allowed?[{from:'2026-01-01T00:00:00.000Z',to:null,roles:['STORES_OPERATOR']}]:[]};}
 } as unknown as RoleTransaction;
-class Store {async read<T>(work:(t:RoleTransaction)=>Promise<T>):Promise<T>{state.reads++;state.events.push('role-read');return work(tx);}}
+class Store {constructor(_pool:unknown,admit:()=>Promise<unknown>){this.admit=admit;}
+ private readonly admit:()=>Promise<unknown>;
+ async read<T>(work:(t:RoleTransaction)=>Promise<T>):Promise<T>{await this.admit();state.reads++;state.events.push('role-read');return work(tx);}}
 let stockPool:PgPool&{end():Promise<void>};
 function pool():typeof stockPool{return {async end(){},async connect(){
  if(state.waitBefore){state.before.resolve();await state.resumeBefore.promise;state.waitBefore=false;}
@@ -38,7 +40,7 @@ function pool():typeof stockPool{return {async end(){},async connect(){
   else if(sql.includes('pg_try_advisory_xact_lock_shared')){
    assert.equal(begun,true);assert.deepEqual(params,[1212568624,77]);
    if(!state.busy){held=true;state.shared++;state.events.push('stock-fence');}
-   rows=[{acquired:!state.busy,db,isolation:readOnly?'repeatable read':'serializable',read_only:readOnly?'on':'off'}];
+   rows=[{acquired:!state.busy,db,db_oid:'12345',address:'127.0.0.1',port:5432,isolation:readOnly?'repeatable read':'serializable',read_only:readOnly?'on':'off'}];
   }else if(sql==='COMMIT'||sql==='ROLLBACK'){
    state.events.push(sql);release();begun=false;
    if(sql==='COMMIT'&&state.unknownCommit){state.unknownCommit=false;throw Error('CONNECTION_LOST_AT_COMMIT');}
@@ -48,8 +50,8 @@ function pool():typeof stockPool{return {async end(){},async connect(){
  }};}
 const m=(path:string,exports:Record<string,unknown>)=>mock.module(new URL(path,import.meta.url).href,{namedExports:exports});
 m('../../lib/hft/security/verified-request.ts',{resolveVerifiedRequestOperator:()=>session,assertVerifiedRequestOperator:()=>{}});
-m('../../lib/hft/stores/ops-a2-retained-profile.ts',{isRetainedStoresProfile:()=>true,assertRetainedStoresProfile:()=>{}});
-m('../../lib/hft/roles/role-backend.ts',{assertRoleBackendProfile:()=>{},assertRoleConnection:async()=>{},
+m('../../lib/hft/stores/ops-a2-retained-profile.ts',{isRetainedStoresProfile:()=>true,assertRetainedStoresProfile:()=>{},STORES_GATEWAY_REVIEW_SHA256:'b'.repeat(64)});
+m('../../lib/hft/roles/role-backend.ts',{assertRoleBackendProfile:()=>{},assertRoleConnection:async()=>({database:db,oid:'12345',address:'127.0.0.1',port:5432}),
  openRoleBackendPool:()=>({async end(){state.closedRolePools++;}})});
 m('../../lib/hft/roles/role-postgres.ts',{PostgresRoleStore:Store});
 m('../../lib/hft/persistence/online-pg-transport.ts',{isOnlinePgTransport:()=>true,assertOnlinePgTransport:()=>{},

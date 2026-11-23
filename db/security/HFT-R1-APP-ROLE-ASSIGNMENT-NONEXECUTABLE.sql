@@ -95,6 +95,25 @@ CREATE TRIGGER role_revocation_fence BEFORE INSERT OR UPDATE OR DELETE OR TRUNCA
  ON hft_app_roles.scope_lock FOR EACH STATEMENT
  EXECUTE FUNCTION hft_app_roles.fence_role_mutation();
 ALTER TABLE hft_app_roles.scope_lock ENABLE ALWAYS TRIGGER role_revocation_fence;
+-- QUAL077-LOCK-01: existing protected master owners install these triggers.
+-- No ownership transfer, UPDATE grant, helper EXECUTE, or owner connection
+-- enters the role application. The invoker trigger only acquires a fence.
+CREATE TRIGGER role_dependency_fence BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
+ ON hft.employee FOR EACH STATEMENT
+ EXECUTE FUNCTION hft_app_roles.fence_role_mutation();
+ALTER TABLE hft.employee ENABLE ALWAYS TRIGGER role_dependency_fence;
+CREATE TRIGGER role_dependency_fence BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
+ ON hft.legal_entity FOR EACH STATEMENT
+ EXECUTE FUNCTION hft_app_roles.fence_role_mutation();
+ALTER TABLE hft.legal_entity ENABLE ALWAYS TRIGGER role_dependency_fence;
+CREATE TRIGGER role_dependency_fence BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
+ ON hft.site FOR EACH STATEMENT
+ EXECUTE FUNCTION hft_app_roles.fence_role_mutation();
+ALTER TABLE hft.site ENABLE ALWAYS TRIGGER role_dependency_fence;
+CREATE TRIGGER role_dependency_fence BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
+ ON hft.warehouse FOR EACH STATEMENT
+ EXECUTE FUNCTION hft_app_roles.fence_role_mutation();
+ALTER TABLE hft.warehouse ENABLE ALWAYS TRIGGER role_dependency_fence;
 ALTER TABLE hft_app_roles.assignment ENABLE ALWAYS TRIGGER assignment_requires_audit;
 ALTER TABLE hft_app_roles.assignment_event ENABLE ALWAYS TRIGGER immutable_assignment_event;
 -- Installer must own schema, four tables and these three functions under the
@@ -110,7 +129,8 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA hft_app_roles FROM PUBLIC;
 -- SELECT/INSERT on assignment_event. No DELETE/TRUNCATE or audit UPDATE.
 -- It gets NO protected-stock DML/EXECUTE and no role-creation/membership ability.
 -- SQL-owning/admin credentials remain outside the application. All assignment
--- operations lock and increment scope epoch before reading delegating authority.
+-- operations acquire the exclusive SESSION fence before BEGIN/SERIALIZABLE,
+-- reattest enforcement, then lock and increment scope epoch before policy reads.
 -- A waiter with an older SERIALIZABLE snapshot must abort on the changed row;
 -- no timestamp or cached token role substitutes for this ordering boundary.
 -- Initial Owner Admin is an internally authenticated onboarding operation with

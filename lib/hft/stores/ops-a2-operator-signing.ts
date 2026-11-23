@@ -2,7 +2,7 @@
  * Keys must be independently enrolled in protected PostgreSQL and supplied as
  * managed runtime secrets. This module never enrolls or generates signer keys.
  */
-import {assertRetainedStoresProfile} from './ops-a2-retained-profile.ts';
+import {assertOperatorRuntimeProfile} from '../roles/role-isolated-profile.ts';
 import type {OpsA2Signer} from '../persistence/ops-a2-stores-source.ts';
 type Env=Readonly<Record<string,string|undefined>>;
 function key(s:string|undefined){
@@ -19,7 +19,7 @@ function version(s:string|undefined){
  return Number(s);
 }
 export function operationalStoresSigner(env:Env):OpsA2Signer{
- assertRetainedStoresProfile(env);
+ assertOperatorRuntimeProfile(env);
  const post=key(env.HFT_OPS_A2_POST_KEY_BASE64);
  try{
   const p0=key(env.HFT_P0_STORES_KEY_BASE64);

@@ -1,3 +1,4 @@
+import {isRoleQualificationAttempt} from '../../../../../lib/hft/roles/role-isolated-profile.ts';
 import {resolveVerifiedRequestOperator}
  from '../../../../../lib/hft/security/verified-request.ts';
 import {handleRoleApi} from '../../../../../lib/hft/roles/role-service.ts';
@@ -31,7 +32,7 @@ export async function POST(request:Request):Promise<Response>{
  try{
   return await handleRoleApi(request,{
    authenticate:async req=>resolveVerifiedRequestOperator(
-    req,process.env,'RETAINED_APP_ROLES'),
+    req,process.env,isRoleQualificationAttempt(process.env)?'ISOLATED_ROLE_QUALIFICATION':'RETAINED_APP_ROLES'),
    store:()=>new PostgresRoleStore(pool,async connection=>
     assertRoleConnection(connection,process.env)),
   });

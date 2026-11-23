@@ -4,8 +4,8 @@ import {resolveVerifiedRequestOperator,assertVerifiedRequestOperator}
 import {validateStoresQuery,readP0Stores} from '../../../../../lib/hft/stores/p0-readback.ts';
 import {openP0Pool,storesReadSignerFromEnvironment}
  from '../../../../../lib/hft/stores/p0-persistence.ts';
-import {isRetainedStoresProfile,assertRetainedStoresProfile}
- from '../../../../../lib/hft/stores/ops-a2-retained-profile.ts';
+import {isOperatorRuntimeProfile,assertOperatorRuntimeProfile,isRoleQualificationAttempt}
+ from '../../../../../lib/hft/roles/role-isolated-profile.ts';
 import {operationalStoresSigner,clearStoresSigner}
  from '../../../../../lib/hft/stores/ops-a2-operator-signing.ts';
 import {readOpsA2QualifiedSource}
@@ -25,15 +25,16 @@ export async function POST(request:Request):Promise<Response>{
  if(length!==null&&(!/^\d+$/.test(length)||Number(length)>4096))
   return fail(413,'P0_READ_BODY_TOO_LARGE');
  try{
-  const stores=isRetainedStoresProfile(process.env);
+  const stores=isOperatorRuntimeProfile(process.env);
   const actor=resolveVerifiedRequestOperator(request,process.env,
-   stores?'RETAINED_STORES_OPERATOR':'DEFAULT');
+   isRoleQualificationAttempt(process.env)?'ISOLATED_ROLE_QUALIFICATION':
+    stores?'RETAINED_STORES_OPERATOR':'DEFAULT');
   const text=await request.text();
   if(Buffer.byteLength(text,'utf8')>4096) return fail(413,'P0_READ_BODY_TOO_LARGE');
   const q=validateStoresQuery(JSON.parse(text) as unknown);
   assertVerifiedRequestOperator(actor,q);
   if(stores){
-   assertRetainedStoresProfile(process.env);
+   assertOperatorRuntimeProfile(process.env);
    // Fresh role is rechecked under the read-only stock transaction fence.
    const roleBinding=await requireApiBusinessRole(process.env,actor,{
     legalEntityId:q.legalEntityId,siteId:q.siteId,

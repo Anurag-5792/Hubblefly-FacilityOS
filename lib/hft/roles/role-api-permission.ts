@@ -5,7 +5,7 @@ import {assertVerifiedRequestOperator,type VerifiedRequestOperator}
  from '../security/verified-request.ts';
 import {type Scope,type Permission} from './role-assignment.ts';
 import {openRoleBackendPool,assertRoleConnection,
- assertRoleBackendProfile,type RoleBackendEnv} from './role-backend.ts';
+ assertRoleBackendProfile,type RoleBackendEnv,type RoleDatabaseIdentity} from './role-backend.ts';
 import {PostgresRoleStore} from './role-postgres.ts';
 import {requireCurrentBusinessPermission} from './role-service.ts';
 import {bindRoleOperationFence} from './role-operation-fence.ts';
@@ -28,8 +28,11 @@ export async function requireApiBusinessRole(env:RoleBackendEnv,
   assertVerifiedRequestOperator(signedActor,scope);
   const pool=openRoleBackendPool(env);
   try{
-   const store=new PostgresRoleStore(pool,client=>assertRoleConnection(client,env));
+   let identity:RoleDatabaseIdentity|undefined;
+   const store=new PostgresRoleStore(pool,async client=>{identity=await assertRoleConnection(client,env);});
    await requireCurrentBusinessPermission(store,signedActor,scope,permission);
+   if(!identity)throw Error('ROLE_DATABASE_IDENTITY_NOT_VERIFIED');
+   return identity;
   }finally{await pool.end();}
  };
  await fresh(); // Request-start denial is useful, but is NOT the operation fence.

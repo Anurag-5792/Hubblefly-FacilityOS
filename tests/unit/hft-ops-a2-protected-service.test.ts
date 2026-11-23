@@ -49,7 +49,7 @@ function deleteMany(target:Record<string,unknown>,...names:string[]){
  for(const name of names)delete target[name];
 }
 type Mode='OK'|'SPOOFED_RESOLVER'|'WRONG_VERSION'|'WRONG_ACCOUNT'|
- 'BAD_POST'|'BAD_READBACK'|'LOST_COMMIT'|'NOT_FOUND'|'ROLLBACK';
+ 'BAD_POST'|'REVOKED_READBACK'|'BAD_READBACK'|'LOST_COMMIT'|'NOT_FOUND'|'ROLLBACK';
 const actor=()=>verifiedFixtureOperator();
 const signer=()=>({key:new Uint8Array(32).fill(8),keyVersion:1,
  p0Key:new Uint8Array(32).fill(7),p0KeyVersion:1});
@@ -140,6 +140,7 @@ function pg(op:typeof receipt|typeof issue|typeof transfer,mode:Mode='OK'){
       payloadSha256:opsAPayloadSha256(payload)}});
     }
     if(sql.includes('ops_a2_reconcile_post_v3')){
+     if(mode==='REVOKED_READBACK')throw Error('ROLE_PERMISSION_DENIED');
      const freshQuery=JSON.parse(String(params[2])) as Record<string,unknown>;
      const freshProof=JSON.parse(String(params[3])) as Record<string,unknown>;
      assert.equal(freshQuery.intent,'MOVEMENTS');
@@ -293,4 +294,12 @@ test('OPS-A2 forged fresh recovery scope is denied before readback or posting',a
   m.pool,env,payload,proof,other,signer()),/SIGNED_SCOPE_DENIED/);
  assert.equal(m.calls.length,before);
  assert.equal(m.writerCommits(),1);
+});
+
+test('post-COMMIT role denial is reconciliation/no-retry, not clean pre-post rejection (SQL double)',async()=>{
+ const m=pg(receipt,'REVOKED_READBACK');
+ await assert.rejects(submitOpsA2SyntheticSource(m.pool,env,receipt,actor(),signer()),
+  /ROLE_PERMISSION_DENIED_COMMIT_RECONCILE_NO_RETRY/);
+ assert.equal(m.writerCommits(),1);
+ assert.equal(m.calls.filter(x=>x.sql.includes('ops_a2_post_stock_command_v2')).length,1);
 });

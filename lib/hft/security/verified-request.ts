@@ -1,3 +1,4 @@
+import {assertRoleQualificationProfile} from '../roles/role-isolated-profile.ts';
 /**
  * Nonproduction request-bound identity adapter. Verifies an Ed25519 issuer-
  * signed, short-lived cookie. It NEVER issues sessions, trusts forwarded
@@ -52,9 +53,10 @@ function tokenFromCookie(raw: string | null): string {
 export function resolveVerifiedRequestOperator(request:Request,
  env:RequestIdentityEnvironment,
  purpose:'DEFAULT'|'RETAINED_P3_MASTERS'|'DRAFT_MASTERS'|
- 'RETAINED_STORES_OPERATOR'|'RETAINED_APP_ROLES'='DEFAULT'
+ 'RETAINED_STORES_OPERATOR'|'RETAINED_APP_ROLES'|'ISOLATED_ROLE_QUALIFICATION'='DEFAULT'
 ):VerifiedRequestOperator{
-  if(purpose==='RETAINED_P3_MASTERS')assertRetainedMastersProfile(env);
+  if(purpose==='ISOLATED_ROLE_QUALIFICATION')assertRoleQualificationProfile(env);
+  else if(purpose==='RETAINED_P3_MASTERS')assertRetainedMastersProfile(env);
   else if(purpose==='DRAFT_MASTERS')assertDraftProfile(env);
   else if(purpose==='RETAINED_STORES_OPERATOR')assertRetainedStoresProfile(env);
   else if(purpose==='RETAINED_APP_ROLES')assertRoleBackendProfile(env);
@@ -110,6 +112,9 @@ export function resolveVerifiedRequestOperator(request:Request,
     throw new Error('SESSION_WAREHOUSE_SCOPE_INVALID');
   const warehouseIds = claims.warehouseIds.map(requiredId);
   if (new Set(warehouseIds).size !== warehouseIds.length) throw new Error('SESSION_WAREHOUSE_SCOPE_DUPLICATE');
+  if(purpose==='ISOLATED_ROLE_QUALIFICATION'&&
+    ![subject,sessionId,legalEntityId,siteId,...warehouseIds].every(x=>x.startsWith('QUAL077-')))
+    throw Error('QUAL077_SYNTHETIC_SESSION_SCOPE_REQUIRED');
   const operator: VerifiedRequestOperator = Object.freeze({ subject, sessionId, expiresAt: claims.exp,
     scope: Object.freeze({ legalEntityId, siteId, warehouseIds: Object.freeze(warehouseIds) }) });
   verified.add(operator);

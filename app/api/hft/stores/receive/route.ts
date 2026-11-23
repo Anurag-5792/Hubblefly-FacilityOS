@@ -5,8 +5,8 @@
  */
 import {resolveVerifiedRequestOperator,assertVerifiedRequestOperator}
  from '../../../../../lib/hft/security/verified-request.ts';
-import {assertRetainedStoresProfile}
- from '../../../../../lib/hft/stores/ops-a2-retained-profile.ts';
+import {assertOperatorRuntimeProfile,isRoleQualificationAttempt}
+ from '../../../../../lib/hft/roles/role-isolated-profile.ts';
 import {validateP0Operation} from '../../../../../lib/hft/stores/p0-operations.ts';
 import {openP0Pool} from '../../../../../lib/hft/stores/p0-persistence.ts';
 import {operationalStoresSigner,clearStoresSigner}
@@ -26,12 +26,13 @@ const fail=(status:number,code:string)=>Response.json({
  state:'UNAVAILABLE_OR_UNVERIFIED',code,automaticRetryAllowed:false
 },{status,headers});
 export async function POST(request:Request):Promise<Response>{
- try{assertRetainedStoresProfile(process.env);}
+ try{assertOperatorRuntimeProfile(process.env);}
  catch{return fail(503,'OPS_A2_OPERATOR_RESOURCE_NOT_ADMITTED');}
  if(request.headers.get('content-type')?.split(';')[0].trim()!=='application/json')
   return fail(415,'OPS_A2_OPERATOR_JSON_REQUIRED');
  let actor:ReturnType<typeof resolveVerifiedRequestOperator>;
- try{actor=resolveVerifiedRequestOperator(request,process.env,'RETAINED_STORES_OPERATOR');}
+ try{actor=resolveVerifiedRequestOperator(request,process.env,
+   isRoleQualificationAttempt(process.env)?'ISOLATED_ROLE_QUALIFICATION':'RETAINED_STORES_OPERATOR');}
  catch{return fail(401,'OPS_A2_OPERATOR_SIGNED_SESSION_REQUIRED');}
  let body:unknown;
  try{

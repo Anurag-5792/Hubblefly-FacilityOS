@@ -1,3 +1,4 @@
+import {isRoleQualificationAttempt,assertRoleQualificationProfile} from '../roles/role-isolated-profile.ts';
 /** HFT online PostgreSQL transport: server-only, no production activation. */
 import {X509Certificate} from 'node:crypto';
 import {isIP} from 'node:net';
@@ -62,14 +63,16 @@ export function assertOnlinePgTransport(
   !/^[1-9][0-9]{0,4}$/.test(backend)||Number(backend)>65535)
   throw Error('HFT_ONLINE_DB_PORT_NOT_ATTESTED');
  const database=env.PGDATABASE;
+ const qualification=isRoleQualificationAttempt(env);
+ if(qualification){assertRoleQualificationProfile(env);if(duty!=='P2_STORES')throw Error('QUAL077_P2_DUTY_ONLY');}
  const retained=duty==='P3_MASTERS'&&isRetainedMastersProfile(env);
- const stores=duty==='P2_STORES'&&isRetainedStoresProfile(env);
+ const stores=duty==='P2_STORES'&&(isRetainedStoresProfile(env)||qualification);
  if(retained){
   assertRetainedMastersProfile(env);
   if(!database||database!==env.HFT_MASTERS_APPROVED_PG_DATABASE)
    throw Error('HFT_ONLINE_DB_RETAINED_MASTER_DB_NOT_ADMITTED');
  }else if(stores){
-  assertRetainedStoresProfile(env);
+  if(!qualification)assertRetainedStoresProfile(env);
   if(!database||database!==env.HFT_STORES_APPROVED_DATABASE)
    throw Error('HFT_ONLINE_DB_STORES_RESOURCE_NOT_ADMITTED');
  }else if(!database||!dbName.test(database)||database!==env.HFT_TEST_PG_DATABASE)

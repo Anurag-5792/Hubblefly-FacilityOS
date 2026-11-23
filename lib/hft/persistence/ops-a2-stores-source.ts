@@ -20,7 +20,7 @@ import {issueStoresProof,assertP0PersistenceEnvironment}
 import {issueStoresReadProof} from '../stores/p0-readback.ts';
 import {formatQuantity} from '../domain/quantity.ts';
 
-import {assertRetainedStoresProfile} from '../stores/ops-a2-retained-profile.ts';
+import {assertOperatorRuntimeProfile} from '../roles/role-isolated-profile.ts';
 import {withProtectedReadbackTransaction,withProtectedPostingTransaction}
  from './protected-posting-transaction.ts';
 import {CommitOutcomeUncertain,type PgPool,type IsolatedPgEnvironment}
@@ -219,6 +219,15 @@ async function postResolvedPayload(pool:PgPool,env:IsolatedPgEnvironment,
  operatorGateway=false
 ):Promise<OpsA2SourceResult>{
  const proof=issueProof(payload,actor,signer);
+ const reconcileAfterAttempt=async()=>{
+  try{return await authoritativeReconcile(pool,env,payload,proof,actor,signer,operatorGateway);}
+  catch(error){
+   // A later role revocation or read outage cannot undo an already committed
+   // (or uncertain) stock command. Never return a clean pre-post denial.
+   const code=error instanceof Error?error.message:'RECONCILIATION_FAILED';
+   throw new Error(code+'_COMMIT_RECONCILE_NO_RETRY',{cause:error});
+  }
+ };
  let attempted=false;
  try{
   await withProtectedPostingTransaction(pool,env,async client=>{
@@ -237,7 +246,7 @@ async function postResolvedPayload(pool:PgPool,env:IsolatedPgEnvironment,
  }catch(error){
   if(!(error instanceof CommitOutcomeUncertain))throw error;
   // NEVER repost on an uncertain COMMIT. Use original nonce/proof only.
-  const recovered=await authoritativeReconcile(pool,env,payload,proof,actor,signer,operatorGateway);
+  const recovered=await reconcileAfterAttempt();
   if(recovered.state==='INDETERMINATE_NOT_FOUND')
    throw Error('OPS_A2_UNCERTAIN_COMMIT_UNRESOLVED_NO_RETRY');
   return {state:'SOURCE_ONLY_COMMITTED_FACT_VERIFIED_NOT_OPERATIONAL',
@@ -245,7 +254,7 @@ async function postResolvedPayload(pool:PgPool,env:IsolatedPgEnvironment,
    sourceEpoch:recovered.sourceEpoch!,fact:recovered.fact!};
  }
  if(!attempted)throw Error('OPS_A2_NO_POSTING_ATTEMPT');
- const recovered=await authoritativeReconcile(pool,env,payload,proof,actor,signer,operatorGateway);
+ const recovered=await reconcileAfterAttempt();
  if(recovered.state!=='COMMITTED_VERIFIED')
   throw Error('OPS_A2_COMMIT_READBACK_NOT_VERIFIED_NO_RETRY');
  return {state:'SOURCE_ONLY_COMMITTED_FACT_VERIFIED_NOT_OPERATIONAL',
@@ -296,7 +305,7 @@ export async function submitOpsA2QualifiedReceive(
  state:'POSTED_VERIFIED';kind:'IN';requestId:string;productVersion:string;
  sourceEpoch:string;durable:true;stockChanged:true;fact:VersionedImmutableFact;
 }>>{
- assertRetainedStoresProfile(env);
+ assertOperatorRuntimeProfile(env);
  assertP0PersistenceEnvironment(env);
  const op=validateP0Operation(raw);
  if(op.kind!=='IN')throw Error('OPS_A2_OPERATOR_RECEIVE_ONLY');

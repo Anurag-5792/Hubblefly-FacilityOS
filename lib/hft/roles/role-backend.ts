@@ -1,3 +1,5 @@
+import {isRoleQualificationAttempt,assertRoleQualificationProfile,assertQualificationConnection,QUAL077_PROFILE}
+ from './role-isolated-profile.ts';
 /** Restricted nonproduction application ROLE backend. No protected P2/P3 role
  * enrollment, ledger DML or hidden issuer authority. This is a source-level
  * connector: requires independently admitted hft_app_roles SQL and LOGIN.
@@ -18,21 +20,24 @@ const forbidden=['PGUSER','PGPASSWORD','PGHOSTADDR','PGSERVICE','PGSERVICEFILE',
  'PGPASSFILE','DATABASE_URL','DATABASE_URL_UNPOOLED','POSTGRES_URL',
  'POSTGRES_PRISMA_URL','POSTGRES_URL_NON_POOLING'];
 export function isRoleBackendProfile(env:RoleBackendEnv):boolean{
- return env.HFT_ROLE_ASSIGNMENT_RUNTIME_PROFILE===ROLE_BACKEND_PROFILE;
+ return env.HFT_ROLE_ASSIGNMENT_RUNTIME_PROFILE===ROLE_BACKEND_PROFILE||
+  env.HFT_ROLE_ASSIGNMENT_RUNTIME_PROFILE===QUAL077_PROFILE;
 }
 export function assertRoleBackendProfile(env:RoleBackendEnv):void{
+ const qualification=isRoleQualificationAttempt(env);
+ if(qualification)assertRoleQualificationProfile(env);
  const host=env.HFT_ROLE_PG_HOST||'';
  const port=env.HFT_ROLE_PG_PORT||'';
  const login=env.HFT_ROLE_PG_LOGIN||'';
  const pwd=env.HFT_ROLE_PG_PASSWORD||'';
  if(!isRoleBackendProfile(env)||env.NODE_ENV!=='production'||
-  env.VERCEL_ENV==='production'||env.HFT_ENVIRONMENT!=='retained-stores-nonproduction'||
+  env.VERCEL_ENV==='production'||(!qualification&&env.HFT_ENVIRONMENT!=='retained-stores-nonproduction')||
   env.HFT_AUTH_SOURCE!=='verified'||env.HFT_LIVE_POSTING_ENABLED!=='false'||
-  env.HFT_ROLE_RESOURCE_PROJECT!=='wandering-cake-50222227'||
-  env.HFT_ROLE_RESOURCE_BRANCH!=='br-shiny-night-b3qgsj8t'||
-  env.HFT_ROLE_PG_DATABASE!=='hft_r1_retained_masters_np077'||
+  (!qualification&&(env.HFT_ROLE_RESOURCE_PROJECT!=='wandering-cake-50222227'||
+   env.HFT_ROLE_RESOURCE_BRANCH!=='br-shiny-night-b3qgsj8t'||
+   env.HFT_ROLE_PG_DATABASE!=='hft_r1_retained_masters_np077'))||
   env.HFT_ROLE_PG_SERVER_VERSION_NUM!=='180007'||
-  login!=='hft_r1_roles_np_login'||login===env.HFT_P2_RUNTIME_LOGIN||
+  (!qualification&&login!=='hft_r1_roles_np_login')||login===env.HFT_P2_RUNTIME_LOGIN||
   login===env.HFT_P3_RUNTIME_LOGIN||
   pwd.length<16||pwd.length>4096||
   !/^[1-9][0-9]{0,4}$/.test(port)||Number(port)>65535||
@@ -88,6 +93,8 @@ export function openRoleBackendPool(env:RoleBackendEnv):ManagedRolePool{
 }
 export const ROLE_BACKEND_CATALOG_SQL=`
 SELECT current_database() AS db,session_user AS db_login,
+ (SELECT oid::text FROM pg_catalog.pg_database WHERE datname=current_database()) AS db_oid,
+ inet_server_addr()::text AS server_address,inet_server_port() AS server_port,
  current_user AS db_role,current_setting('server_version_num')::integer AS pg_version,
  pg_is_in_recovery() AS replica,
  ARRAY(SELECT required.name FROM (VALUES('hft'),('hft_secret'),('hft_app_roles')) required(name)
@@ -140,6 +147,30 @@ SELECT current_database() AS db,session_user AS db_login,
        'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
      ELSE false END)
  ) AS protected_relation_write_count,
+ (SELECT COUNT(*)::integer FROM pg_catalog.pg_attribute a
+  JOIN pg_catalog.pg_class c ON c.oid=a.attrelid
+  JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname IN('hft','hft_secret') AND c.relkind IN('r','p','v','m','f')
+   AND a.attnum>0 AND NOT a.attisdropped
+   AND pg_catalog.has_column_privilege(current_user,c.oid,a.attnum,'INSERT,UPDATE,REFERENCES')
+ ) AS protected_column_write_count,
+ (SELECT COUNT(*)::integer FROM pg_catalog.pg_attribute a
+  WHERE a.attrelid=pg_catalog.to_regclass('hft_app_roles.identity_binding')
+   AND a.attnum>0 AND NOT a.attisdropped
+   AND pg_catalog.has_column_privilege(current_user,a.attrelid,a.attnum,'INSERT,UPDATE,REFERENCES')
+ ) AS binding_column_write_count,
+ (SELECT COUNT(*)::integer FROM pg_catalog.pg_attribute a
+  WHERE a.attrelid=pg_catalog.to_regclass('hft_app_roles.assignment_event')
+   AND a.attnum>0 AND NOT a.attisdropped
+   AND pg_catalog.has_column_privilege(current_user,a.attrelid,a.attnum,'UPDATE,REFERENCES')
+ ) AS audit_column_write_count,
+ COALESCE(pg_catalog.has_table_privilege(current_user,
+  pg_catalog.to_regclass('hft_app_roles.scope_lock'),'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'),false)
+ OR EXISTS(SELECT 1 FROM pg_catalog.pg_attribute a
+  WHERE a.attrelid=pg_catalog.to_regclass('hft_app_roles.scope_lock') AND a.attnum>0 AND NOT a.attisdropped
+   AND (pg_catalog.has_column_privilege(current_user,a.attrelid,a.attnum,'INSERT,REFERENCES')
+    OR (a.attname<>'epoch' AND pg_catalog.has_column_privilege(current_user,a.attrelid,a.attnum,'UPDATE'))))
+ AS scope_unauthorized_write,
  (SELECT COUNT(*)::integer FROM pg_catalog.pg_proc p
   JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
   WHERE n.nspname IN('hft','hft_secret','hft_crypto') AND
@@ -157,17 +188,27 @@ SELECT current_database() AS db,session_user AS db_login,
  COALESCE(pg_catalog.has_schema_privilege(current_user,pg_catalog.to_regnamespace('hft')::oid,'CREATE'),false) AS operational_schema_create,
  COALESCE(pg_catalog.has_schema_privilege(current_user,pg_catalog.to_regnamespace('hft_secret')::oid,'USAGE'),false) AS secret_schema_usage,
  COALESCE(pg_catalog.has_table_privilege(current_user,
-  pg_catalog.to_regclass('hft_app_roles.identity_binding'),'INSERT,UPDATE,DELETE'),false)
+  pg_catalog.to_regclass('hft_app_roles.identity_binding'),'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'),false)
   AS identity_binding_write,
  COALESCE(pg_catalog.has_table_privilege(current_user,
-  pg_catalog.to_regclass('hft_app_roles.assignment_event'),'UPDATE,DELETE,TRUNCATE'),false)
+  pg_catalog.to_regclass('hft_app_roles.assignment_event'),'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'),false)
   AS audit_write_or_delete,
  COALESCE(pg_catalog.has_table_privilege(current_user,
-  pg_catalog.to_regclass('hft.stock_entry'),'SELECT'),false) AS stock_history_read,
+  pg_catalog.to_regclass('hft.stock_entry'),'SELECT'),false)
+ OR EXISTS(SELECT 1 FROM pg_catalog.pg_attribute a
+  WHERE a.attrelid=pg_catalog.to_regclass('hft.stock_entry') AND a.attnum>0 AND NOT a.attisdropped
+   AND pg_catalog.has_column_privilege(current_user,a.attrelid,a.attnum,'SELECT')) AS stock_history_read,
  COALESCE(pg_catalog.has_table_privilege(current_user,
-  pg_catalog.to_regclass('hft.stock_account'),'SELECT'),false) AS stock_account_read
+  pg_catalog.to_regclass('hft.stock_account'),'SELECT'),false)
+ OR EXISTS(SELECT 1 FROM pg_catalog.pg_attribute a
+  WHERE a.attrelid=pg_catalog.to_regclass('hft.stock_account') AND a.attnum>0 AND NOT a.attisdropped
+   AND pg_catalog.has_column_privilege(current_user,a.attrelid,a.attnum,'SELECT')) AS stock_account_read
 `;
+export type RoleDatabaseIdentity=Readonly<{database:string;oid:string;address:string;port:number}>;
 type Catalog=Readonly<{
+ db_oid:string;server_address:string;server_port:number;
+ protected_column_write_count:number;binding_column_write_count:number;audit_column_write_count:number;
+ scope_unauthorized_write:boolean;
  missing_required_schemas:string[];enforcement:unknown;replication_mode:string;
  db:string;db_login:string;db_role:string;pg_version:number;
  replica:boolean;tls:boolean;tls_version:string|null;
@@ -183,13 +224,16 @@ type Catalog=Readonly<{
  stock_account_read:boolean;
 }>;
 export async function assertRoleConnection(client:RoleSqlClient,
- env:RoleBackendEnv):Promise<void>{
+ env:RoleBackendEnv):Promise<RoleDatabaseIdentity>{
  assertRoleBackendProfile(env);
  const result=await client.query<Catalog>(ROLE_BACKEND_CATALOG_SQL);
  const v=result.rows[0];
  if(v&&Array.isArray(v.missing_required_schemas)&&v.missing_required_schemas.length)
   throw Error('ROLE_REQUIRED_SCHEMAS_NOT_INSTALLED');
  if(result.rows.length!==1||!v||!Array.isArray(v.missing_required_schemas)||
+  typeof v.db_oid!=='string'||!/^\d+$/.test(v.db_oid)||Number(v.db_oid)<1||
+  typeof v.server_address!=='string'||!isIP(v.server_address)||
+  !Number.isInteger(v.server_port)||v.server_port<1||v.server_port>65535||
   v.replication_mode!=='origin'||v.db!==env.HFT_ROLE_PG_DATABASE||
   v.db_login!==env.HFT_ROLE_PG_LOGIN||v.db_role!==v.db_login||
   String(v.pg_version)!==env.HFT_ROLE_PG_SERVER_VERSION_NUM||
@@ -201,7 +245,8 @@ export async function assertRoleConnection(client:RoleSqlClient,
   v.assignment_insert!==true||v.assignment_update!==true||
   v.audit_read!==true||v.audit_insert!==true||
   v.role_table_count!==4||v.audit_trigger_count!==2||
-  v.protected_relation_write_count!==0||
+  v.protected_relation_write_count!==0||v.protected_column_write_count!==0||
+  v.binding_column_write_count!==0||v.audit_column_write_count!==0||v.scope_unauthorized_write!==false||
   v.protected_function_execute_count!==0||
   v.privileged_role_memberships!==0||v.restricted_login!==true||
   v.operational_schema_create!==false||v.secret_schema_usage!==false||
@@ -209,4 +254,6 @@ export async function assertRoleConnection(client:RoleSqlClient,
   v.stock_history_read!==false||v.stock_account_read!==false)
   throw Error('ROLE_DATABASE_IDENTITY_ACL_OR_AUDIT_NOT_ADMITTED');
  assertRoleEnforcement(v.enforcement);
+ if(isRoleQualificationAttempt(env))await assertQualificationConnection(client,env,'role');
+ return Object.freeze({database:v.db,oid:v.db_oid,address:v.server_address,port:v.server_port});
 }

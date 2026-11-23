@@ -1,3 +1,4 @@
+import {ROLE_FENCE_KEYS} from './role-enforcement.ts';
 /** Source implementation for an admitted backend; not installed or opened by the route.
  * An installation supplies a dedicated pool and same-connection identity/ACL admission.
  * Never share stock-owner, issuer or superuser credentials with this service.
@@ -9,17 +10,16 @@ export interface RoleSqlClient {
  release(destroy?:boolean):void;
 }
 export interface RoleSqlPool {connect():Promise<RoleSqlClient>;}
-export type RoleConnectionAdmission=(client:RoleSqlClient)=>Promise<void>;
+export type RoleConnectionAdmission=(client:RoleSqlClient)=>Promise<unknown>;
 const params=(s:Scope)=>[s.legalEntityId,s.siteId,s.warehouseId];
 class Transaction implements RoleTransaction {
  constructor(client:RoleSqlClient,writing:boolean){this.client=client;this.writing=writing;}
  private readonly client:RoleSqlClient;private readonly writing:boolean;
- private lock():string{return this.writing?' FOR SHARE':'';}
  async principal(session:SessionIdentity):Promise<Principal>{
   const r=await this.client.query<{employee_id:string;person_id:string}>(
    'SELECT b.employee_id,b.person_id FROM hft_app_roles.identity_binding b JOIN hft.employee e '+
    'ON e.legal_entity_id=b.legal_entity_id AND e.employee_id=b.employee_id '+
-   'WHERE b.subject=$1 AND b.legal_entity_id=$2 AND e.site_id=$3 AND b.active AND e.active'+this.lock(),
+   'WHERE b.subject=$1 AND b.legal_entity_id=$2 AND e.site_id=$3 AND b.active AND e.active',
    [session.subject,session.scope.legalEntityId,session.scope.siteId]);
   if(r.rows.length!==1||session.expiresAt*1000<=Date.now())deny('ROLE_ACTOR_OR_SCOPE_DENIED');
   return {subject:session.subject,sessionId:session.sessionId,expiresAt:session.expiresAt,
@@ -40,7 +40,7 @@ class Transaction implements RoleTransaction {
   const r=await this.client.query<{employee_id:string;person_id:string;full_name:string;active:boolean;version:string}>(
    'SELECT e.employee_id,b.person_id,e.full_name,e.active,e.version::text FROM hft.employee e '+
    'JOIN hft_app_roles.identity_binding b ON b.employee_id=e.employee_id AND b.legal_entity_id=e.legal_entity_id '+
-   'WHERE e.legal_entity_id=$1 AND e.site_id=$2 AND e.employee_id=$3 AND b.active'+this.lock(),
+   'WHERE e.legal_entity_id=$1 AND e.site_id=$2 AND e.employee_id=$3 AND b.active',
    [scope.legalEntityId,scope.siteId,id]);
   if(r.rows.length!==1)deny('ROLE_ACTIVE_EMPLOYEE_CHANGED');const e=r.rows[0];
   const version=Number(e.version);if(!Number.isSafeInteger(version))deny('ROLE_INVALID_REVISION');
@@ -99,24 +99,57 @@ export class PostgresRoleStore implements RoleStore {
  read<T>(work:(tx:RoleTransaction)=>Promise<T>):Promise<T>{return this.run(null,work);}
  write<T>(scope:Scope,work:(tx:RoleTransaction)=>Promise<T>):Promise<T>{return this.run(scope,work);}
  private async run<T>(scope:Scope|null,work:(tx:RoleTransaction)=>Promise<T>):Promise<T>{
-  const c=await this.pool.connect();let commit=false,discard=false,begun=false;
+  const c=await this.pool.connect();let commit=false,discard=false,begun=false,sessionFence=false;let fencePid:number|undefined;
   try{
-   await this.admit(c);begun=true;
+   await this.admit(c);
+   if(scope){
+    // Must precede BEGIN: a blocking transaction-lock SELECT would acquire an
+    // MVCC snapshot BEFORE its wait. SELECT-only dependencies need no row lock.
+    await c.query("SET lock_timeout='2500ms'");
+    await c.query("SET statement_timeout='10000ms'");
+    const acquired=await c.query<{pid:number}>(
+     'SELECT pg_catalog.pg_advisory_lock($1::integer,$2::integer),pg_catalog.pg_backend_pid() AS pid',[...ROLE_FENCE_KEYS]);
+    sessionFence=true;
+    fencePid=acquired.rows[0]?.pid;
+    if(acquired.rows.length!==1||!Number.isSafeInteger(fencePid))deny('ROLE_SESSION_FENCE_IDENTITY_DENIED');
+   }
+   begun=true;
    await c.query(scope?'BEGIN ISOLATION LEVEL SERIALIZABLE':'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
    await c.query("SET LOCAL statement_timeout='10000ms'");await c.query("SET LOCAL lock_timeout='2500ms'");
    if(scope){
-    // All application role writers use this row, including revocations. Lock
-    // before authorization; SSI aborts a stale waiter rather than trusting it.
+    // Transaction-pooling or a reset must not discard the pre-snapshot lock.
+    // Verify same backend PID AND actual granted lock before any policy read.
+    const held=await c.query<{pid:number;held:boolean}>(`SELECT pg_catalog.pg_backend_pid() AS pid,
+     EXISTS(SELECT 1 FROM pg_catalog.pg_locks WHERE locktype='advisory'
+      AND database=(SELECT oid FROM pg_catalog.pg_database WHERE datname=current_database())
+      AND pid=pg_backend_pid() AND classid=$1::oid AND objid=$2::oid AND objsubid=2
+      AND mode='ExclusiveLock' AND granted) AS held`,[...ROLE_FENCE_KEYS]);
+    if(held.rows.length!==1||held.rows[0].pid!==fencePid||held.rows[0].held!==true)
+     deny('ROLE_SESSION_FENCE_AFFINITY_DENIED');
+    // Reattest under the dependency fence, then lock only our writable epoch.
+    await this.admit(c);
     const r=await c.query('SELECT s.legal_entity_id FROM hft_app_roles.scope_lock s '+
      'JOIN hft.legal_entity e ON e.id=s.legal_entity_id JOIN hft.site t ON t.legal_entity_id=s.legal_entity_id AND t.id=s.site_id '+
      'JOIN hft.warehouse w ON w.legal_entity_id=s.legal_entity_id AND w.warehouse_id=s.warehouse_id AND w.site_id=s.site_id '+
-     'WHERE s.legal_entity_id=$1 AND s.site_id=$2 AND s.warehouse_id=$3 AND e.active AND t.active AND w.active FOR UPDATE OF s FOR SHARE OF e,t,w',params(scope));
+     'WHERE s.legal_entity_id=$1 AND s.site_id=$2 AND s.warehouse_id=$3 AND e.active AND t.active AND w.active FOR UPDATE OF s',params(scope));
     if(r.rows.length!==1)deny('ROLE_ACTOR_OR_SCOPE_DENIED');
     await c.query('UPDATE hft_app_roles.scope_lock SET epoch=epoch+1 WHERE legal_entity_id=$1 AND site_id=$2 AND warehouse_id=$3',params(scope));
    }
-   const value=await work(new Transaction(c,scope!==null));commit=true;await c.query('COMMIT');return value;
+   const value=await work(new Transaction(c,scope!==null));commit=true;await c.query('COMMIT');
+   if(sessionFence){
+    const unlocked=await c.query<{released:boolean}>(
+     'SELECT pg_catalog.pg_advisory_unlock($1::integer,$2::integer) AS released',[...ROLE_FENCE_KEYS]);
+    if(unlocked.rows.length!==1||unlocked.rows[0].released!==true)throw Error('ROLE_FENCE_RELEASE_UNVERIFIED_NO_RETRY');
+    sessionFence=false;
+   }
+   return value;
   }catch(e){discard=true;if(begun&&!commit){try{await c.query('ROLLBACK');}catch{/* connection always discarded */}}
    if(commit)throw new Error('ROLE_COMMIT_OUTCOME_UNKNOWN');throw e;
-  }finally{c.release(discard);}
+  }finally{
+   // Write connections are never returned for reuse: session settings and any
+   // lost lock/BEGIN/COMMIT response cannot leak into another request. Closing
+   // the connection releases an uncertain session lock, including error paths.
+   c.release(discard||scope!==null||sessionFence);
+  }
  }
 }

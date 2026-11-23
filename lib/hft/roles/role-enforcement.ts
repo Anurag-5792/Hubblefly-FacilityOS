@@ -20,7 +20,7 @@ BEGIN
  PERFORM pg_catalog.pg_advisory_xact_lock(1212568624,77);
  RETURN NULL;
 END `;
-const common={enabled:'A',owner:'hft_r1_roles_owner',owner_login:false,
+const common={relation_schema:'hft_app_roles',relation_owner_secure:true,enabled:'A',owner:'hft_r1_roles_owner',owner_login:false,
  owner_super:false,owners_match:true,relation_kind:'r',function_schema:'hft_app_roles',
  language:'plpgsql',security_definer:false,volatility:'v',strict:false,
  parallel:'u',leakproof:false,returns_trigger:true,ordinary_function:true,
@@ -35,6 +35,9 @@ export const ROLE_EXPECTED_TRIGGERS=[
   constraint_type:'',deferrable:false,deferred:false},
  ...['assignment','identity_binding','scope_lock'].map(relation=>({...common,
   relation,trigger:'role_revocation_fence',function_name:'fence_role_mutation',
+  body:ROLE_REVOCATION_BODY,type:62,constraint_type:'',deferrable:false,deferred:false})),
+ ...['employee','legal_entity','site','warehouse'].map(relation=>({...common,
+  relation_schema:'hft',relation,trigger:'role_dependency_fence',function_name:'fence_role_mutation',
   body:ROLE_REVOCATION_BODY,type:62,constraint_type:'',deferrable:false,deferred:false}))
 ] as const;
 export const ROLE_ENFORCEMENT_SHA256=createHash('sha256')
@@ -46,8 +49,8 @@ export function assertRoleEnforcement(value:unknown):void{
  for(const raw of value){
   if(raw===null||typeof raw!=='object'||Array.isArray(raw))
    throw Error('ROLE_AUDIT_OR_REVOCATION_ENFORCEMENT_NOT_ADMITTED');
-  const row=raw as Record<string,unknown>,key=row.relation+':'+row.trigger;
-  const expected=ROLE_EXPECTED_TRIGGERS.find(x=>x.relation===row.relation&&x.trigger===row.trigger);
+  const row=raw as Record<string,unknown>,key=row.relation_schema+':'+row.relation+':'+row.trigger;
+  const expected=ROLE_EXPECTED_TRIGGERS.find(x=>x.relation_schema===row.relation_schema&&x.relation===row.relation&&x.trigger===row.trigger);
   if(!expected||seen.has(key)||Object.keys(row).length!==Object.keys(expected).length||
    Object.entries(expected).some(([k,v])=>JSON.stringify(row[k])!==JSON.stringify(v)))
    throw Error('ROLE_AUDIT_OR_REVOCATION_ENFORCEMENT_NOT_ADMITTED');
@@ -56,9 +59,11 @@ export function assertRoleEnforcement(value:unknown):void{
 }
 export const ROLE_TRIGGER_CATALOG_SQL=`
 SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
- 'relation',c.relname,'trigger',t.tgname,'enabled',t.tgenabled::text,
+ 'relation_schema',n.nspname,'relation',c.relname,'trigger',t.tgname,'enabled',t.tgenabled::text,
  'owner',r.rolname,'owner_login',r.rolcanlogin,'owner_super',r.rolsuper,
- 'owners_match',p.proowner=c.relowner AND c.relowner=n.nspowner,
+ 'owners_match',p.proowner=pn.nspowner AND (n.nspname<>'hft_app_roles' OR c.relowner=n.nspowner),
+ 'relation_owner_secure',NOT ro.rolcanlogin AND NOT ro.rolsuper AND NOT ro.rolbypassrls
+  AND NOT pg_catalog.pg_has_role(current_user,ro.oid,'MEMBER'),
  'relation_kind',c.relkind::text,'function_schema',pn.nspname,
  'function_name',p.proname,'body',p.prosrc,'language',l.lanname,
  'security_definer',p.prosecdef,'volatility',p.provolatile::text,
@@ -81,5 +86,8 @@ JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid
 JOIN pg_catalog.pg_namespace pn ON pn.oid=p.pronamespace
 JOIN pg_catalog.pg_language l ON l.oid=p.prolang
 JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
+JOIN pg_catalog.pg_roles ro ON ro.oid=c.relowner
 LEFT JOIN pg_catalog.pg_constraint k ON k.oid=t.tgconstraint
-WHERE n.nspname='hft_app_roles' AND NOT t.tgisinternal`;
+WHERE NOT t.tgisinternal AND (n.nspname='hft_app_roles' OR
+ (n.nspname='hft' AND c.relname IN('employee','legal_entity','site','warehouse')
+  AND t.tgname='role_dependency_fence'))`;

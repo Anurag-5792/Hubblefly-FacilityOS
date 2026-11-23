@@ -34,6 +34,8 @@ const base={
  HFT_PUBLIC_ORIGIN:'https://facility-roles.example.org'
 };
 const accepted={
+ db_oid:'12345',server_address:'127.0.0.1',server_port:5432,
+ protected_column_write_count:0,binding_column_write_count:0,audit_column_write_count:0,scope_unauthorized_write:false,
  missing_required_schemas:[],replication_mode:'origin',enforcement:ROLE_EXPECTED_TRIGGERS,
  db:base.HFT_ROLE_PG_DATABASE,db_login:base.HFT_ROLE_PG_LOGIN,
  db_role:base.HFT_ROLE_PG_LOGIN,pg_version:180007,replica:false,
@@ -80,6 +82,8 @@ test('role endpoint is admitted only with isolated Preview identity and strict T
 test('database catalog accepts exact independent role schema and restricted actor login',async()=>{
  await assert.doesNotReject(assertRoleConnection(client(),base));
  for(const patch of [
+  {db_oid:undefined},{server_address:null},{server_port:0},
+  {protected_column_write_count:1},{binding_column_write_count:1},{audit_column_write_count:1},{scope_unauthorized_write:true},
   {db:'other'},{db_role:'hft_engineering'},{pg_version:180006},
   {tls:false},{role_table_count:3},{audit_trigger_count:1},
   {schema_create:true},{restricted_login:false},{assignment_insert:false},
@@ -106,7 +110,7 @@ test('trigger admission rejects disabled, replica-only, misplaced, replaced and 
  for(let i=0;i<ROLE_EXPECTED_TRIGGERS.length;i++)for(const patch of [
   {enabled:'D'},{enabled:'R'},{enabled:'O'},{relation:'scope_lock_wrong'},
   {function_name:'noop'},{function_schema:'public'},{body:'BEGIN RETURN NULL; END'},
-  {owner:'hft_r1_roles_np_login'},{owner_login:true},{owner_super:true},
+  {relation_schema:'public'},{relation_owner_secure:false},{owner:'hft_r1_roles_np_login'},{owner_login:true},{owner_super:true},
   {owners_match:false},{security_definer:true},{no_filter:false},
   {function_executable:true},{config:['search_path=public']},{type:0},
   {constraint_relation_matches:false},{no_arguments:false},{returns_trigger:false}
@@ -126,7 +130,7 @@ test('enforcement pins match exact guarded installation source bodies and events
  const sql=readFileSync(new URL('../../db/security/HFT-R1-APP-ROLE-ASSIGNMENT-NONEXECUTABLE.sql',import.meta.url),'utf8');
  for(const row of ROLE_EXPECTED_TRIGGERS){
   assert.ok(sql.includes(row.body));
-  assert.ok(sql.includes(`ALTER TABLE hft_app_roles.${row.relation} ENABLE ALWAYS TRIGGER ${row.trigger};`));
+  assert.ok(sql.includes(`ALTER TABLE ${row.relation_schema}.${row.relation} ENABLE ALWAYS TRIGGER ${row.trigger};`));
  }
  assert.match(sql,/BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE/);
  assert.match(sql,/pg_advisory_xact_lock\(1212568624,77\)/);
