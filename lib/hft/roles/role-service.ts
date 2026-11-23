@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {ROLE_CATALOG,RoleError,deny,exactKeys,identifier,object,scopeFrom,parseChange,planChange,requirePermission,
  requireScope,sameScope,validateAssignment,assignmentStatus,rolesAt,permissionsAt,type BusinessPermission,type Assignment,type AuditEvent,type Employee,
- type Principal,type RoleId,type Scope} from './role-assignment.ts';
+ type Permission,type Principal,type RoleId,type Scope} from './role-assignment.ts';
 export type SessionIdentity=Readonly<{subject:string;sessionId:string;expiresAt:number;
  scope:Readonly<{legalEntityId:string;siteId:string;warehouseIds:readonly string[]}>}>;
 export interface RoleTransaction {
