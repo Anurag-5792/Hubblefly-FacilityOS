@@ -162,7 +162,7 @@ export function planChange(change:Change,actor:Principal,employee:Employee,curre
  const previousModules=currentPeriod?.modulePermissions??[];
  const previousDelegation=currentPeriod?.administrationDelegated??false;
  const chosenModules=change.modulePermissions??(change.action==='ASSIGN'?[]:previousModules);
- const chosenDelegation=change.delegateAdministration??(change.action==='ASSIGN'?false:previousDelegation);
+ const chosenDelegation=change.action==='REVOKE'?false:(change.delegateAdministration??(change.action==='ASSIGN'?false:previousDelegation));
  if((change.modulePermissions!==undefined&&JSON.stringify(moduleSet(chosenModules))!==JSON.stringify(moduleSet(previousModules)))&&!owner)
   deny('ROLE_MODULE_CONFIGURATION_OWNER_ONLY');
  if(change.delegateAdministration!==undefined&&chosenDelegation!==previousDelegation&&!owner)
