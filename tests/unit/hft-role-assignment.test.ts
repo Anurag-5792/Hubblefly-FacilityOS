@@ -1,7 +1,7 @@
 /** Offline policy, API and SQL-adapter regressions. No PostgreSQL or corporate grants. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ROLE_CATALOG,RoleError,assignmentStatus,parseChange,permissionsFor,planChange,requirePermission,rolesAt,roleSet,sameScope,validateAssignment,
+import {ROLE_CATALOG,CRUD_MODULES,CRUD_ACTIONS,moduleSet,permissionsAt,RoleError,assignmentStatus,parseChange,permissionsFor,planChange,requirePermission,rolesAt,roleSet,sameScope,validateAssignment,
  type Assignment,type AuditEvent,type Change,type Employee,type Principal,type RoleId,type Scope} from '../../lib/hft/roles/role-assignment.ts';
 import {RoleService,eventDigest,handleRoleApi,requireCurrentBusinessPermission,
  type RoleStore,type RoleTransaction,type SessionIdentity} from '../../lib/hft/roles/role-service.ts';
@@ -51,11 +51,14 @@ test('inactive or changed employee rejected again inside write transaction',()=>
  assert.throws(()=>plan({},empty(),actor,owner,{...employee,active:false}),/EMPLOYEE_CHANGED/);
  assert.throws(()=>plan({employeeVersion:2}),/EMPLOYEE_CHANGED/);
 });
-test('Role Administrator delegates operational roles but not administration',()=>{
+test('Role Administrator needs explicit owner delegation; cannot delegate admin rights',()=>{
  const admin=assigned(['ROLE_ADMINISTRATOR'],'ADMIN01');
- assert.equal(plan({},empty(),actor,admin).after.revision,1);
- assert.throws(()=>plan({roles:['OWNER_ADMIN']},empty(),actor,admin),/DELEGATION/);
- assert.throws(()=>plan({action:'REVOKE',roles:[],expectedRevision:1},assigned(['ROLE_ADMINISTRATOR']),actor,admin),/DELEGATION/);
+ assert.throws(()=>plan({},empty(),actor,admin),/MANAGEMENT/);
+ const delegated={...admin,periods:admin.periods.map(p=>({...p,administrationDelegated:true}))};
+ assert.equal(plan({},empty(),actor,delegated).after.revision,1);
+ assert.throws(()=>plan({roles:['OWNER_ADMIN']},empty(),actor,delegated),/DELEGATION/);
+ assert.throws(()=>plan({modulePermissions:['module.ITEMS.update']},empty(),actor,delegated),/MODULE_CONFIGURATION_OWNER_ONLY/);
+ assert.throws(()=>plan({action:'REVOKE',roles:[],expectedRevision:1},assigned(['ROLE_ADMINISTRATOR']),actor,delegated),/DELEGATION/);
 });
 test('viewer cannot manage and non-owner cannot remove administrative assignment',()=>{
  assert.throws(()=>plan({},empty(),actor,assigned(['VIEWER'],'ADMIN01')),/MANAGEMENT/);
@@ -243,4 +246,60 @@ test('write fence rejects backend reassignment or a reset before policy callback
   await assert.rejects(pg.write(scope,async()=>{callback=true;}),/ROLE_SESSION_FENCE_AFFINITY_DENIED/);
   assert.equal(callback,false);assert.equal(destroyed,true);assert.ok(sql.includes('ROLLBACK'));
  }
+});
+
+test('module CRUD catalog is bounded; stock, audit, approval, posting deletion excluded',()=>{
+ assert.equal(CRUD_MODULES.length,7);assert.deepEqual(CRUD_ACTIONS,['create','read','update','delete']);
+ assert.deepEqual(moduleSet(['module.ITEMS.read','module.EMPLOYEES.create']),['module.EMPLOYEES.create','module.ITEMS.read']);
+ for(const grant of ['module.STOCK_LEDGER.delete','module.AUDIT.delete','module.APPROVALS.update','module.ITEMS.post'])
+  assert.throws(()=>moduleSet([grant]),/INVALID_MODULE_PERMISSIONS/);
+ assert.throws(()=>moduleSet(['module.ITEMS.read','module.ITEMS.read']),/INVALID_MODULE_PERMISSIONS/);
+});
+test('Owner Admin explicitly selects bounded module CRUD in immutable assignment history',()=>{
+ const event=plan({roles:['STORES_IN_CHARGE','PROCUREMENT'],
+  modulePermissions:['module.SUPPLIERS.create','module.ITEMS.read','module.ITEMS.update']});
+ assert.equal(event.after.revision,1);
+ assert.deepEqual(permissionsAt(event.after,now).filter(x=>x.startsWith('module.')),
+  ['module.ITEMS.read','module.ITEMS.update','module.SUPPLIERS.create']);
+ assert.equal(permissionsAt(event.after,now).includes('stores.receive'),true);
+ assert.equal(permissionsAt(event.after,now).includes('stores.check'),false);
+ assert.deepEqual(event.command.modulePermissions,['module.ITEMS.read','module.ITEMS.update','module.SUPPLIERS.create']);
+ const after=plan({roles:['VIEWER'],modulePermissions:[],action:'CHANGE',expectedRevision:1},event.after).after;
+ assert.equal(permissionsAt(after,now).includes('module.ITEMS.update'),false);
+ assert.equal(permissionsAt(after,now).includes('stores.receive'),false);
+});
+test('explicit owner role-administration delegation is granted, scheduled, revoked and audited',()=>{
+ const event=plan({roles:['ROLE_ADMINISTRATOR'],delegateAdministration:true});
+ assert.equal(event.after.periods[0].administrationDelegated,true);
+ assert.equal(event.command.delegateAdministration,true);
+ assert.equal(permissionsAt(event.after,now).includes('roles.manage'),true);
+ assert.equal(permissionsAt(event.after,now).includes('roles.manage-admin'),false);
+ const revoked=plan({action:'REVOKE',roles:[],expectedRevision:1},event.after).after;
+ assert.deepEqual(permissionsAt(revoked,now),[]);
+ assert.throws(()=>parseChange(raw({roles:['VIEWER'],delegateAdministration:true})),/REQUIRES_ROLE/);
+ assert.throws(()=>parseChange(raw({action:'REVOKE',roles:[],modulePermissions:['module.ITEMS.read']})),/REVOKE_MUST_BE_EMPTY/);
+});
+test('current scoped API CRUD permission is checked from server role snapshot, never UI role label',async()=>{
+ const store=new MemoryStore();
+ store.states.set('ADMIN01',{...assigned(['VIEWER'],'ADMIN01'),periods:[
+  {from:earlier,to:null,roles:['VIEWER'],modulePermissions:['module.ITEMS.read']} ]});
+ await requireCurrentBusinessPermission(store,session,scope,'module.ITEMS.read',now);
+ await assert.rejects(requireCurrentBusinessPermission(store,session,scope,'module.ITEMS.update',now),/ROLE_PERMISSION_DENIED/);
+ await assert.rejects(requireCurrentBusinessPermission(store,session,scope,'module.ITEMS.delete',now),/ROLE_PERMISSION_DENIED/);
+ await assert.rejects(requireCurrentBusinessPermission(store,session,{...scope,warehouseId:'OTHER'},'module.ITEMS.read',now),/SCOPE_DENIED/);
+ store.states.set('ADMIN01',{...assigned(['VIEWER'],'ADMIN01'),revision:2,periods:[{from:earlier,to:now,roles:['VIEWER'],modulePermissions:['module.ITEMS.read']}]});
+ await assert.rejects(requireCurrentBusinessPermission(store,session,scope,'module.ITEMS.read',now),/ROLE_PERMISSION_DENIED/);
+});
+
+test('server-side module CRUD guard blocks operation callback without current scoped grant',async()=>{
+ const {withAuthorizedModuleCrud}=await import('../../lib/hft/roles/module-crud-guard.ts');
+ const s=new MemoryStore();let calls=0;
+ s.states.set('ADMIN01',{...assigned(['VIEWER'],'ADMIN01'),periods:[{from:earlier,to:null,roles:['VIEWER'],modulePermissions:['module.SUPPLIERS.read']}]});
+ await assert.rejects(withAuthorizedModuleCrud(s,session,scope,'SUPPLIERS','update',async()=>{calls++;}),/ROLE_PERMISSION_DENIED/);
+ assert.equal(calls,0);
+ await withAuthorizedModuleCrud(s,session,scope,'SUPPLIERS','read',async()=>{calls++;});
+ assert.equal(calls,1);
+ s.states.set('ADMIN01',{...assigned(['VIEWER'],'ADMIN01'),revision:2,periods:[]});
+ await assert.rejects(withAuthorizedModuleCrud(s,session,scope,'SUPPLIERS','read',async()=>{calls++;}),/ROLE_PERMISSION_DENIED/);
+ assert.equal(calls,1);
 });

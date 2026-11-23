@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {ROLE_CATALOG,RoleError,deny,exactKeys,identifier,object,scopeFrom,parseChange,planChange,requirePermission,
- requireScope,sameScope,validateAssignment,assignmentStatus,permissionsFor,rolesAt,type Assignment,type AuditEvent,type Employee,
- type Permission,type Principal,type RoleId,type Scope} from './role-assignment.ts';
+ requireScope,sameScope,validateAssignment,assignmentStatus,rolesAt,permissionsAt,type BusinessPermission,type Assignment,type AuditEvent,type Employee,
+ type Principal,type RoleId,type Scope} from './role-assignment.ts';
 export type SessionIdentity=Readonly<{subject:string;sessionId:string;expiresAt:number;
  scope:Readonly<{legalEntityId:string;siteId:string;warehouseIds:readonly string[]}>}>;
 export interface RoleTransaction {
@@ -36,7 +36,7 @@ export function eventDigest(value:unknown):string{
  * This check cannot replace original SQL invoice/QC/approver SoD controls.
  */
 export async function requireCurrentBusinessPermission(
- store:RoleStore,session:SessionIdentity,scope:Scope,permission:Permission,
+ store:RoleStore,session:SessionIdentity,scope:Scope,permission:BusinessPermission,
  now=new Date().toISOString()):Promise<Principal>{
  return store.read(async tx=>{
   const actor=await tx.principal(session);
@@ -50,7 +50,7 @@ export async function requireCurrentBusinessPermission(
   validateAssignment(assignment);
   if(assignment.employeeId!==actor.employeeId||
    !sameScope(assignment.scope,scope)||
-   !permissionsFor(rolesAt(assignment,now)).includes(permission))
+   !permissionsAt(assignment,now).includes(permission))
    deny('ROLE_PERMISSION_DENIED');
   return actor;
  });
@@ -104,6 +104,9 @@ export class RoleService {
     let admin=false;try{requirePermission(actor,actorAssignment,'roles.manage-admin',scope,this.clock());admin=true;}catch(e){if(!(e instanceof RoleError))throw e;}
     const grantableRoles:RoleId[]=ROLE_CATALOG.filter(r=>admin||!['OWNER_ADMIN','ROLE_ADMINISTRATOR'].includes(r.id)).map(r=>r.id);
     return {state:'READ_VERIFIED',scope,employee,assignment,history,status:assignmentStatus(assignment,this.clock()),grantableRoles,
+     effectivePermissions:permissionsAt(assignment,this.clock()),
+     canConfigureModules:rolesAt(actorAssignment,this.clock()).includes('OWNER_ADMIN'),
+     canDelegateAdministration:rolesAt(actorAssignment,this.clock()).includes('OWNER_ADMIN'),
      nextBeforeRevision:history.length===50?history[history.length-1].after.revision:null};
    });
   }
@@ -149,7 +152,7 @@ export class RoleService {
  /** Integrate inside a protected API operation, not as a cached JWT role claim.
   * The callback shares the scope lock/transaction with the live role decision.
   * Existing P0/P2/P3 approval checks remain mandatory inside that operation. */
- async withApiPermission<T>(scope:Scope,permission:Permission,
+ async withApiPermission<T>(scope:Scope,permission:BusinessPermission,
   source:(tx:RoleTransaction)=>Promise<Parameters<typeof requirePermission>[5]>,
   operation:(tx:RoleTransaction,actor:Principal)=>Promise<T>):Promise<T>{
   return this.store.write(scope,async tx=>{const actor=await tx.principal(this.session);

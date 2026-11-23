@@ -1,10 +1,10 @@
 'use client';
 import Link from 'next/link';
 import {useEffect,useRef,useState} from 'react';
-import {ROLE_CATALOG,permissionsFor,roleSet,rolesAt,sameScope,type Assignment,type AuditEvent,type Employee,type RoleId,type Scope} from '../../../lib/hft/roles/role-assignment.ts';
+import {ROLE_CATALOG,CRUD_MODULES,CRUD_ACTIONS,modulePermission,moduleSet,permissionsFor,roleSet,rolesAt,sameScope,type CrudPermission,type Assignment,type AuditEvent,type Employee,type RoleId,type Scope} from '../../../lib/hft/roles/role-assignment.ts';
 import styles from './role-assignment.module.css';
 type View={state:'READ_VERIFIED';employee:Employee;assignment:Assignment;history:AuditEvent[];status:string;
- grantableRoles:RoleId[];nextBeforeRevision:number|null};
+ grantableRoles:RoleId[];nextBeforeRevision:number|null;effectivePermissions:string[];canConfigureModules:boolean;canDelegateAdministration:boolean};
 type Bootstrap={state:'CONNECTED';scopes:Scope[];actorEmployeeId:string};
 type Pending={requestId:string;scope:Scope};
 const endpoint='/api/hft/settings/roles';
@@ -17,6 +17,9 @@ const errorText=(code:string)=>({
  ROLE_ACTIVE_EMPLOYEE_CHANGED:'The employee is no longer active or their record changed. Search again.',
  ROLE_LAST_OWNER_DENIED:'This change would remove the last continuing Owner Admin for this scope.',
  ROLE_ADMIN_DELEGATION_DENIED:'Only an Owner Admin can assign or remove administrative roles.',
+ ROLE_ADMIN_DELEGATION_OWNER_ONLY:'Only the verified Owner Admin can explicitly delegate role administration.',
+ ROLE_MODULE_CONFIGURATION_OWNER_ONLY:'Only the verified Owner Admin can change module CRUD permissions.',
+ ROLE_INVALID_MODULE_PERMISSIONS:'Select only permitted module CRUD actions.',
  ROLE_BACKDATING_DENIED:'The start date is in the past. Use Starts now or a future date.',
 } as Record<string,string>)[code]??'The request was rejected or could not be verified. No successful assignment is claimed.';
 class RoleRequestRejected extends Error {}
@@ -36,6 +39,7 @@ export default function RoleAssignmentPage(){
  const [query,setQuery]=useState(''),[employees,setEmployees]=useState<Employee[]>([]),[view,setView]=useState<View|null>(null);
  const [message,setMessage]=useState('Checking signed session and role backend…'),[busy,setBusy]=useState(false);
  const [open,setOpen]=useState(false),[roles,setRoles]=useState<RoleId[]>([]),[chosen,setChosen]=useState<RoleId>('VIEWER');
+ const [moduleGrants,setModuleGrants]=useState<CrudPermission[]>([]),[delegateAdmin,setDelegateAdmin]=useState(false);
  const [startsNow,setStartsNow]=useState(true),[start,setStart]=useState(localTime),[end,setEnd]=useState(''),[reason,setReason]=useState('');
  const [pending,setPending]=useState<Pending|null>(null),[preview,setPreview]=useState<RoleId>('STORES_OPERATOR');
  const epoch=useRef(0),abort=useRef<AbortController|null>(null),dialog=useRef<HTMLDialogElement|null>(null);
@@ -65,8 +69,14 @@ export default function RoleAssignmentPage(){
   finally{if(n===epoch.current)setBusy(false);}
  }
  function edit(){if(!view)return;const current=rolesAt(view.assignment,new Date().toISOString());
-  setRoles([...current]);setChosen('VIEWER');setStartsNow(true);setStart(localTime());setEnd('');setReason('');setOpen(true);}
+  const period=view.assignment.periods.find(p=>p.from<=new Date().toISOString()&&(!p.to||new Date().toISOString()<p.to));
+  setRoles([...current]);setModuleGrants([...(period?.modulePermissions??[])]);setDelegateAdmin(period?.administrationDelegated===true);
+  setChosen('VIEWER');setStartsNow(true);setStart(localTime());setEnd('');setReason('');setOpen(true);}
  function addRole(){try{setRoles(roleSet([...roles,chosen]));}catch(e){setMessage(errorText(e instanceof Error?e.message:''));}}
+ function toggleCrud(permission:CrudPermission){
+  if(!view?.canConfigureModules)return;
+  setModuleGrants(v=>moduleSet(v.includes(permission)?v.filter(p=>p!==permission):[...v,permission]));
+ }
  async function save(revoke=false){if(!view||!scope||pending)return;
   const requestId=crypto.randomUUID();const now=new Date().toISOString();
   let effectiveFrom:string,effectiveTo:string|null;
@@ -76,7 +86,9 @@ export default function RoleAssignmentPage(){
   const action=revoke?'REVOKE':view.assignment.periods.some(p=>!p.to||p.to>effectiveFrom)?'CHANGE':'ASSIGN';
   setBusy(true);setPending({requestId,scope});
   try{const result=await call({requestId,action,employeeId:view.employee.employeeId,employeeVersion:view.employee.version,
-   scope,roles:revoke?[]:roles,expectedRevision:view.assignment.revision,effectiveFrom,effectiveTo,reason});
+   scope,roles:revoke?[]:roles,expectedRevision:view.assignment.revision,effectiveFrom,effectiveTo,reason,
+   ...(!revoke&&view.canConfigureModules?{modulePermissions:moduleGrants}:{}),
+   ...(!revoke&&view.canDelegateAdministration?{delegateAdministration:delegateAdmin}: {})});
    if(result.state!=='SAVED_VERIFIED'||result.requestId!==requestId){setMessage('Save outcome is unconfirmed. Do not submit another change. Check the original request below.');return;}
    setPending(null);setOpen(false);await selectEmployee(view.employee.employeeId);
    setMessage(`Saved and independently read back. Current status: ${String(result.status)}. Audit revision: ${String(result.revision)}.`);
@@ -130,7 +142,8 @@ export default function RoleAssignmentPage(){
   </section><section className="panel"><div className="panel-heading"><h2>Existing assignments</h2><span className="status">{view?.status??'Not loaded'}</span></div>
    {view?<><h3>{view.employee.fullName}</h3><p>{view.employee.employeeId} · Revision {view.assignment.revision}</p>
     {view.assignment.periods.map((p,i)=><div key={i} className={styles.period}><strong>{p.roles.map(label).join(', ')}</strong>
-     <small>{new Date(p.from).toLocaleString()} → {p.to?new Date(p.to).toLocaleString():'No end date'}</small></div>)}
+     <small>{new Date(p.from).toLocaleString()} → {p.to?new Date(p.to).toLocaleString():'No end date'}</small>
+     <small>Module CRUD: {(p.modulePermissions??[]).join(', ')||'None'} · Role administration delegation: {p.administrationDelegated?'Explicitly delegated':'Not delegated'}</small></div>)}
     {!view.assignment.periods.length&&<p>No current or scheduled roles.</p>}
     <button className="primary-button" onClick={edit} disabled={busy||!!pending||self||!view.employee.active}>Assign or change roles</button>
     {self&&<p className="masters-help">Self-change is blocked. Use another authorized administrator.</p>}
@@ -140,6 +153,7 @@ export default function RoleAssignmentPage(){
   <section className="panel" style={{marginTop:16}}><h2>Permission preview</h2>
    <label className={styles.field}>Role<select value={preview} onChange={e=>setPreview(e.target.value as RoleId)}>{ROLE_CATALOG.map(r=><option key={r.id} value={r.id}>{r.label}</option>)}</select></label>
    <div className={styles.chips}>{permissionsFor([preview]).map(p=><code key={p}>{p}</code>)}</div>
+   {view&&<><h3>Actual effective permissions for selected employee</h3><div className={styles.chips}>{view.effectivePermissions.map(p=><code key={p}>{p}</code>)}</div></>}
    <p className="masters-help">These are this module’s application permission definitions, not a claim of current access. Existing protected stock controls remain mandatory; live enforcement awaits backend activation.</p>
   </section>
   <section className="panel" style={{marginTop:16}}><h2>Assignment history</h2>
@@ -156,6 +170,15 @@ export default function RoleAssignmentPage(){
       <button type="button" onClick={addRole} disabled={roles.includes(chosen)}>Add role</button></div>
      <div className={styles.chips}>{roles.map(r=><button type="button" key={r} onClick={()=>setRoles(roles.filter(x=>x!==r))}>{label(r)} ×</button>)}</div>
      <h3>Permissions for this selection</h3><div className={styles.chips}>{permissionsFor(roles).map(p=><code key={p}>{p}</code>)}</div>
+     <h3>Module Create / Read / Update / Delete</h3>
+     <p className="masters-help">Only Owner Admin may alter these scoped application permissions. Delete never permits removal of immutable stock, transactions or audit records.</p>
+     <div className="masters-table-wrap"><table className="data-table"><thead><tr><th>Module</th>{CRUD_ACTIONS.map(a=><th key={a}>{a.toUpperCase()}</th>)}</tr></thead>
+     <tbody>{CRUD_MODULES.map(m=><tr key={m.id}><th>{m.label}</th>{CRUD_ACTIONS.map(a=>{const permission=modulePermission(m.id,a);return <td key={permission}>
+      <input type="checkbox" aria-label={`${m.label} ${a}`} checked={moduleGrants.includes(permission)} disabled={!view?.canConfigureModules||busy||!!pending}
+       onChange={()=>toggleCrud(permission)}/></td>;})}</tr>)}</tbody></table></div>
+     <label className={styles.check}><input type="checkbox" checked={delegateAdmin} disabled={!view?.canDelegateAdministration||!roles.includes('ROLE_ADMINISTRATOR')||busy||!!pending}
+      onChange={e=>setDelegateAdmin(e.target.checked)}/>Explicitly delegate role administration (owner decision, audited and revocable)</label>
+     <p className="masters-help">Effective module grants: {moduleGrants.length?moduleGrants.join(', '):'None'}.</p>
      <label className={styles.check}><input type="checkbox" checked={startsNow} onChange={e=>setStartsNow(e.target.checked)}/>Starts now</label>
      {!startsNow&&<label className={styles.field}>Effective from (your local time)<input type="datetime-local" value={start} onChange={e=>setStart(e.target.value)} required/></label>}
      <label className={styles.field}>Effective until (optional, your local time)<input type="datetime-local" value={end} onChange={e=>setEnd(e.target.value)}/></label>
