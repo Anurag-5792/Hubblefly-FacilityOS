@@ -50,7 +50,7 @@ const row={kind:'EMPLOYEE',legal_entity_id:'HFT',site_id:'SITE1',warehouse_id:'W
 function mock(patch:Record<string,unknown>={},failReadback=false){
  let commits=0,writes=0,connections=0,denied=0;
  const pool:LivePool={connect:async()=>{connections++;return {
- async query<Row extends Record<string,unknown>>(sql:string,params?:unknown[]){
+ async query<Row=Record<string,unknown>>(sql:string,params?:unknown[]){
   let rows:Record<string,unknown>[]=[];
   if(sql===LIVE_ADMISSION_SQL)rows=[{...catalog,...patch}];
   else if(sql.includes('save_v1')){writes++;rows=[{evidence:{state:'COMMITTED_UNAPPROVED',
@@ -64,7 +64,7 @@ function mock(patch:Record<string,unknown>={},failReadback=false){
   else if(!['ROLLBACK'].includes(sql)&&!sql.startsWith('BEGIN')&&!sql.startsWith('SET LOCAL'))
    {denied++;throw Error('UNEXPECTED_SQL');}
   void params;
-  return {rows:rows as Row[]};
+  return {rows:rows as unknown as Row[]};
  },release(){}};
  },end:async()=>{}};
  return {pool,commits:()=>commits,writes:()=>writes,connections:()=>connections,denied:()=>denied};
@@ -93,7 +93,7 @@ test('all six kinds validate exact values and delete means soft delete only',()=
  }
  assert.throws(()=>validateLiveRequest({...req,values:{...req.values,approved:true}}));
  assert.throws(()=>validateLiveRequest({...req,values:{...req.values,active:true}}));
- assert.equal(validateLiveRequest({...req,action:'DELETE',expectedRevision:1,values:{}}).action,'DELETE');
+ assert.equal((validateLiveRequest({...req,action:'DELETE',expectedRevision:1,values:{}}) as {action:string}).action,'DELETE');
  assert.throws(()=>validateLiveRequest({...req,action:'DELETE',expectedRevision:1}));
 });
 test('restricted catalog denies absent functions, TLS/owner and table or column privileges',async()=>{

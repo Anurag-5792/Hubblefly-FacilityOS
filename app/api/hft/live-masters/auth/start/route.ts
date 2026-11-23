@@ -1,5 +1,5 @@
 import {oidcConfig,startUrl}
- from '../../../../../../lib/hft/live-masters/draft-oidc.ts';
+ from '../../../../../../lib/hft/live/live-oidc.ts';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export async function GET():Promise<Response>{

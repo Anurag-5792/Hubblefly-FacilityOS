@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import {useState,type FormEvent} from 'react';
 import {LIVE_KINDS,LIVE_FIELDS,LIVE_R1_VERSION,
- type LiveKind,type LiveRecord,type LiveScope} from '../../lib/hft/live/live-contract.ts';
+ type LiveKind,type LiveRecord,type LiveScope} from '../../../lib/hft/live/live-contract.ts';
 const blank:LiveScope={legalEntityId:'',siteId:'',warehouseId:''};
 const fields:Readonly<Record<string,string>>={fullName:'Full name',department:'Department',
  designation:'Designation',uom:'UOM',controlType:'Control type',legalName:'Legal name',

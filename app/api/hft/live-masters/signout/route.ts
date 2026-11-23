@@ -1,4 +1,4 @@
-import {clearAuthCookies} from '../../../../../lib/hft/live-masters/draft-oidc.ts';
+import {clearAuthCookies} from '../../../../../lib/hft/live/live-oidc.ts';
 export const runtime='nodejs';
 export async function POST(request:Request):Promise<Response>{
  const origin=process.env.HFT_PUBLIC_ORIGIN;

@@ -2,7 +2,7 @@
 import {createRequire} from 'node:module';
 import {isIP} from 'node:net';
 import {assertLiveProfile,livePgOptions,type LiveEnv} from './live-profile.ts';
-import {validateLiveRequest,type LiveRequest,type LiveChange,type LiveRecord} from './live-contract.ts';
+import {validateLiveRequest,type LiveRequest,type LiveRecord} from './live-contract.ts';
 import {assertVerifiedRequestOperator,type VerifiedRequestOperator} from '../security/verified-request.ts';
 type Client={query<T=Record<string,unknown>>(sql:string,values?:unknown[]):Promise<{rows:T[]}>;release(destroy?:boolean):void};
 export type LivePool={connect():Promise<Client>;end():Promise<void>};
