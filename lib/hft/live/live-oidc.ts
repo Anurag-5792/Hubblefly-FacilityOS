@@ -184,7 +184,9 @@ export async function verifyGoogleIdentity(config:OidcConfig,env:LiveEnv,
  if(Boolean(config.proofBinding)!==Boolean(flow.identityProofOnly)||
   (config.proofBinding&&(!identityProofModeAdmitted(env)||config.proofBinding.origin!==env.HFT_PUBLIC_ORIGIN)))
   throw Error('LIVE_R1_IDENTITY_FLOW_MODE_MISMATCH');
- if(!/^[A-Za-z0-9._~-]{6,4096}$/.test(code))
+ // Google OAuth authorization codes can contain a slash (including the 4/ prefix).
+ // Preserve the length limit and reject all characters outside the approved alphabet.
+ if(code.length<6||code.length>4096||/[^A-Za-z0-9._~\/-]/.test(code))
   throw Error('LIVE_R1_OIDC_CODE_INVALID');
  const origin=env.HFT_PUBLIC_ORIGIN!;
  const token=await jsonHttp(config.token,{

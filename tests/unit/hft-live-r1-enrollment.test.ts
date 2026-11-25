@@ -78,7 +78,7 @@ test('signed Google claims yield identity-only receipt and never a session',asyn
  await assert.rejects(completeLogin(c,env,flow,'synthetic-code'),/CANNOT_CREATE_SESSION/);
  await assert.rejects(completeIdentityProof(c,env,{...flow,identityProofOnly:undefined},'synthetic-code'));
 });
-test('proof callback returns signed evidence and only clears the application session cookie',async t=>{
+test('Google-format slash code is exchanged unchanged; callback issues proof only',async t=>{
  const old=process.env;
  process.env={...old,...env} as NodeJS.ProcessEnv;
  try{
@@ -91,16 +91,31 @@ test('proof callback returns signed evidence and only clears the application ses
   const value=cookies.match(/__Host-hft_live_identity_proof=([A-Za-z0-9_-]+);/)?.[1];
   assert.ok(value);
   const flow=decodeFlow(value,c.stateKey);
-  t.mock.method(globalThis,'fetch',async(input:RequestInfo|URL)=>{
-   if(String(input)===c.token)return Response.json({id_token:token(flow.nonce)});
+  const googleCode='4/FIXTURE_ONLY-not-a-real-authorization-code';
+  let exchanges=0;
+  t.mock.method(globalThis,'fetch',async(input:RequestInfo|URL,init?:RequestInit)=>{
+   if(String(input)===c.token){
+    assert.equal(init?.method,'POST');
+    assert.ok(init?.body instanceof URLSearchParams);
+    assert.equal(init.body.get('code'),googleCode);
+    assert.equal(init.body.get('grant_type'),'authorization_code');
+    assert.equal(init.body.get('redirect_uri'),origin+'/api/hft/live-masters/auth/callback');
+    assert.equal(init.body.get('code_verifier'),flow.verifier);
+    exchanges++;
+    return Response.json({id_token:token(flow.nonce)});
+   }
    if(String(input)===c.jwks)return Response.json({keys:[{...google.publicKey.export({format:'jwk'}),kid:'fixture'}]});
    throw Error('unexpected URL');
   });
-  const endpoint=origin+'/api/hft/live-masters/auth/callback?code=synthetic-code&state=';
+  const endpoint=origin+'/api/hft/live-masters/auth/callback?code='+encodeURIComponent(googleCode)+'&state=';
   const opts={headers:{cookie:identityProofCookie+'='+value}};
   const result=await callbackRoute(new Request(endpoint+flow.state,opts));
   assert.equal(result.status,200);
-  assert.equal((await result.json()).applicationSession,false);
+  assert.equal(exchanges,1);
+  const proof=await result.json();
+  assert.equal(proof.applicationSession,false);
+  assert.equal(proof.databaseAccess,false);
+  assert.equal(proof.enrolled,false);
   assert.equal(result.headers.get('cache-control'),'no-store');
   const out=result.headers.get('set-cookie')||'';
   assert.match(out,/__Host-hft_session=;[^,]*Max-Age=0/);
@@ -108,5 +123,14 @@ test('proof callback returns signed evidence and only clears the application ses
   const denied=await callbackRoute(new Request(endpoint+'wrong',opts));
   assert.equal(denied.status,403);
   assert.equal((await denied.json()).authorization,'NONE');
+  for(const invalid of ['short','4/fixture code','4/fixture\n','4/fixture\r',
+   '4/fixture&state=bad','4/'+ 'x'.repeat(4095)]){
+   const invalidUrl=origin+'/api/hft/live-masters/auth/callback?code='+
+    encodeURIComponent(invalid)+'&state='+flow.state;
+   const rejected=await callbackRoute(new Request(invalidUrl,opts));
+   assert.equal(rejected.status,403);
+   assert.equal((await rejected.json()).authorization,'NONE');
+  }
+  assert.equal(exchanges,1);
  }finally{process.env=old;}
 });
