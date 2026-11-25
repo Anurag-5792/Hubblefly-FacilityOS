@@ -3,9 +3,11 @@ on:
   push:
     branches:
       - engineering/hft-r1-stores-foundation
+      - engineering/hft-r1-neon-proxy-tls-qualification-010
   pull_request:
     branches:
       - main
+      - engineering/hft-r1-stores-foundation
 permissions:
   contents: read
 jobs:
