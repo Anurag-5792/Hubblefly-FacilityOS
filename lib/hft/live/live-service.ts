@@ -49,7 +49,7 @@ SELECT current_database() AS database_name,session_user AS login,current_user AS
     OR (NOT (n.nspname='hft_live_r1' AND c.relname IN('installation','schema_revision')) AND
     ((c.relkind IN('r','p','v','m','f') AND pg_catalog.has_table_privilege(current_user,c.oid,
     'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) OR
-    (c.relkind='S' AND pg_catalog.has_sequence_privilege(current_user,c.oid,'USAGE,SELECT,UPDATE'))))) AS table_access,
+    (c.relkind='S' AND pg_catalog.has_sequence_privilege(current_user,c.oid,'USAGE,SELECT,UPDATE')))))) AS table_access,
  (SELECT count(*)::integer FROM pg_catalog.pg_attribute a
   JOIN pg_catalog.pg_class c ON c.oid=a.attrelid
   JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
