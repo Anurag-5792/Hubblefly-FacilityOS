@@ -25,7 +25,7 @@ export type OidcConfig=Readonly<{issuer:string;authorize:string;token:string;
  jwks:string;clientId:string;clientSecret:string;stateKey:Buffer;
  privatePem:string;actors:Readonly<Record<string,{subject:string;
  providerSubject:string;legalEntityId:string;siteId:string;warehouseIds:string[]}>>}>;
-export function oidcConfig(env:LiveEnv):OidcConfig{
+export function oidcConfig(env:LiveEnv,identityProofOnly=false):OidcConfig{
  assertLiveProfile(env);
  const exactIssuer=url(env.HFT_LIVE_R1_OIDC_ISSUER);
  if(exactIssuer.search)throw Error('LIVE_R1_OIDC_ISSUER_QUERY_DENIED');
@@ -44,7 +44,7 @@ export function oidcConfig(env:LiveEnv):OidcConfig{
  }catch{throw Error('LIVE_R1_OIDC_ACTOR_GRANTS_UNAVAILABLE');}
  if(!clientId||clientSecret.length<12||stateKey.length!==32||
   !privatePem||!actors||typeof actors!=='object'||Array.isArray(actors)||
-  Object.keys(actors).length<1||Object.keys(actors).length>40)
+  (!identityProofOnly&&Object.keys(actors).length<1)||Object.keys(actors).length>40)
   throw Error('LIVE_R1_OIDC_CREDENTIALS_NOT_ADMITTED');
  for(const [email,a] of Object.entries(actors)){
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)||email!==email.toLowerCase()||
@@ -66,7 +66,8 @@ export function oidcConfig(env:LiveEnv):OidcConfig{
  return {issuer,authorize,token,jwks,clientId,clientSecret,
   stateKey,privatePem,actors};
 }
-type Flow=Readonly<{state:string;nonce:string;verifier:string;issuedAt:number}>;
+export type Flow=Readonly<{state:string;nonce:string;verifier:string;issuedAt:number;
+ identityProofOnly?:true}>;
 const authCookie='__Host-hft_live_oauth';
 const sessionCookie='__Host-hft_session';
 const common='Path=/; Secure; HttpOnly; SameSite=Lax';
@@ -107,10 +108,11 @@ export function cookieValue(raw:string|null,name:string):string|undefined{
  if(matches.length!==1)return undefined;
  return matches[0].slice(name.length+1);
 }
-export function startUrl(config:OidcConfig,origin:string):{
+export function startUrl(config:OidcConfig,origin:string,identityProofOnly=false):{
  location:string;cookie:string}{
  const flow={state:b64(randomBytes(32)),nonce:b64(randomBytes(32)),
-  verifier:b64(randomBytes(32)),issuedAt:Date.now()};
+  verifier:b64(randomBytes(32)),issuedAt:Date.now(),
+  ...(identityProofOnly?{identityProofOnly:true as const}:{})};
  const u=new URL(config.authorize);
  u.searchParams.set('response_type','code');
  u.searchParams.set('client_id',config.clientId);
@@ -151,8 +153,8 @@ function oneActor(config:OidcConfig,claims:Record<string,unknown>){
  if(!actor||claims.sub!==actor.providerSubject)throw Error('LIVE_R1_OIDC_ACTOR_NOT_ENROLLED');
  return actor;
 }
-export async function completeLogin(config:OidcConfig,env:LiveEnv,
- flow:Flow,code:string):Promise<string>{
+export async function verifyGoogleIdentity(config:OidcConfig,env:LiveEnv,
+ flow:Flow,code:string):Promise<{email:string;providerSubject:string}>{
  if(!/^[A-Za-z0-9._~-]{6,4096}$/.test(code))
   throw Error('LIVE_R1_OIDC_CODE_INVALID');
  const origin=env.HFT_PUBLIC_ORIGIN!;
@@ -192,7 +194,17 @@ export async function completeLogin(config:OidcConfig,env:LiveEnv,
    publicKey,Buffer.from(parts[2],'base64url'));
  }catch{throw Error('LIVE_R1_OIDC_ID_SIGNATURE_INVALID');}
  if(!verified)throw Error('LIVE_R1_OIDC_ID_SIGNATURE_INVALID');
- const actor=oneActor(config,claims);
+ const email=claims.email;
+ if(typeof email!=='string'||claims.email_verified!==true||
+  !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+  throw Error('LIVE_R1_OIDC_VERIFIED_EMAIL_REQUIRED');
+ return {email:email.toLowerCase(),providerSubject:claims.sub};
+}
+export async function completeLogin(config:OidcConfig,env:LiveEnv,
+ flow:Flow,code:string):Promise<string>{
+ if(flow.identityProofOnly)throw Error('LIVE_R1_IDENTITY_PROOF_CANNOT_CREATE_SESSION');
+ const identity=await verifyGoogleIdentity(config,env,flow,code);
+ const actor=oneActor(config,{email:identity.email,email_verified:true,sub:identity.providerSubject});
  const now=Math.floor(Date.now()/1000);
  const session={
   iss:env.HFT_SESSION_ISSUER,aud:env.HFT_SESSION_AUDIENCE,

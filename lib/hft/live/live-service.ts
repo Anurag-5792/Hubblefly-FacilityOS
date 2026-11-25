@@ -14,7 +14,7 @@ export function openLivePool(env:LiveEnv):LivePool{
 export const LIVE_ADMISSION_SQL=`
 SELECT current_database() AS database_name,session_user AS login,current_user AS current_role,
  (SELECT oid::text FROM pg_catalog.pg_database WHERE datname=current_database()) AS database_oid,
- inet_server_addr()::text AS server_address,inet_server_port() AS server_port,
+ pg_catalog.host(inet_server_addr()) AS server_address,inet_server_port() AS server_port,
  current_setting('server_version_num') AS version_num,pg_is_in_recovery() AS replica,
  (SELECT ssl FROM pg_catalog.pg_stat_ssl WHERE pid=pg_catalog.pg_backend_pid()) AS tls,
  (SELECT version FROM pg_catalog.pg_stat_ssl WHERE pid=pg_catalog.pg_backend_pid()) AS tls_version,

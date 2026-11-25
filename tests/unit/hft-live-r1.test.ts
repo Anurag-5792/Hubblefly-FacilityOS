@@ -114,6 +114,14 @@ test('restricted catalog denies absent functions, TLS/owner and table or column 
    /NOT_ADMITTED/);assert.equal(m.writes(),0);
  }
 });
+test('PostgreSQL server_address shape strips the inet CIDR before Node isIP',async()=>{
+ assert.match(LIVE_ADMISSION_SQL,/pg_catalog\.host\(inet_server_addr\(\)\) AS server_address/);
+ assert.doesNotMatch(LIVE_ADMISSION_SQL,/inet_server_addr\(\)::text AS server_address/);
+ const good=mock({server_address:'127.0.0.1',tls:false,tls_version:null});
+ await assert.doesNotReject(admitLiveConnection(await good.pool.connect(),env));
+ const cidr=mock({server_address:'127.0.0.1\/32'});
+ await assert.rejects(admitLiveConnection(await cidr.pool.connect(),env),/NOT_ADMITTED/);
+});
 test('Neon proxy backend TLS flag is diagnostic; client TLS must independently verify',async()=>{
  const good=mock({tls:false,tls_version:null});
  await assert.doesNotReject(admitLiveConnection(await good.pool.connect(),env));

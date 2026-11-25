@@ -2,10 +2,13 @@ import {oidcConfig,startUrl}
  from '../../../../../../lib/hft/live/live-oidc.ts';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
-export async function GET():Promise<Response>{
+export async function GET(request:Request):Promise<Response>{
  try{
-  const config=oidcConfig(process.env);
-  const result=startUrl(config,process.env.HFT_PUBLIC_ORIGIN!);
+  const identityProofOnly=new URL(request.url).searchParams.get('identity_proof')==='1';
+  if(identityProofOnly&&(process.env.HFT_ENVIRONMENT!=='production-qualification'||
+    process.env.VERCEL_ENV!=='preview'))throw Error('LIVE_R1_IDENTITY_PROOF_PREVIEW_ONLY');
+  const config=oidcConfig(process.env,identityProofOnly);
+  const result=startUrl(config,process.env.HFT_PUBLIC_ORIGIN!,identityProofOnly);
   return new Response(null,{status:302,headers:{
    Location:result.location,'Set-Cookie':result.cookie,
    'Cache-Control':'no-store'}});
