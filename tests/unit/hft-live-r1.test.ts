@@ -43,13 +43,22 @@ const catalog={database_name:env.HFT_LIVE_R1_DATABASE,login:env.HFT_LIVE_R1_LOGI
  target_project:env.HFT_LIVE_R1_PROJECT,target_branch:env.HFT_LIVE_R1_BRANCH,database_oid:'12345'}],
  migrations:[{version:1,source_sha256:env.HFT_LIVE_R1_MIGRATION_0001_SHA256},
  {version:2,source_sha256:env.HFT_LIVE_R1_MIGRATION_0002_SHA256}]};
+// Synthetic stream models the Node client TLS properties; it is NOT external TLS proof.
+const fakeTls=(patch:Record<string,unknown>={})=>({encrypted:true,authorized:true,
+ authorizationError:null,servername:env.HFT_LIVE_R1_HOST,
+ remoteAddress:'192.0.2.15',remotePort:5432,getProtocol:()=> 'TLSv1.3',
+ getCipher:()=>({name:'TLS_AES_256_GCM_SHA384'}),
+ getPeerCertificate:()=>({raw:Buffer.from('synthetic-fixture'),
+  subjectaltname:'DNS:'+env.HFT_LIVE_R1_HOST}),...patch});
 const row={kind:'EMPLOYEE',legal_entity_id:'HFT',site_id:'SITE1',warehouse_id:'WH1',
  record_id:'EMP001',revision:1,values_json:req.values,deleted:false,
  state:'RECORDED_UNAPPROVED',created_by:'STORE1',updated_by:'STORE1',
  created_at:'2026-11-23T00:00:00Z',updated_at:'2026-11-23T00:00:00Z'};
-function mock(patch:Record<string,unknown>={},failReadback=false){
+function mock(patch:Record<string,unknown>={},failReadback=false,
+ tlsPatch:Record<string,unknown>={}){
  let commits=0,writes=0,connections=0,denied=0;
  const pool:LivePool={connect:async()=>{connections++;return {
+ connection:{stream:fakeTls(tlsPatch)},
  async query<Row=Record<string,unknown>>(sql:string,params?:unknown[]){
   let rows:Record<string,unknown>[]=[];
   if(sql===LIVE_ADMISSION_SQL)rows=[{...catalog,...patch}];
@@ -98,11 +107,32 @@ test('all six kinds validate exact values and delete means soft delete only',()=
 });
 test('restricted catalog denies absent functions, TLS/owner and table or column privileges',async()=>{
  for(const patch of [{missing_functions:['hft_live_r1.save_v1']},
- {tls:false},{schema_create:true},{table_access:1},{column_access:1},
+ {schema_create:true},{table_access:1},{column_access:1},
  {protected_execute:1},{owner_memberships:1},{secure_function_count:3},
  {installed_binding:[]},{protected_triggers:0},{migrations:[]},{restricted_login:false}]){
   const m=mock(patch);await assert.rejects(admitLiveConnection(await m.pool.connect(),env),
    /NOT_ADMITTED/);assert.equal(m.writes(),0);
+ }
+});
+test('PostgreSQL server_address shape strips the inet CIDR before Node isIP',async()=>{
+ assert.match(LIVE_ADMISSION_SQL,/pg_catalog\.host\(inet_server_addr\(\)\) AS server_address/);
+ assert.doesNotMatch(LIVE_ADMISSION_SQL,/inet_server_addr\(\)::text AS server_address/);
+ const good=mock({server_address:'127.0.0.1',tls:false,tls_version:null});
+ await assert.doesNotReject(admitLiveConnection(await good.pool.connect(),env));
+ const cidr=mock({server_address:'127.0.0.1\/32'});
+ await assert.rejects(admitLiveConnection(await cidr.pool.connect(),env),/NOT_ADMITTED/);
+});
+test('Neon proxy backend TLS flag is diagnostic; client TLS must independently verify',async()=>{
+ const good=mock({tls:false,tls_version:null});
+ await assert.doesNotReject(admitLiveConnection(await good.pool.connect(),env));
+ for(const tlsPatch of [{authorized:false},{encrypted:false},{servername:'wrong.example.org'},
+  {getProtocol:()=> 'TLSv1.1'},
+  {getPeerCertificate:()=>({raw:Buffer.from('synthetic-fixture'),
+   subjectaltname:'DNS:wrong.example.org'})}]){
+  const bad=mock({tls:false,tls_version:null},false,tlsPatch);
+  await assert.rejects(admitLiveConnection(await bad.pool.connect(),env),
+   /CLIENT_TLS_NOT_VERIFIED/);
+  assert.equal(bad.writes(),0);
  }
 });
 test('source Employee CREATE commits then independently reads record and audit revision',async()=>{

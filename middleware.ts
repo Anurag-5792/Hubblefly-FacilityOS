@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import {identityProofPathAdmitted} from './lib/hft/live/live-identity-mode';
 import { assertSecureStartup } from './lib/hft/security/authorization';
 import {assertRetainedMastersProfile,isRetainedMastersProfile}
  from './lib/hft/masters/retained-nonproduction-profile';
@@ -35,6 +36,11 @@ const liveRoutes=new Set(['/masters/live','/api/hft/live-masters',
  '/api/hft/live-masters/auth/callback','/api/hft/live-masters/signout']);
 export function middleware(request:NextRequest){
  const path=request.nextUrl.pathname;
+ if(process.env.HFT_LIVE_R1_IDENTITY_PROOF_MODE!==undefined){
+  if(identityProofPathAdmitted(path,process.env))return NextResponse.next();
+  return NextResponse.json({state:'UNAVAILABLE',code:'LIVE_R1_IDENTITY_ONLY'},
+   {status:503,headers:{'Cache-Control':'no-store'}});
+ }
  // Public settings shell contains no employee or assignment data. The exact
  // new API independently verifies the signed session and denies absent backend.
  // No existing Stores, P3, draft or production admission is broadened.
