@@ -30,7 +30,8 @@ export function assertVerifiedLiveTls(
   if(!approvedHost||isIP(approvedHost)!==0||
     !Number.isInteger(approvedPort)||approvedPort<1||approvedPort>65535)deny();
   const s=client.connection?.stream as LiveSocket|undefined;
-  if(!s||s.encrypted!==true||s.authorized!==true||
+  if(!s)throw Error('LIVE_R1_CLIENT_TLS_NOT_VERIFIED');
+  if(s.encrypted!==true||s.authorized!==true||
     s.authorizationError!=null||s.servername!==approvedHost||
     !s.remoteAddress||isIP(s.remoteAddress)===0||
     s.remotePort!==approvedPort)deny();
@@ -39,7 +40,8 @@ export function assertVerifiedLiveTls(
   const cipher=s.getCipher?.();
   if(!cipher||!cipher.name)deny();
   const peer=s.getPeerCertificate?.();
-  if(!peer||!Buffer.isBuffer(peer.raw)||peer.raw.length===0)deny();
+  if(!peer)throw Error('LIVE_R1_CLIENT_TLS_NOT_VERIFIED');
+  if(!Buffer.isBuffer(peer.raw)||peer.raw.length===0)deny();
   try{if(checkServerIdentity(approvedHost,peer))deny();}
   catch{deny();}
 }
