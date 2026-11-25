@@ -1,10 +1,11 @@
 /** Restricted live Masters PostgreSQL connector. No direct master DML in API. */
 import {createRequire} from 'node:module';
 import {isIP} from 'node:net';
+import {assertVerifiedLiveTls} from './live-tls.ts';
 import {assertLiveProfile,livePgOptions,type LiveEnv} from './live-profile.ts';
 import {validateLiveRequest,type LiveRequest,type LiveRecord} from './live-contract.ts';
 import {assertVerifiedRequestOperator,type VerifiedRequestOperator} from '../security/verified-request.ts';
-type Client={query<T=Record<string,unknown>>(sql:string,values?:unknown[]):Promise<{rows:T[]}>;release(destroy?:boolean):void};
+type Client={connection?:{stream?:unknown};query<T=Record<string,unknown>>(sql:string,values?:unknown[]):Promise<{rows:T[]}>;release(destroy?:boolean):void};
 export type LivePool={connect():Promise<Client>;end():Promise<void>};
 export function openLivePool(env:LiveEnv):LivePool{
  const pg=createRequire(import.meta.url)('pg') as {Pool:new(options:Record<string,unknown>)=>LivePool};
@@ -95,13 +96,15 @@ type Admit=Readonly<{database_name:string;login:string;current_role:string;
  migrations:{version:number;source_sha256:string}[]}>;
 export async function admitLiveConnection(c:Client,env:LiveEnv):Promise<void>{
  assertLiveProfile(env);
+ // Neon may terminate client TLS at its proxy: verify the actual pg TLS socket.
+ // Backend pg_stat_ssl remains diagnostic, never a substitute for CA/host proof.
+ assertVerifiedLiveTls(c,env.HFT_LIVE_R1_HOST!,Number(env.HFT_LIVE_R1_PORT));
  const r=await c.query<Admit>(LIVE_ADMISSION_SQL),x=r.rows[0];
  if(r.rows.length!==1||!x||x.database_name!==env.HFT_LIVE_R1_DATABASE||
   x.login!==env.HFT_LIVE_R1_LOGIN||x.current_role!==x.login||
   x.database_oid!==env.HFT_LIVE_R1_DATABASE_OID||
   !x.server_address||isIP(x.server_address)===0||!Number.isInteger(x.server_port)||
   x.version_num!==env.HFT_LIVE_R1_PG_VERSION||x.replica!==false||
-  x.tls!==true||!['TLSv1.2','TLSv1.3'].includes(x.tls_version||'')||
   x.schema_usage!==true||x.schema_create!==false||
   !Array.isArray(x.missing_functions)||x.missing_functions.length!==0||
   x.secure_function_count!==4||x.extra_execute!==0||
