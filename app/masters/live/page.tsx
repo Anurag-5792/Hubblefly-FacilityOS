@@ -1,5 +1,5 @@
 'use client';
-import {useEffect,useRef,useState,type FormEvent} from 'react';
+import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
 import {LIVE_KINDS,LIVE_FIELDS,LIVE_R1_VERSION,validateLiveRequest,validatedScope,
  type LiveKind,type LiveRecord,type LiveScope} from '../../../lib/hft/live/live-contract.ts';
 import s from './workspace.module.css';
@@ -34,12 +34,17 @@ const paths:Record<string,string>={
 };
 function Icon({name}:{name:string}){return <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24"
  fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]||paths.box}/></svg>;}
-type Session={scope:{legalEntityId:string;siteId:string;warehouseIds:string[]};expiresAt:number;qualification:boolean};
-type Audit={revision:number;action:string;actor_subject:string;occurred_at:string;reason:string;event_sha256:string;request_id:string};
+type Session={scope:{legalEntityId:string;siteId:string;warehouseIds:string[]};expiresAt:number;qualification:boolean;actorPartition:string};
+type Audit={revision:number;action:string;actor_subject:string;occurred_at:string;reason:string;event_sha256:string;request_id:string;actorMatchesSession:boolean};
 type Editor={recordId:string;revision:number;action:'CREATE'|'UPDATE';values:Record<string,string>;reason:string;deleted:boolean};
-type Pending={requestId:string;kind:LiveKind;scope:LiveScope;recordId:string;expectedRevision:number;action:'CREATE'|'UPDATE'};
+type Pending={actorPartition:string;requestId:string;kind:LiveKind;scope:LiveScope;recordId:string;expectedRevision:number;action:'CREATE'|'UPDATE'};
 type Notice={tone:'neutral'|'error'|'success'|'warning';text:string};
-const pendingKey='hft.liveMasters.pending.v1';
+const legacyPendingKey='hft.liveMasters.pending.v1';
+const validPartition=(value:unknown):value is string=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
+function pendingKey(actorPartition:string){
+ if(!validPartition(actorPartition))throw Error('INVALID_ACTOR_PARTITION');
+ return 'hft.liveMasters.pending.v2.'+actorPartition;
+}
 const object=(x:unknown):Record<string,unknown>=>{
  if(!x||typeof x!=='object'||Array.isArray(x))throw Error('INVALID_RESPONSE');
  return x as Record<string,unknown>;
@@ -48,9 +53,10 @@ const sameScope=(a:LiveScope,b:LiveScope)=>a.legalEntityId===b.legalEntityId&&a.
 const permitted=(session:Session,scope:LiveScope)=>session.scope.legalEntityId===scope.legalEntityId&&
  session.scope.siteId===scope.siteId&&session.scope.warehouseIds.includes(scope.warehouseId);
 class ApiError extends Error{constructor(public status:number,public code:string){super(code);}}
-async function api(body:unknown,signal?:AbortSignal):Promise<unknown>{
+async function api(body:unknown,signal?:AbortSignal,actorPartition?:string):Promise<unknown>{
+ if(actorPartition!==undefined&&!validPartition(actorPartition))throw Error('INVALID_ACTOR_PARTITION');
  const response=await fetch('/api/hft/live-masters',{method:'POST',credentials:'same-origin',
-  cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal});
+  cache:'no-store',headers:{'Content-Type':'application/json',...(actorPartition?{'X-HFT-Live-Actor-Partition':actorPartition}:{})},body:JSON.stringify(body),signal});
  const result=object(await response.json());
  if(!response.ok||result.state!=='AUTHORITATIVE_RESULT')throw new ApiError(response.status,
   typeof result.code==='string'?result.code:'LIVE_R1_UNAVAILABLE');
@@ -58,7 +64,7 @@ async function api(body:unknown,signal?:AbortSignal):Promise<unknown>{
 }
 function friendly(error:unknown){
  const code=error instanceof Error?error.message:'';
- if(code.includes('SESSION_REQUIRED'))return 'Your session has ended. Sign in again to continue.';
+ if(code.includes('SESSION_REQUIRED')||code.includes('ACTOR_CONTEXT_CHANGED'))return 'Your session has ended. Sign in again to continue.';
  if(code.includes('SCOPE_OR_PERMISSION'))return 'This action is not available in your assigned access scope.';
  if(code.includes('REVISION_OR_REQUEST_CONFLICT'))return 'The record or request has changed. Reopen the latest record before making another edit.';
  if(code.includes('INVALID')||code.includes('CONTRACT'))return 'Check the required fields and identifiers, then try again.';
@@ -66,13 +72,13 @@ function friendly(error:unknown){
 }
 function sessionContext(value:unknown):Session{
  const r=object(value),sc=object(r.scope);
- if(r.state!=='SIGNED_SESSION_CONTEXT'||typeof r.expiresAt!=='number'||!Number.isSafeInteger(r.expiresAt)||
+ if(r.state!=='SIGNED_SESSION_CONTEXT'||!validPartition(r.actorPartition)||typeof r.expiresAt!=='number'||!Number.isSafeInteger(r.expiresAt)||
   r.expiresAt<=Date.now()/1000||typeof r.qualification!=='boolean'||!Array.isArray(sc.warehouseIds)||
   !sc.warehouseIds.length||sc.warehouseIds.length>32||new Set(sc.warehouseIds).size!==sc.warehouseIds.length)
   throw Error('INVALID_SESSION_CONTEXT');
  const scopes=sc.warehouseIds.map(warehouseId=>validatedScope({legalEntityId:sc.legalEntityId,siteId:sc.siteId,warehouseId}));
  return {scope:{legalEntityId:scopes[0].legalEntityId,siteId:scopes[0].siteId,warehouseIds:scopes.map(x=>x.warehouseId)},
-  expiresAt:r.expiresAt,qualification:r.qualification};
+  expiresAt:r.expiresAt,qualification:r.qualification,actorPartition:r.actorPartition};
 }
 function parseRecord(value:unknown,kind:LiveKind,scope:LiveScope,id?:string):LiveRecord{
  const r=object(value),recordScope=validatedScope(r.scope),values=object(r.values);
@@ -87,25 +93,40 @@ function parseRecord(value:unknown,kind:LiveKind,scope:LiveScope,id?:string):Liv
 function parseHistory(value:unknown):Audit[]{
  if(!Array.isArray(value)||value.length>100)throw Error('INVALID_HISTORY');
  for(const v of value){const a=object(v);if(typeof a.revision!=='number'||!Number.isSafeInteger(a.revision)||
-  a.revision<1||!['CREATE','UPDATE','DELETE'].includes(String(a.action))||
+  a.revision<1||typeof a.actorMatchesSession!=='boolean'||!['CREATE','UPDATE','DELETE'].includes(String(a.action))||
   ['actor_subject','occurred_at','reason','event_sha256','request_id'].some(f=>typeof a[f]!=='string'))
   throw Error('INVALID_HISTORY_ROW');}
  return value as Audit[];
 }
-function read(kind:LiveKind,scope:LiveScope,intent:'LIST'|'GET'|'HISTORY',id='',search='',signal?:AbortSignal){
+function read(session:Session,kind:LiveKind,scope:LiveScope,intent:'LIST'|'GET'|'HISTORY',id='',search='',signal?:AbortSignal){
  return api({contractVersion:LIVE_R1_VERSION,intent,kind,scope,recordId:intent==='LIST'?'':id,
-  search:intent==='LIST'?search:''},signal);
+  search:intent==='LIST'?search:''},signal,session.actorPartition);
 }
-function readPending():Pending|null{
- const raw=sessionStorage.getItem(pendingKey);if(!raw)return null;
+function readPending(actorPartition:string):Pending|null{
+ const raw=sessionStorage.getItem(pendingKey(actorPartition));if(raw===null)return null;
  const p=object(JSON.parse(raw)),scope=validatedScope(p.scope);
- if(!LIVE_KINDS.includes(p.kind as LiveKind)||typeof p.requestId!=='string'||
+ if(Object.keys(p).length!==7||p.actorPartition!==actorPartition||!LIVE_KINDS.includes(p.kind as LiveKind)||typeof p.requestId!=='string'||
   !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(p.requestId)||
   typeof p.recordId!=='string'||!/^[A-Z0-9][A-Z0-9._-]{1,63}$/.test(p.recordId)||
   typeof p.expectedRevision!=='number'||!Number.isSafeInteger(p.expectedRevision)||p.expectedRevision<0||
   !['CREATE','UPDATE'].includes(String(p.action))||(p.action==='CREATE')!==(p.expectedRevision===0))
   throw Error('INVALID_PENDING_REQUEST');
  return {...p,scope} as Pending;
+}
+function samePending(a:Pending|null,b:Pending){
+ return !!a&&a.actorPartition===b.actorPartition&&a.requestId===b.requestId&&a.kind===b.kind&&
+  a.recordId===b.recordId&&a.expectedRevision===b.expectedRevision&&a.action===b.action&&sameScope(a.scope,b.scope);
+}
+function persistPending(marker:Pending){
+ if(sessionStorage.getItem(legacyPendingKey)!==null||readPending(marker.actorPartition)!==null)
+  throw Error('EXISTING_UNRESOLVED_REQUEST');
+ sessionStorage.setItem(pendingKey(marker.actorPartition),JSON.stringify(marker));
+ if(!samePending(readPending(marker.actorPartition),marker))throw Error('REQUEST_TRACKING_UNAVAILABLE');
+}
+function removePending(marker:Pending){
+ if(!samePending(readPending(marker.actorPartition),marker))throw Error('REQUEST_TRACKING_CHANGED');
+ sessionStorage.removeItem(pendingKey(marker.actorPartition));
+ if(readPending(marker.actorPartition)!==null)throw Error('REQUEST_TRACKING_UNAVAILABLE');
 }
 function recordTitle(r:LiveRecord){return r.values.fullName||r.values.legalName||r.values.name||r.values.siteName||r.recordId;}
 function recordDetails(r:LiveRecord){return LIVE_FIELDS[r.kind].map(f=>r.values[f]).filter(Boolean).join(' ');}
@@ -121,12 +142,12 @@ function definitiveDenial(error:unknown){
 }
 export default function LiveMastersPage(){
  const [kind,setKind]=useState<LiveKind>('EMPLOYEE'),[warehouse,setWarehouse]=useState('');
- const [session,setSession]=useState<Session|null>(null),[auth,setAuth]=useState<'checking'|'signed-out'|'ready'|'unavailable'>('checking');
+ const [session,setSession]=useState<Session|null>(null),sessionRef=useRef<Session|null>(null),[auth,setAuth]=useState<'checking'|'signed-out'|'ready'|'unavailable'>('checking');
  const [records,setRecords]=useState<LiveRecord[]>([]),[loadedKey,setLoadedKey]=useState(''),[listState,setListState]=useState<'idle'|'loading'|'ready'|'error'>('idle');
  const [filter,setFilter]=useState(''),[serverSearch,setServerSearch]=useState(''),[department,setDepartment]=useState('');
  const [refresh,setRefresh]=useState(0),[editor,setEditor]=useState<Editor|null>(null),[audit,setAudit]=useState<Audit[]>([]);
  const [busy,setBusy]=useState(false),busyRef=useRef(false);
- const [pending,setPending]=useState<Pending|null>(null),[storageState,setStorageState]=useState<'checking'|'ready'|'blocked'>('checking');
+ const [pending,setPending]=useState<Pending|null>(null),[storageState,setStorageState]=useState<'checking'|'ready'|'blocked'|'legacy'>('checking');
  const [notice,setNotice]=useState<Notice|null>(null);
  const entity=session?.scope.legalEntityId||'',site=session?.scope.siteId||'';
  const scope:LiveScope={legalEntityId:entity,siteId:site,warehouseId:warehouse};
@@ -134,61 +155,77 @@ export default function LiveMastersPage(){
  const contextKey=[kind,entity,site,warehouse,serverSearch].join('|');
  const currentRecords=loadedKey===contextKey?records:[];
  const currentListState=loadedKey===contextKey?listState:'loading';
+ const dropSession=useCallback(()=>{
+  sessionRef.current=null;setSession(null);setPending(null);setStorageState('checking');
+  setAuth('signed-out');setRecords([]);setLoadedKey('');setListState('idle');setEditor(null);setAudit([]);
+  setWarehouse('');setFilter('');setServerSearch('');setDepartment('');setNotice(null);
+ },[]);
+ const isCurrent=(ctx:Session)=>sessionRef.current===ctx&&ctx.expiresAt>Date.now()/1000;
  useEffect(()=>{
   const controller=new AbortController();
-  try{setPending(readPending());setStorageState('ready');}catch{setStorageState('blocked');}
   void api({contractVersion:LIVE_R1_VERSION,intent:'SESSION_CONTEXT'},controller.signal)
-   .then(value=>{if(controller.signal.aborted)return;const ctx=sessionContext(value);setSession(ctx);
-    setWarehouse(ctx.scope.warehouseIds[0]);setAuth('ready');})
-   .catch(error=>{if(!controller.signal.aborted)setAuth(error instanceof ApiError&&error.status===401?'signed-out':'unavailable');});
+   .then(value=>{if(controller.signal.aborted)return;const ctx=sessionContext(value);
+    // Never enumerate storage or read a pending marker before verified context.
+    try{
+     const saved=readPending(ctx.actorPartition);
+     const legacy=sessionStorage.getItem(legacyPendingKey)!==null;
+     setPending(saved);setStorageState(legacy?'legacy':'ready');
+    }catch{setPending(null);setStorageState('blocked');}
+    sessionRef.current=ctx;setSession(ctx);setWarehouse(ctx.scope.warehouseIds[0]);setAuth('ready');})
+   .catch(error=>{if(!controller.signal.aborted){dropSession();setAuth(error instanceof ApiError&&error.status===401?'signed-out':'unavailable');}});
   return()=>controller.abort();
- },[]);
+ },[dropSession]);
  useEffect(()=>{
   if(!session)return;
-  const timer=window.setTimeout(()=>{setSession(null);setAuth('signed-out');setRecords([]);setEditor(null);
-   setAudit([]);setNotice({tone:'neutral',text:'Your corporate session has expired. Sign in again to continue.'});},
+  const timer=window.setTimeout(()=>{if(sessionRef.current!==session)return;dropSession();
+   setNotice({tone:'neutral',text:'Your corporate session has expired. Sign in again to continue.'});},
   Math.max(0,session.expiresAt*1000-Date.now()+100));
   return()=>window.clearTimeout(timer);
- },[session]);
+ },[session,dropSession]);
  useEffect(()=>{
-  if(auth!=='ready'||!entity||!site||!warehouse)return;
+  if(auth!=='ready'||!session||!entity||!site||!warehouse)return;
   const controller=new AbortController(),requested={legalEntityId:entity,siteId:site,warehouseId:warehouse};
   setListState('loading');setRecords([]);setLoadedKey([kind,entity,site,warehouse,serverSearch].join('|'));
-  void read(kind,requested,'LIST','',serverSearch,controller.signal).then(value=>{
-   if(controller.signal.aborted)return;
+  void read(session,kind,requested,'LIST','',serverSearch,controller.signal).then(value=>{
+   if(controller.signal.aborted||sessionRef.current!==session)return;
    if(!Array.isArray(value)||value.length>100)throw Error('INVALID_LIST');
    setRecords(value.map(v=>parseRecord(v,kind,requested)));setLoadedKey([kind,entity,site,warehouse,serverSearch].join('|'));setListState('ready');
   }).catch(error=>{
-   if(controller.signal.aborted)return;
+   if(controller.signal.aborted||sessionRef.current!==session)return;
    setRecords([]);setLoadedKey([kind,entity,site,warehouse,serverSearch].join('|'));setListState('error');
-   if(error instanceof ApiError&&error.status===401){setSession(null);setAuth('signed-out');setEditor(null);setAudit([]);}
+   if(error instanceof ApiError&&error.status===401){dropSession();setNotice({tone:'neutral',text:friendly(error)});}
    else setNotice({tone:'error',text:friendly(error)});
   });
   return()=>controller.abort();
- },[auth,entity,site,warehouse,kind,serverSearch,refresh]);
+ },[auth,session,entity,site,warehouse,kind,serverSearch,refresh,dropSession]);
  function begin(){if(busyRef.current)return false;busyRef.current=true;setBusy(true);return true;}
  function end(){busyRef.current=false;setBusy(false);}
  function resetSelection(){setEditor(null);setAudit([]);setFilter('');setServerSearch('');setDepartment('');setRecords([]);setLoadedKey('');setListState('loading');setNotice(null);}
  function changeKind(next:LiveKind){if(busyRef.current||pending||next===kind)return;resetSelection();setKind(next);}
  function changeWarehouse(next:string){if(busyRef.current||pending||!session?.scope.warehouseIds.includes(next)||next===warehouse)return;resetSelection();setWarehouse(next);}
  function startNew(){
-  if(locked||!session||!permitted(session,scope)||currentListState!=='ready')return;
+  if(locked||!session||!isCurrent(session)||!permitted(session,scope)||currentListState!=='ready')return;
   setAudit([]);setNotice(null);setEditor({recordId:anchor(kind,scope),revision:0,action:'CREATE',
    values:kind==='ITEM'?{controlType:'NONE'}:{},reason:'',deleted:false});
  }
  async function reopen(row:LiveRecord){
-  if(locked||!session||!permitted(session,scope)||!sameScope(row.scope,scope)||row.kind!==kind||!begin())return;
+  if(locked||!session||!isCurrent(session)||!permitted(session,scope)||!sameScope(row.scope,scope)||row.kind!==kind||!begin())return;
   setNotice(null);
   try{
-   const [record,history]=await Promise.all([read(kind,scope,'GET',row.recordId),read(kind,scope,'HISTORY',row.recordId)]);
+   const [record,history]=await Promise.all([read(session,kind,scope,'GET',row.recordId),read(session,kind,scope,'HISTORY',row.recordId)]);
+   if(!isCurrent(session))return;
    const fresh=parseRecord(record,kind,scope,row.recordId);
    setAudit(parseHistory(history));setEditor({recordId:fresh.recordId,revision:fresh.revision,action:'UPDATE',
     values:{...fresh.values},reason:'',deleted:fresh.deleted});
-  }catch(error){setNotice({tone:'error',text:friendly(error)});}finally{end();}
+  }catch(error){if(!isCurrent(session))return;if(error instanceof ApiError&&error.status===401)dropSession();
+   setNotice({tone:'error',text:friendly(error)});}finally{end();}
  }
- function clearPending(){sessionStorage.removeItem(pendingKey);setPending(null);}
+ function clearPending(ctx:Session,marker:Pending){
+  if(!isCurrent(ctx)||ctx.actorPartition!==marker.actorPartition)throw Error('ACTOR_CONTEXT_CHANGED');
+  removePending(marker);setPending(null);
+ }
  async function save(event:FormEvent<HTMLFormElement>){
-  event.preventDefault();if(locked||!editor||editor.deleted||!session||!permitted(session,scope)||!begin())return;
+  event.preventDefault();if(locked||!editor||editor.deleted||!session||!isCurrent(session)||!permitted(session,scope)||!begin())return;
   let marker:Pending|null=null;
   try{
    const requestId=crypto.randomUUID();
@@ -196,45 +233,62 @@ export default function LiveMastersPage(){
     recordId:editor.recordId.trim(),expectedRevision:editor.revision,action:editor.action,requestId,
     reason:editor.reason.trim(),values:Object.fromEntries(LIVE_FIELDS[kind].map(f=>[f,(editor.values[f]||'').trim()]))});
    if(payload.intent!=='SAVE'||payload.action==='DELETE')throw Error('INVALID_SAVE');
-   const tracked:Pending={requestId,kind,scope,recordId:payload.recordId,expectedRevision:editor.revision,action:editor.action};
+   const tracked:Pending={actorPartition:session.actorPartition,requestId,kind,scope,recordId:payload.recordId,expectedRevision:editor.revision,action:editor.action};
    // Persist only the unresolved request reference, not employee fields or tokens.
    // If storage is unavailable no mutation is submitted.
-   try{sessionStorage.setItem(pendingKey,JSON.stringify(tracked));}catch{setStorageState('blocked');throw Error('REQUEST_TRACKING_UNAVAILABLE');}
+   try{persistPending(tracked);}catch{setStorageState('blocked');throw Error('REQUEST_TRACKING_UNAVAILABLE');}
    marker=tracked;setPending(tracked);
-   const result=object(await api(payload)),record=parseRecord(result.record,kind,scope,payload.recordId);
+   const result=object(await api(payload,undefined,session.actorPartition));
+   if(!isCurrent(session))return;
+   const record=parseRecord(result.record,kind,scope,payload.recordId);
    if(result.state!=='SAVED_VERIFIED'||result.requestId!==requestId||result.operationalApproval!==false||
     record.revision!==editor.revision+1||result.historyRevision!==record.revision||record.deleted||
     LIVE_FIELDS[kind].some(f=>record.values[f]!==payload.values[f]))throw Error('UNCONFIRMED_SAVE');
-   clearPending();marker=null;
+   clearPending(session,tracked);marker=null;
    setEditor({...editor,recordId:record.recordId,revision:record.revision,values:{...record.values},action:'UPDATE',reason:''});
    setFilter('');setServerSearch('');setDepartment('');setRefresh(v=>v+1);
    setNotice({tone:'success',text:'Record saved and verified. You can reopen it after signing in again.'});
-   try{setAudit(parseHistory(await read(kind,scope,'HISTORY',record.recordId)));}
-   catch{setAudit([]);setNotice({tone:'success',text:'Record saved and verified. Reopen it to load the change history.'});}
+   try{const history=parseHistory(await read(session,kind,scope,'HISTORY',record.recordId));
+    if(isCurrent(session))setAudit(history);}
+   catch(error){if(isCurrent(session)){
+    if(error instanceof ApiError&&error.status===401){dropSession();setNotice({tone:'neutral',text:friendly(error)});}
+    else{setAudit([]);setNotice({tone:'success',text:'Record saved and verified. Reopen it to load the change history.'});}
+   }}
   }catch(error){
+   if(!isCurrent(session))return;
+   // Auth/context changes preserve the original marker for reauthentication.
+   if(error instanceof ApiError&&error.status===401){dropSession();setNotice({tone:'neutral',text:friendly(error)});return;}
    if(marker&&definitiveDenial(error)){
-    try{clearPending();marker=null;}catch{setStorageState('blocked');}
+    try{clearPending(session,marker);marker=null;}catch{setStorageState('blocked');}
     setNotice({tone:'error',text:friendly(error)});
    }else if(marker){setPending(marker);setNotice({tone:'warning',text:'The save outcome is not confirmed. Check the original request before any further changes.'});}
    else setNotice({tone:'error',text:'Check the required fields. A save also requires working browser session storage.'});
   }finally{end();}
  }
  async function reconcile(){
-  if(!pending||!session||!permitted(session,pending.scope)||!begin())return;
+  if(!pending||!session||!isCurrent(session)||pending.actorPartition!==session.actorPartition||
+   !permitted(session,pending.scope)||storageState==='blocked'||!begin())return;
   try{
-   const history=parseHistory(await read(pending.kind,pending.scope,'HISTORY',pending.recordId));
-   const match=history.find(v=>v.request_id===pending.requestId&&v.revision===pending.expectedRevision+1&&v.action===pending.action);
+   try{if(!samePending(readPending(session.actorPartition),pending))throw Error('REQUEST_TRACKING_CHANGED');}
+   catch{setStorageState('blocked');throw Error('REQUEST_TRACKING_UNAVAILABLE');}
+   const history=parseHistory(await read(session,pending.kind,pending.scope,'HISTORY',pending.recordId));
+   if(!isCurrent(session))return;
+   const match=history.find(v=>v.actorMatchesSession===true&&v.request_id===pending.requestId&&v.revision===pending.expectedRevision+1&&v.action===pending.action);
    if(!match){setNotice({tone:'warning',text:'The original request has not been confirmed. No retry is permitted; retain the request reference for support.'});return;}
-   clearPending();setEditor(null);setAudit([]);setRefresh(v=>v+1);
+   try{clearPending(session,pending);}catch(error){setStorageState('blocked');throw error;}
+   setEditor(null);setAudit([]);setRefresh(v=>v+1);
    setNotice({tone:'success',text:'The original request is present in the verified change history. Reopen the record before continuing.'});
-  }catch(error){setNotice({tone:'warning',text:friendly(error)+' The original request remains locked.'});}finally{end();}
+  }catch(error){if(!isCurrent(session))return;
+   if(error instanceof ApiError&&error.status===401){dropSession();setNotice({tone:'neutral',text:friendly(error)});}
+   else setNotice({tone:'warning',text:friendly(error)+' The original request remains locked.'});
+  }finally{end();}
  }
  async function signOut(){
   if(!begin())return;
   try{const r=await fetch('/api/hft/live-masters/signout',{method:'POST',credentials:'same-origin'});
    const body=object(await r.json());if(!r.ok||body.state!=='SIGNED_OUT')throw Error('SIGNOUT_FAILED');
-   setSession(null);setAuth('signed-out');setRecords([]);setEditor(null);setAudit([]);setListState('idle');setNotice(null);
-  }catch{setNotice({tone:'error',text:'Sign-out could not be confirmed. Try signing out again.'});}finally{end();}
+   dropSession();
+  }catch{dropSession();setAuth('unavailable');setNotice({tone:'error',text:'Sign-out could not be confirmed. Refresh before continuing.'});}finally{end();}
  }
  const filtered=currentRecords.filter(r=>{
   const q=filter.trim().toLocaleLowerCase();
@@ -288,9 +342,10 @@ export default function LiveMastersPage(){
      {session?.qualification&&<div className={s.qualificationNote}><Icon name="lock"/><span>Qualification workspace. Use test records only. Saved records do not authorize stock or procurement.</span></div>}
      {notice&&<div className={s.notice+' '+s[notice.tone]} role="status"><span>{notice.text}</span><button type="button" className={s.iconButton} aria-label="Dismiss message" onClick={()=>setNotice(null)}><Icon name="close"/></button></div>}
      {storageState==='blocked'&&<div className={s.notice+' '+s.warning} role="alert">Browser request tracking is unavailable. Changes are disabled until it is restored.</div>}
+     {storageState==='legacy'&&<div className={s.notice+' '+s.warning} role="alert">An unbound legacy request requires administrator review. Changes are disabled. No request has been attributed or replayed.</div>}
      {pending&&<section className={s.pending} aria-label="Unconfirmed save" role="alert">
       <strong>Check original save before continuing</strong><p>Request reference: <code>{pending.requestId}</code></p>
-      <button type="button" className={s.secondary} onClick={()=>void reconcile()} disabled={busy||!session||!permitted(session,pending.scope)}>Check change history</button>
+      <button type="button" className={s.secondary} onClick={()=>void reconcile()} disabled={busy||storageState==='blocked'||!session||pending.actorPartition!==session.actorPartition||!permitted(session,pending.scope)}>Check change history</button>
      </section>}
      <div className={s.workspaceGrid+(editor?' '+s.withEditor:'')}>
       <section className={s.directory} aria-label={current.plural+' directory'}>

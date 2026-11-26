@@ -25,7 +25,8 @@ const env={...identityEnv,NODE_ENV:'production',HFT_ENVIRONMENT:'production-qual
  HFT_LIVE_R1_PG_VERSION:'180007',HFT_LIVE_R1_HOST:'fixture.db.example.org',
  HFT_LIVE_R1_APPROVED_HOST:'fixture.db.example.org',HFT_LIVE_R1_PORT:'5432',
  HFT_LIVE_R1_LOGIN:'hft_r1_live_api_login',HFT_LIVE_R1_PASSWORD:'SYNTHETIC_NOT_REAL_CREDENTIAL_1234',
- HFT_LIVE_R1_CA_PEM:rootCertificates[0],HFT_PUBLIC_ORIGIN:origin};
+ HFT_LIVE_R1_CA_PEM:rootCertificates[0],HFT_PUBLIC_ORIGIN:origin,
+ HFT_LIVE_R1_OIDC_STATE_KEY_BASE64:Buffer.alloc(32,17).toString('base64')};
 const actor=()=>resolveVerifiedRequestOperator(new Request(origin+'/api/hft/live-masters',{
  method:'POST',headers:{origin,'sec-fetch-site':'same-origin',
  cookie:'__Host-hft_session='+signedToken()}}),env,'LIVE_R1_MASTERS');
@@ -167,7 +168,24 @@ test('Live Masters workspace context is a strict signed-session projection, not 
   const json=await good.json();
   assert.deepEqual(json,{state:'AUTHORITATIVE_RESULT',data:{state:'SIGNED_SESSION_CONTEXT',
    scope:{legalEntityId:'HFT',siteId:'SITE1',warehouseIds:['WH1']},
-   expiresAt:json.data.expiresAt,qualification:true}});
+   expiresAt:json.data.expiresAt,qualification:true,actorPartition:json.data.actorPartition}});
+  assert.match(json.data.actorPartition,/^[a-f0-9]{64}$/);
+  const partition=async(overrides:Record<string,unknown>)=>{
+   const response=await livePost(request(signedToken(overrides),context));
+   assert.equal(response.status,200);return (await response.json()).data.actorPartition;
+  };
+  assert.equal(await partition({jti:'FIXTURE-JTI-NEW',warehouseIds:['WH1','WH2']}),json.data.actorPartition);
+  assert.equal(await partition({jti:'FIXTURE-JTI-OTHER',siteId:'SITE2',warehouseIds:['WH3']}),json.data.actorPartition);
+  const other=await partition({sub:'STORE2'});
+  assert.notEqual(other,json.data.actorPartition);
+  const mismatch=await livePost(request(signedToken({sub:'STORE2'}),req,
+   {'x-hft-live-actor-partition':json.data.actorPartition}));
+  assert.equal(mismatch.status,401);
+  assert.equal((await mismatch.json()).code,'LIVE_R1_ACTOR_CONTEXT_CHANGED');
+  assert.equal((await livePost(request(signedToken(),req,{'x-hft-live-actor-partition':'bad'}))).status,401);
+  delete process.env.HFT_LIVE_R1_OIDC_STATE_KEY_BASE64;
+  assert.equal((await livePost(request(signedToken(),context))).status,503);
+  process.env.HFT_LIVE_R1_OIDC_STATE_KEY_BASE64=env.HFT_LIVE_R1_OIDC_STATE_KEY_BASE64;
   assert.ok(json.data.expiresAt>Math.floor(Date.now()/1000));
   assert.equal((await livePost(request(undefined,context))).status,401);
   assert.equal((await livePost(request(signedToken({exp:1}),context))).status,401);
