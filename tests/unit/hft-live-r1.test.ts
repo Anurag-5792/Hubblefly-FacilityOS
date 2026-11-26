@@ -1,5 +1,6 @@
 /** LIVE R1 source qualification only: synthetic credentials and SQL rows. */
 import {test} from 'node:test';
+import {POST as livePost,GET as liveGet} from '../../app/api/hft/live-masters/route.ts';
 import assert from 'node:assert/strict';
 import {rootCertificates} from 'node:tls';
 import {identityEnv,signedToken} from '../support/signed-session-fixture.ts';
@@ -24,7 +25,8 @@ const env={...identityEnv,NODE_ENV:'production',HFT_ENVIRONMENT:'production-qual
  HFT_LIVE_R1_PG_VERSION:'180007',HFT_LIVE_R1_HOST:'fixture.db.example.org',
  HFT_LIVE_R1_APPROVED_HOST:'fixture.db.example.org',HFT_LIVE_R1_PORT:'5432',
  HFT_LIVE_R1_LOGIN:'hft_r1_live_api_login',HFT_LIVE_R1_PASSWORD:'SYNTHETIC_NOT_REAL_CREDENTIAL_1234',
- HFT_LIVE_R1_CA_PEM:rootCertificates[0],HFT_PUBLIC_ORIGIN:origin};
+ HFT_LIVE_R1_CA_PEM:rootCertificates[0],HFT_PUBLIC_ORIGIN:origin,
+ HFT_LIVE_R1_OIDC_STATE_KEY_BASE64:Buffer.alloc(32,17).toString('base64')};
 const actor=()=>resolveVerifiedRequestOperator(new Request(origin+'/api/hft/live-masters',{
  method:'POST',headers:{origin,'sec-fetch-site':'same-origin',
  cookie:'__Host-hft_session='+signedToken()}}),env,'LIVE_R1_MASTERS');
@@ -43,13 +45,22 @@ const catalog={database_name:env.HFT_LIVE_R1_DATABASE,login:env.HFT_LIVE_R1_LOGI
  target_project:env.HFT_LIVE_R1_PROJECT,target_branch:env.HFT_LIVE_R1_BRANCH,database_oid:'12345'}],
  migrations:[{version:1,source_sha256:env.HFT_LIVE_R1_MIGRATION_0001_SHA256},
  {version:2,source_sha256:env.HFT_LIVE_R1_MIGRATION_0002_SHA256}]};
+// Synthetic stream models the Node client TLS properties; it is NOT external TLS proof.
+const fakeTls=(patch:Record<string,unknown>={})=>({encrypted:true,authorized:true,
+ authorizationError:null,servername:env.HFT_LIVE_R1_HOST,
+ remoteAddress:'192.0.2.15',remotePort:5432,getProtocol:()=> 'TLSv1.3',
+ getCipher:()=>({name:'TLS_AES_256_GCM_SHA384'}),
+ getPeerCertificate:()=>({raw:Buffer.from('synthetic-fixture'),
+  subjectaltname:'DNS:'+env.HFT_LIVE_R1_HOST}),...patch});
 const row={kind:'EMPLOYEE',legal_entity_id:'HFT',site_id:'SITE1',warehouse_id:'WH1',
  record_id:'EMP001',revision:1,values_json:req.values,deleted:false,
  state:'RECORDED_UNAPPROVED',created_by:'STORE1',updated_by:'STORE1',
  created_at:'2026-11-23T00:00:00Z',updated_at:'2026-11-23T00:00:00Z'};
-function mock(patch:Record<string,unknown>={},failReadback=false){
+function mock(patch:Record<string,unknown>={},failReadback=false,
+ tlsPatch:Record<string,unknown>={}){
  let commits=0,writes=0,connections=0,denied=0;
  const pool:LivePool={connect:async()=>{connections++;return {
+ connection:{stream:fakeTls(tlsPatch)},
  async query<Row=Record<string,unknown>>(sql:string,params?:unknown[]){
   let rows:Record<string,unknown>[]=[];
   if(sql===LIVE_ADMISSION_SQL)rows=[{...catalog,...patch}];
@@ -98,11 +109,32 @@ test('all six kinds validate exact values and delete means soft delete only',()=
 });
 test('restricted catalog denies absent functions, TLS/owner and table or column privileges',async()=>{
  for(const patch of [{missing_functions:['hft_live_r1.save_v1']},
- {tls:false},{schema_create:true},{table_access:1},{column_access:1},
+ {schema_create:true},{table_access:1},{column_access:1},
  {protected_execute:1},{owner_memberships:1},{secure_function_count:3},
  {installed_binding:[]},{protected_triggers:0},{migrations:[]},{restricted_login:false}]){
   const m=mock(patch);await assert.rejects(admitLiveConnection(await m.pool.connect(),env),
    /NOT_ADMITTED/);assert.equal(m.writes(),0);
+ }
+});
+test('PostgreSQL server_address shape strips the inet CIDR before Node isIP',async()=>{
+ assert.match(LIVE_ADMISSION_SQL,/pg_catalog\.host\(inet_server_addr\(\)\) AS server_address/);
+ assert.doesNotMatch(LIVE_ADMISSION_SQL,/inet_server_addr\(\)::text AS server_address/);
+ const good=mock({server_address:'127.0.0.1',tls:false,tls_version:null});
+ await assert.doesNotReject(admitLiveConnection(await good.pool.connect(),env));
+ const cidr=mock({server_address:'127.0.0.1\/32'});
+ await assert.rejects(admitLiveConnection(await cidr.pool.connect(),env),/NOT_ADMITTED/);
+});
+test('Neon proxy backend TLS flag is diagnostic; client TLS must independently verify',async()=>{
+ const good=mock({tls:false,tls_version:null});
+ await assert.doesNotReject(admitLiveConnection(await good.pool.connect(),env));
+ for(const tlsPatch of [{authorized:false},{encrypted:false},{servername:'wrong.example.org'},
+  {getProtocol:()=> 'TLSv1.1'},
+  {getPeerCertificate:()=>({raw:Buffer.from('synthetic-fixture'),
+   subjectaltname:'DNS:wrong.example.org'})}]){
+  const bad=mock({tls:false,tls_version:null},false,tlsPatch);
+  await assert.rejects(admitLiveConnection(await bad.pool.connect(),env),
+   /CLIENT_TLS_NOT_VERIFIED/);
+  assert.equal(bad.writes(),0);
  }
 });
 test('source Employee CREATE commits then independently reads record and audit revision',async()=>{
@@ -119,4 +151,48 @@ test('validated signed scope prevents cross-warehouse operation before PostgreSQ
  const m=mock();
  await assert.rejects(executeLive(m.pool,env,actor(),{...req,scope:{...scope,warehouseId:'OTHER'}}),/SIGNED_SCOPE_DENIED/);
  assert.equal(m.connections(),0);
+});
+
+test('Live Masters workspace context is a strict signed-session projection, not an access grant',async()=>{
+ const old=process.env;
+ process.env={...env} as NodeJS.ProcessEnv;
+ try{
+  const request=(token:string|undefined,body:unknown,headers:Record<string,string>={})=>
+   new Request(origin+'/api/hft/live-masters',{method:'POST',headers:{origin,'sec-fetch-site':'same-origin',
+    'content-type':'application/json',...(token?{cookie:'__Host-hft_session='+token}:{}),...headers},
+    body:JSON.stringify(body)});
+  const context={contractVersion:LIVE_R1_VERSION,intent:'SESSION_CONTEXT'};
+  const good=await livePost(request(signedToken(),context));
+  assert.equal(good.status,200);
+  assert.match(good.headers.get('cache-control')||'',/no-store/);
+  const json=await good.json();
+  assert.deepEqual(json,{state:'AUTHORITATIVE_RESULT',data:{state:'SIGNED_SESSION_CONTEXT',
+   scope:{legalEntityId:'HFT',siteId:'SITE1',warehouseIds:['WH1']},
+   expiresAt:json.data.expiresAt,qualification:true,actorPartition:json.data.actorPartition}});
+  assert.match(json.data.actorPartition,/^[a-f0-9]{64}$/);
+  const partition=async(overrides:Record<string,unknown>)=>{
+   const response=await livePost(request(signedToken(overrides),context));
+   assert.equal(response.status,200);return (await response.json()).data.actorPartition;
+  };
+  assert.equal(await partition({jti:'FIXTURE-JTI-NEW',warehouseIds:['WH1','WH2']}),json.data.actorPartition);
+  assert.equal(await partition({jti:'FIXTURE-JTI-OTHER',siteId:'SITE2',warehouseIds:['WH3']}),json.data.actorPartition);
+  const other=await partition({sub:'STORE2'});
+  assert.notEqual(other,json.data.actorPartition);
+  const mismatch=await livePost(request(signedToken({sub:'STORE2'}),req,
+   {'x-hft-live-actor-partition':json.data.actorPartition}));
+  assert.equal(mismatch.status,401);
+  assert.equal((await mismatch.json()).code,'LIVE_R1_ACTOR_CONTEXT_CHANGED');
+  assert.equal((await livePost(request(signedToken(),req,{'x-hft-live-actor-partition':'bad'}))).status,401);
+  delete process.env.HFT_LIVE_R1_OIDC_STATE_KEY_BASE64;
+  assert.equal((await livePost(request(signedToken(),context))).status,503);
+  process.env.HFT_LIVE_R1_OIDC_STATE_KEY_BASE64=env.HFT_LIVE_R1_OIDC_STATE_KEY_BASE64;
+  assert.ok(json.data.expiresAt>Math.floor(Date.now()/1000));
+  assert.equal((await livePost(request(undefined,context))).status,401);
+  assert.equal((await livePost(request(signedToken({exp:1}),context))).status,401);
+  assert.equal((await livePost(request(signedToken(),context,{origin:'https://wrong.example.org'}))).status,401);
+  assert.equal((await livePost(request(signedToken(),context,{'x-user-id':'spoofed'}))).status,401);
+  assert.equal((await livePost(request(signedToken(),{...context,scope:{legalEntityId:'OTHER'}}))).status,422);
+  assert.equal((await livePost(request(signedToken(),{...context,contractVersion:'wrong'}))).status,422);
+  assert.equal((await liveGet()).status,405);
+ }finally{process.env=old;}
 });

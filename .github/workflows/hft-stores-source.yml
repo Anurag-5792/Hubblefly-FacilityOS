@@ -3,9 +3,11 @@ on:
   push:
     branches:
       - engineering/hft-r1-stores-foundation
+      - engineering/hft-r1-neon-proxy-tls-qualification-010
   pull_request:
     branches:
       - main
+      - engineering/hft-r1-stores-foundation
 permissions:
   contents: read
 jobs:
@@ -28,6 +30,8 @@ jobs:
         run: npm run verify
       - name: C050 mounted React scope regression (CI-local synthetic P3)
         run: node tests/browser/hft-c050-mounted.mjs
+      - name: Live Masters mounted workspace regression (CI-local synthetic records)
+        run: node tests/browser/hft-live-masters-mounted.mjs
       - name: Production dependency audit (moderate or above)
         run: npm audit --omit=dev --audit-level=moderate
       - name: Full dependency tree advisory scan (high or above)
