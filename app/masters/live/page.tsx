@@ -122,7 +122,7 @@ function definitiveDenial(error:unknown){
 export default function LiveMastersPage(){
  const [kind,setKind]=useState<LiveKind>('EMPLOYEE'),[warehouse,setWarehouse]=useState('');
  const [session,setSession]=useState<Session|null>(null),[auth,setAuth]=useState<'checking'|'signed-out'|'ready'|'unavailable'>('checking');
- const [records,setRecords]=useState<LiveRecord[]>([]),[listState,setListState]=useState<'idle'|'loading'|'ready'|'error'>('idle');
+ const [records,setRecords]=useState<LiveRecord[]>([]),[loadedKey,setLoadedKey]=useState(''),[listState,setListState]=useState<'idle'|'loading'|'ready'|'error'>('idle');
  const [filter,setFilter]=useState(''),[serverSearch,setServerSearch]=useState(''),[department,setDepartment]=useState('');
  const [refresh,setRefresh]=useState(0),[editor,setEditor]=useState<Editor|null>(null),[audit,setAudit]=useState<Audit[]>([]);
  const [busy,setBusy]=useState(false),busyRef=useRef(false);
@@ -131,6 +131,9 @@ export default function LiveMastersPage(){
  const entity=session?.scope.legalEntityId||'',site=session?.scope.siteId||'';
  const scope:LiveScope={legalEntityId:entity,siteId:site,warehouseId:warehouse};
  const current=meta[kind],locked=busy||!!pending||storageState!=='ready';
+ const contextKey=[kind,entity,site,warehouse,serverSearch].join('|');
+ const currentRecords=loadedKey===contextKey?records:[];
+ const currentListState=loadedKey===contextKey?listState:listState==='error'?'error':'loading';
  useEffect(()=>{
   const controller=new AbortController();
   try{setPending(readPending());setStorageState('ready');}catch{setStorageState('blocked');}
@@ -150,14 +153,14 @@ export default function LiveMastersPage(){
  useEffect(()=>{
   if(auth!=='ready'||!entity||!site||!warehouse)return;
   const controller=new AbortController(),requested={legalEntityId:entity,siteId:site,warehouseId:warehouse};
-  setListState('loading');setRecords([]);
+  setListState('loading');setRecords([]);setLoadedKey([kind,entity,site,warehouse,serverSearch].join('|'));
   void read(kind,requested,'LIST','',serverSearch,controller.signal).then(value=>{
    if(controller.signal.aborted)return;
    if(!Array.isArray(value)||value.length>100)throw Error('INVALID_LIST');
-   setRecords(value.map(v=>parseRecord(v,kind,requested)));setListState('ready');
+   setRecords(value.map(v=>parseRecord(v,kind,requested)));setLoadedKey([kind,entity,site,warehouse,serverSearch].join('|'));setListState('ready');
   }).catch(error=>{
    if(controller.signal.aborted)return;
-   setRecords([]);setListState('error');
+   setRecords([]);setLoadedKey([kind,entity,site,warehouse,serverSearch].join('|'));setListState('error');
    if(error instanceof ApiError&&error.status===401){setSession(null);setAuth('signed-out');setEditor(null);setAudit([]);}
    else setNotice({tone:'error',text:friendly(error)});
   });
@@ -165,11 +168,11 @@ export default function LiveMastersPage(){
  },[auth,entity,site,warehouse,kind,serverSearch,refresh]);
  function begin(){if(busyRef.current)return false;busyRef.current=true;setBusy(true);return true;}
  function end(){busyRef.current=false;setBusy(false);}
- function resetSelection(){setEditor(null);setAudit([]);setFilter('');setServerSearch('');setDepartment('');setRecords([]);setListState('loading');setNotice(null);}
+ function resetSelection(){setEditor(null);setAudit([]);setFilter('');setServerSearch('');setDepartment('');setRecords([]);setLoadedKey('');setListState('loading');setNotice(null);}
  function changeKind(next:LiveKind){if(busyRef.current||pending||next===kind)return;resetSelection();setKind(next);}
  function changeWarehouse(next:string){if(busyRef.current||pending||!session?.scope.warehouseIds.includes(next)||next===warehouse)return;resetSelection();setWarehouse(next);}
  function startNew(){
-  if(locked||!session||!permitted(session,scope)||listState!=='ready')return;
+  if(locked||!session||!permitted(session,scope)||currentListState!=='ready')return;
   setAudit([]);setNotice(null);setEditor({recordId:anchor(kind,scope),revision:0,action:'CREATE',
    values:kind==='ITEM'?{controlType:'NONE'}:{},reason:'',deleted:false});
  }
@@ -193,10 +196,11 @@ export default function LiveMastersPage(){
     recordId:editor.recordId.trim(),expectedRevision:editor.revision,action:editor.action,requestId,
     reason:editor.reason.trim(),values:Object.fromEntries(LIVE_FIELDS[kind].map(f=>[f,(editor.values[f]||'').trim()]))});
    if(payload.intent!=='SAVE'||payload.action==='DELETE')throw Error('INVALID_SAVE');
-   marker={requestId,kind,scope,recordId:payload.recordId,expectedRevision:editor.revision,action:editor.action};
+   const tracked:Pending={requestId,kind,scope,recordId:payload.recordId,expectedRevision:editor.revision,action:editor.action};
    // Persist only the unresolved request reference, not employee fields or tokens.
    // If storage is unavailable no mutation is submitted.
-   sessionStorage.setItem(pendingKey,JSON.stringify(marker));setPending(marker);
+   try{sessionStorage.setItem(pendingKey,JSON.stringify(tracked));}catch{setStorageState('blocked');throw Error('REQUEST_TRACKING_UNAVAILABLE');}
+   marker=tracked;setPending(tracked);
    const result=object(await api(payload)),record=parseRecord(result.record,kind,scope,payload.recordId);
    if(result.state!=='SAVED_VERIFIED'||result.requestId!==requestId||result.operationalApproval!==false||
     record.revision!==editor.revision+1||result.historyRevision!==record.revision||record.deleted||
@@ -232,14 +236,14 @@ export default function LiveMastersPage(){
    setSession(null);setAuth('signed-out');setRecords([]);setEditor(null);setAudit([]);setListState('idle');setNotice(null);
   }catch{setNotice({tone:'error',text:'Sign-out could not be confirmed. Try signing out again.'});}finally{end();}
  }
- const filtered=records.filter(r=>{
+ const filtered=currentRecords.filter(r=>{
   const q=filter.trim().toLocaleLowerCase();
   return (!q||(r.recordId+' '+recordDetails(r)).toLocaleLowerCase().includes(q))&&
    (!department||r.values.department===department);
  });
- const departments=[...new Set(records.map(r=>r.values.department).filter(Boolean))].sort();
- const existingAnchor=records.find(r=>r.recordId===anchor(kind,scope));
- const canCreate=!locked&&auth==='ready'&&listState==='ready'&&!existingAnchor;
+ const departments=[...new Set(currentRecords.map(r=>r.values.department).filter(Boolean))].sort();
+ const existingAnchor=currentRecords.find(r=>r.recordId===anchor(kind,scope));
+ const canCreate=!locked&&auth==='ready'&&currentListState==='ready'&&!existingAnchor;
  const editField=(key:string,value:string)=>setEditor(e=>e?{...e,values:{...e.values,[key]:value}}:null);
  return <div className={s.shell}>
   <aside className={s.sidebar}>
@@ -290,7 +294,7 @@ export default function LiveMastersPage(){
      </section>}
      <div className={s.workspaceGrid+(editor?' '+s.withEditor:'')}>
       <section className={s.directory} aria-label={current.plural+' directory'}>
-       <div className={s.cardHeading}><div><h2>{current.plural} directory</h2><p>{listState==='ready'?records.length+' records loaded from your assigned scope':'Scoped records'}</p></div>
+       <div className={s.cardHeading}><div><h2>{current.plural} directory</h2><p>{currentListState==='ready'?currentRecords.length+' records loaded from your assigned scope':'Scoped records'}</p></div>
         <button type="button" className={s.secondary} disabled={busy} onClick={()=>setRefresh(v=>v+1)}><Icon name="refresh"/> Refresh</button></div>
        <div className={s.toolbar}>
         <div className={s.search}><Icon name="search"/><input aria-label="Search loaded records" placeholder={'Search '+current.plural.toLowerCase()} value={filter} maxLength={80} onChange={e=>setFilter(e.target.value)}/></div>
@@ -299,11 +303,11 @@ export default function LiveMastersPage(){
          onClick={()=>{setServerSearch(filter.trim());setRefresh(v=>v+1);}}>Find by ID</button>
        </div>
        {serverSearch&&<p className={s.filterNote}>Database ID search: {serverSearch} <button type="button" className={s.textButton} disabled={busy} onClick={()=>{setServerSearch('');setFilter('');}}>Clear</button></p>}
-       {listState==='loading'?<div className={s.empty} role="status"><span className={s.spinner}/><h3>Loading records</h3><p>Reading your assigned workspace.</p></div>:
-        listState==='error'?<div className={s.empty}><Icon name="lock"/><h3>Records unavailable</h3><p>Refresh to check the connection and your permissions.</p></div>:
-        !filtered.length?<div className={s.empty}><div className={s.emptyIcon}><Icon name={current.icon}/></div><h3>{records.length?'No matching records':'No '+current.plural.toLowerCase()+' recorded'}</h3>
-         <p>{records.length?'Change your search or filter.':'Add a record to this assigned workspace.'}</p>
-         {canCreate&&records.length===0&&<button type="button" className={s.secondary} onClick={startNew}><Icon name="plus"/> Add {current.singular}</button>}</div>:
+       {currentListState==='loading'?<div className={s.empty} role="status"><span className={s.spinner}/><h3>Loading records</h3><p>Reading your assigned workspace.</p></div>:
+        currentListState==='error'?<div className={s.empty}><Icon name="lock"/><h3>Records unavailable</h3><p>Refresh to check the connection and your permissions.</p></div>:
+        !filtered.length?<div className={s.empty}><div className={s.emptyIcon}><Icon name={current.icon}/></div><h3>{currentRecords.length?'No matching records':'No '+current.plural.toLowerCase()+' recorded'}</h3>
+         <p>{currentRecords.length?'Change your search or filter.':'Add a record to this assigned workspace.'}</p>
+         {canCreate&&currentRecords.length===0&&<button type="button" className={s.secondary} onClick={startNew}><Icon name="plus"/> Add {current.singular}</button>}</div>:
         <div className={s.tableWrap}><table className={s.table}><thead><tr><th>{kind==='ITEM'?current.id:'Name / ID'}</th>
          {kind==='EMPLOYEE'?<><th>Department</th><th>Designation</th></>:kind==='ITEM'?<><th>UOM</th><th>Tracking</th></>:kind==='LOCATION'?<th>Parent location</th>:null}
          <th>Status</th><th className={s.right}>Action</th></tr></thead><tbody>
@@ -311,7 +315,7 @@ export default function LiveMastersPage(){
            {kind==='EMPLOYEE'?<><td>{r.values.department}</td><td>{r.values.designation}</td></>:kind==='ITEM'?<><td>{r.values.uom}</td><td>{r.values.controlType}</td></>:kind==='LOCATION'?<td>{r.values.parentLocationId||'—'}</td>:null}
            <td><span className={s.statusPill}>{r.deleted?'Retired':'Recorded'}</span></td><td className={s.right}><button type="button" className={s.textButton} disabled={locked} onClick={()=>void reopen(r)}>{r.deleted?'View':'Open'} <Icon name="chevron"/></button></td></tr>)}
          </tbody></table></div>}
-       <footer className={s.tableFooter}><span>{listState==='ready'?filtered.length+' of '+records.length+' loaded records':'No verified list yet'}</span><span>Up to 100 per database search. Name filters apply to loaded records.</span></footer>
+       <footer className={s.tableFooter}><span>{currentListState==='ready'?filtered.length+' of '+currentRecords.length+' loaded records':'No verified list yet'}</span><span>Up to 100 per database search. Name filters apply to loaded records.</span></footer>
       </section>
       {editor&&<aside className={s.editor} aria-label={editor.action==='CREATE'?'New record':'Record details'}>
        <div className={s.cardHeading}><div><p className={s.kicker}>{current.plural}</p><h2>{editor.deleted?'View':editor.action==='CREATE'?'Add':'Edit'} {current.singular}</h2><p>{editor.action==='CREATE'?'Enter the required record details.':editor.recordId}</p></div>

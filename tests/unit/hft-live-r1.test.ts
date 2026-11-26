@@ -1,5 +1,6 @@
 /** LIVE R1 source qualification only: synthetic credentials and SQL rows. */
 import {test} from 'node:test';
+import {POST as livePost,GET as liveGet} from '../../app/api/hft/live-masters/route.ts';
 import assert from 'node:assert/strict';
 import {rootCertificates} from 'node:tls';
 import {identityEnv,signedToken} from '../support/signed-session-fixture.ts';
@@ -149,4 +150,31 @@ test('validated signed scope prevents cross-warehouse operation before PostgreSQ
  const m=mock();
  await assert.rejects(executeLive(m.pool,env,actor(),{...req,scope:{...scope,warehouseId:'OTHER'}}),/SIGNED_SCOPE_DENIED/);
  assert.equal(m.connections(),0);
+});
+
+test('Live Masters workspace context is a strict signed-session projection, not an access grant',async()=>{
+ const old=process.env;
+ process.env={...env};
+ try{
+  const request=(token:string|undefined,body:unknown,headers:Record<string,string>={})=>
+   new Request(origin+'/api/hft/live-masters',{method:'POST',headers:{origin,'sec-fetch-site':'same-origin',
+    'content-type':'application/json',...(token?{cookie:'__Host-hft_session='+token}:{}),...headers},
+    body:JSON.stringify(body)});
+  const context={contractVersion:LIVE_R1_VERSION,intent:'SESSION_CONTEXT'};
+  const good=await livePost(request(signedToken(),context));
+  assert.equal(good.status,200);
+  assert.match(good.headers.get('cache-control')||'',/no-store/);
+  const json=await good.json();
+  assert.deepEqual(json,{state:'AUTHORITATIVE_RESULT',data:{state:'SIGNED_SESSION_CONTEXT',
+   scope:{legalEntityId:'HFT',siteId:'SITE1',warehouseIds:['WH1']},
+   expiresAt:json.data.expiresAt,qualification:true}});
+  assert.ok(json.data.expiresAt>Math.floor(Date.now()/1000));
+  assert.equal((await livePost(request(undefined,context))).status,401);
+  assert.equal((await livePost(request(signedToken({exp:1}),context))).status,401);
+  assert.equal((await livePost(request(signedToken(),context,{origin:'https://wrong.example.org'}))).status,401);
+  assert.equal((await livePost(request(signedToken(),context,{'x-user-id':'spoofed'}))).status,401);
+  assert.equal((await livePost(request(signedToken(),{...context,scope:{legalEntityId:'OTHER'}}))).status,422);
+  assert.equal((await livePost(request(signedToken(),{...context,contractVersion:'wrong'}))).status,422);
+  assert.equal((await liveGet()).status,405);
+ }finally{process.env=old;}
 });
