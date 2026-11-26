@@ -25,8 +25,13 @@ function stage(retained,live,specs){
  const o=read(retained,"Opening",oh),l=read(live,"Opening",oh);
  if(!same(o.header,l.header))throw Error("OPENING_HEADER_DRIFT");
  const liveRows=new Map(l.rows.map(r=>[r.row,r])),opening=new Map();
+ // Ignore only identical trailing template scaffolds: unchecked checkbox, optional sequential S. No., no business data.
+ const lastNamed=Math.max(0,...o.rows.filter(r=>!blank(o.get(r,"Item Name"))).map(r=>r.row),...l.rows.filter(r=>!blank(l.get(r,"Item Name"))).map(r=>r.row));
+ const scaffold=r=>r.row>lastNamed&&r.raw[3]===false&&(blank(r.raw[0])||r.raw[0]===r.row-1)&&r.raw.every((v,i)=>i===0||i===3||blank(v));
+ const ignoredScaffolds=new Set(o.rows.filter(r=>scaffold(r)&&liveRows.has(r.row)&&same(r.raw,liveRows.get(r.row).raw)).map(r=>r.row));
  let qty=0,batches=0,serials=0,retainedNames=0,liveNames=0,missingDate=0;
  for(const r of o.rows){
+  if(ignoredScaffolds.has(r.row))continue;
   const g=k=>o.get(r,k),ref=r.source,other=liveRows.get(r.row),sourceNo=g("S. No."),code=str(g("Item Code (existing ref / draft proposal)")),tracking=str(g("Tracking Type")).toUpperCase(),q=g("Qty"),identity=g("Item Identity Status");
   if(blank(sourceNo)||blank(g("Item Name"))){error(ref,"INCOMPLETE_OPENING_ROW");continue;}
   if(!other)error(ref,"LIVE_ROW_MISSING");
@@ -47,7 +52,7 @@ function stage(retained,live,specs){
   tables.location_candidates.push({source:ref,rack:g("Rack"),shelf:g("Shelve"),position_1:r.raw[11],position_2:r.raw[12],bin_box:g("Bin/Box"),bin_box_no:g("Bin/Box No."),location_id:"",...scope(),disposition:"LOCATION_UNVERIFIED"});
   tables.opening_stock_observation_candidates.push({source:ref,item_code:code,control_type_candidate:tracking,observed_quantity:q,count_date_raw:g("Count_date"),proposed_batch:g("Batch No. (proposed)"),uom:"",version_code:"",location_id:"",observer_employee_id:"",evidence_reference:"",...scope(),disposition:"HOLD_OBSERVATION_NOT_STOCK"});
  }
- for(const r of l.rows)if(!opening.has(r.row))error(r.source,"LIVE_ADDITION_OR_ROW_SHIFT");
+ for(const r of l.rows)if(!opening.has(r.row)&&!ignoredScaffolds.has(r.row))error(r.source,"LIVE_ADDITION_OR_ROW_SHIFT");
  const batch=read(retained,"Batch Tracked Items",["Opening Row","S. No.","Item Code (existing / draft)","Batch No. (proposed)","Mapping Status","Opening Qty","Tracking Type","Legacy Printed QR (NOT batch number)","Label Assignment Status"]);
  const batchRows=new Set(),aliases=new Map(),proposals=new Set(),unitsByOpening=new Map(),heldOpening=new Set();
  function alias(id,row,kind,serialNo,ref){if(!id)return;if(aliases.has(id))error(ref,"GLOBAL_DUPLICATE_LEGACY_QR");aliases.set(id,{row,kind,serialNo});}
@@ -84,7 +89,7 @@ function stage(retained,live,specs){
  const mv=read(retained,"B3 Movement Validation 25Nov",["Register","Source row","Raw qty","Disposition"]);let gap=0;
  for(const r of mv.rows){const g=k=>mv.get(r,k);if(typeof g("Raw qty")==="number")gap+=g("Raw qty");tables.movement_holds.push({source:r.source,register:g("Register"),register_row:g("Source row"),raw_quantity:g("Raw qty"),source_disposition:g("Disposition"),original_values:r.raw,disposition:"HOLD_NOT_POSTED"});}
  for(const [sheet,key] of [["SFG Register","sfg_design_references"],["SFG Components","sfg_component_references"]])tables[key]=read(retained,sheet,[]).rows.map(r=>({source:r.source,original_values:r.raw,disposition:"DESIGN_REFERENCE_NOT_BUILT_STOCK"}));
- return{state:"HOLD_NOT_IMPORT_AUTHORIZED",tables,delta,rejected,violations,summary:{opening_rows:opening.size,batch_tracked_rows:batches,serial_tracked_rows:serials,mixed_uom_quantity:qty,retained_display_names:retainedNames,live_display_names:liveNames,changed_opening_rows:delta.length,missing_count_dates:missingDate,serial_candidates:tables.serial_candidates.length,retired_serials:tables.retired_serials.length,serial_quantity_holds:tables.serial_quantity_holds.length,historical_aliases:tables.historical_qr_aliases.length,unchecked_serials:unchecked,serials_without_location:missingLocation,movement_holds:tables.movement_holds.length,mixed_uom_movement_gap:gap,admitted_items:0,admitted_stock:0}};
+ return{state:"HOLD_NOT_IMPORT_AUTHORIZED",tables,delta,rejected,violations,summary:{opening_rows:opening.size,batch_tracked_rows:batches,serial_tracked_rows:serials,mixed_uom_quantity:qty,retained_display_names:retainedNames,live_display_names:liveNames,changed_opening_rows:delta.length,ignored_identical_opening_scaffolds:ignoredScaffolds.size,missing_count_dates:missingDate,serial_candidates:tables.serial_candidates.length,retired_serials:tables.retired_serials.length,serial_quantity_holds:tables.serial_quantity_holds.length,historical_aliases:tables.historical_qr_aliases.length,unchecked_serials:unchecked,serials_without_location:missingLocation,movement_holds:tables.movement_holds.length,mixed_uom_movement_gap:gap,admitted_items:0,admitted_stock:0}};
 }
 function test(stage,specs){
  const a=(x,m)=>{if(!x)throw Error("SELF_TEST:"+m)};
@@ -103,7 +108,12 @@ function test(stage,specs){
  const dup=copy(r);dup["Serial Tracked Items"].push(copy(dup["Serial Tracked Items"][3]));a(stage(dup,l,specs).violations.some(v=>v.reason==="GLOBAL_DUPLICATE_PROPOSED_SERIAL"),"duplicate");
  const change=copy(l);change.Opening[1][13]=99;a(stage(r,change,specs).violations.some(v=>v.reason==="NON_NAMING_OR_INCONSISTENT_DELTA"),"quantity delta");
  const retired=copy(r);retired["Serial Tracked Items"][4][2]="PART-01-S0001";a(stage(retired,l,specs).violations.some(v=>v.reason==="RETIRED_SERIAL_REUSE_OR_NONZERO"),"retired reuse");
- return{state:"PASS",assertions:11};
+ const scaff=copy(r),scaffLive=copy(l);const blankRow=Array(53).fill("");blankRow[0]=3;blankRow[3]=false;
+ scaff.Opening.push(copy(blankRow));scaffLive.Opening.push(copy(blankRow));
+ const clean=stage(scaff,scaffLive,specs);a(clean.violations.length===0&&clean.summary.ignored_identical_opening_scaffolds===1&&clean.summary.opening_rows===2,"identical trailing scaffold");
+ scaffLive.Opening[3][13]=1;a(stage(scaff,scaffLive,specs).violations.some(v=>v.reason==="LIVE_ADDITION_OR_ROW_SHIFT"),"changed scaffold held");
+ scaff.Opening[3][13]=1;a(stage(scaff,scaffLive,specs).violations.some(v=>v.reason==="INCOMPLETE_OPENING_ROW"),"partial row held");
+ return{state:"PASS",assertions:14};
 }
 
 const sha=x=>createHash('sha256').update(x).digest('hex');

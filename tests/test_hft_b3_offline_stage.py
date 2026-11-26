@@ -30,7 +30,7 @@ def workbook(path, live=False):
         row[7],row[13],row[42],row[43],row[46] = track,q,code,code+"-B003","DRAFT"
         return row
     sheets = {
-        "Opening":[opening_header,item(1,"Part","PART-01","Batch",4),item(2,"Unit","UNIT-01","Serial",1)],
+        "Opening":[opening_header,item(1,"Part","PART-01","Batch",4),item(2,"Unit","UNIT-01","Serial",1),[3,"","",False]],
         "Batch Tracked Items":[[],[],["Opening Row","S. No.","Item Code (existing / draft)","Batch No. (proposed)","Mapping Status","Opening Qty","Tracking Type","Legacy Printed QR (NOT batch number)","Label Assignment Status"],[2,1,"PART-01","PART-01-B003","DRAFT",4,"Batch","OLD-B","VERIFY"]],
         "Serial Tracked Items":[[],[],["Item Code (existing / draft)","Batch No. (proposed)","Proposed Item Serial No. (NOT issued)","Legacy QR / Sticker ID","Unit Qty","Looks/Packaging","Working Condition","Manufacturer Serial No.","Inspection Remarks","Checked By","Checked On","Opening Row at Build","Opening S. No.","Unit Index","Location (source)","Record Status","Earlier Item Serial Pattern","Identity / Mapping Status","Unresolved Source Qty (HOLD only)","Count Date (source)"],["UNIT-01","UNIT-01-B003","UNIT-01-S0001","OLD-S",1,"Not checked","Not tested","","","","",3,2,1,"","PENDING","","DRAFT"]],
         "Batch 3 Sticker Register":[["Sticker / QR ID","Opening Row","Opening S. No.","Validation State"],["OLD-B",2,1,"VERIFY"],["OLD-S",3,2,"VERIFY"]],
@@ -92,6 +92,7 @@ class B3StageTest(unittest.TestCase):
                 report = json.loads(p.stdout)
                 self.assertEqual(report["admitted_rows"],0)
                 self.assertEqual(report["changed_opening_rows"],1)
+                self.assertEqual(report["ignored_identical_opening_scaffolds"],1)
                 self.assertEqual(report["serial_candidates"],1)
                 self.assertEqual(report["mixed_uom_quantity"],5)
                 raw_manifest = (dst/"manifest.json").read_bytes()
