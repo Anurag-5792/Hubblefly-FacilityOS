@@ -1,4 +1,5 @@
 /** Dedicated production R1 master-record API. No P3, Draft or Stores calls. */
+import {LIVE_R1_VERSION} from '../../../../lib/hft/live/live-contract.ts';
 import {assertLiveProfile} from '../../../../lib/hft/live/live-profile.ts';
 import {openLivePool,executeLive} from '../../../../lib/hft/live/live-service.ts';
 import {resolveVerifiedRequestOperator} from '../../../../lib/hft/security/verified-request.ts';
@@ -21,6 +22,19 @@ export async function POST(request:Request):Promise<Response>{
   if(Buffer.byteLength(body,'utf8')>16384)return fail(413,'LIVE_R1_REQUEST_TOO_LARGE');
   data=JSON.parse(body);
  }catch{return fail(422,'LIVE_R1_PAYLOAD_INVALID');}
+ // Project the already verified session's scope, not a new grant.
+ // All data reads and writes still enter executeLive and its database checks.
+ if(data&&typeof data==='object'&&!Array.isArray(data)){
+  const body=data as Record<string,unknown>;
+  if(body.intent==='SESSION_CONTEXT'){
+   if(Object.keys(body).length!==2||body.contractVersion!==LIVE_R1_VERSION)
+    return fail(422,'LIVE_R1_CONTRACT_REJECTED');
+   return Response.json({state:'AUTHORITATIVE_RESULT',data:{
+    state:'SIGNED_SESSION_CONTEXT',scope:actor.scope,expiresAt:actor.expiresAt,
+    qualification:process.env.HFT_ENVIRONMENT==='production-qualification'
+   }},{headers});
+  }
+ }
  const pool=openLivePool(process.env);
  try{
   const result=await executeLive(pool,process.env,actor,data);
