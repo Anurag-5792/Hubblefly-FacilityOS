@@ -133,7 +133,7 @@ export default function LiveMastersPage(){
  const current=meta[kind],locked=busy||!!pending||storageState!=='ready';
  const contextKey=[kind,entity,site,warehouse,serverSearch].join('|');
  const currentRecords=loadedKey===contextKey?records:[];
- const currentListState=loadedKey===contextKey?listState:listState==='error'?'error':'loading';
+ const currentListState=loadedKey===contextKey?listState:'loading';
  useEffect(()=>{
   const controller=new AbortController();
   try{setPending(readPending());setStorageState('ready');}catch{setStorageState('blocked');}

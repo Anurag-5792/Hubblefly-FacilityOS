@@ -30,7 +30,7 @@ async function run(expression){
  if(r.exceptionDetails)throw Error('BROWSER_JS:'+JSON.stringify(r.exceptionDetails));
  return r.result?.value;
 }
-const mock=\`(()=>{
+const mock=`(()=>{
  const orig=window.fetch.bind(window),key='hft.live.fixture.records',login='hft.live.fixture.login';
  const read=()=>JSON.parse(sessionStorage.getItem(key)||'{}');
  const write=value=>sessionStorage.setItem(key,JSON.stringify(value));
@@ -66,12 +66,13 @@ const mock=\`(()=>{
   }
   return deny(422,'LIVE_R1_CONTRACT_REJECTED');
  };
-})();\`;
+})();`;
 async function click(text){
+ await wait(()=>run('Boolean([...document.querySelectorAll("button")].find(x=>x.textContent.trim()==='+JSON.stringify(text)+'&&!x.disabled))'),'BUTTON_'+text);
  await run('(()=>{const b=[...document.querySelectorAll("button")].find(x=>x.textContent.trim()==='+JSON.stringify(text)+'&&!x.disabled);if(!b)throw Error("BUTTON_UNAVAILABLE");b.click();return true;})()');
 }
 async function field(label,value){
- await run('(()=>{const l=[...document.querySelectorAll("form label")].find(x=>x.firstChild?.textContent.trim()==='+JSON.stringify(label)+');const n=l?.querySelector("input,textarea,select");if(!n||n.disabled)throw Error("FIELD_UNAVAILABLE");Object.getOwnPropertyDescriptor(Object.getPrototypeOf(n),"value").set.call(n,'+JSON.stringify(value)+');n.dispatchEvent(new Event("input",{bubbles:true}));n.dispatchEvent(new Event("change",{bubbles:true}));return n.value;})()');
+ await run('(()=>{const l=[...document.querySelectorAll("form label")].find(x=>x.textContent.trim()==='+JSON.stringify(label)+');const n=l?.querySelector("input,textarea,select");if(!n||n.disabled)throw Error("FIELD_UNAVAILABLE");Object.getOwnPropertyDescriptor(Object.getPrototypeOf(n),"value").set.call(n,'+JSON.stringify(value)+');n.dispatchEvent(new Event("input",{bubbles:true}));n.dispatchEvent(new Event("change",{bubbles:true}));return n.value;})()');
  await sleep(80);
 }
 async function has(text){return run('document.body.innerText.includes('+JSON.stringify(text)+')');}

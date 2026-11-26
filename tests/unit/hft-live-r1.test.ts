@@ -154,7 +154,7 @@ test('validated signed scope prevents cross-warehouse operation before PostgreSQ
 
 test('Live Masters workspace context is a strict signed-session projection, not an access grant',async()=>{
  const old=process.env;
- process.env={...env};
+ process.env={...env} as NodeJS.ProcessEnv;
  try{
   const request=(token:string|undefined,body:unknown,headers:Record<string,string>={})=>
    new Request(origin+'/api/hft/live-masters',{method:'POST',headers:{origin,'sec-fetch-site':'same-origin',
