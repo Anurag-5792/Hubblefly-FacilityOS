@@ -1,0 +1,23 @@
+name: HF095 Canonical Planning Draft Persistence
+on:
+  push:
+    branches:
+      - engineering/hft-r1-planning-drafts-096
+permissions:
+  contents: read
+jobs:
+  disposable-planning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify unchanged accepted application and canonical migrations
+        run: |
+          git diff --exit-code 8c1b41e93d1d120746c97ee108d2bfa539db2e22 HEAD -- app lib db
+          sha256sum review-candidates/hf095-planning-drafts/10-canonical-planning-drafts.NONEXECUTABLE.sql
+      - name: Execute actual isolated canonical planning draft persistence
+        run: python3 tests/postgres/hf095_planning_drafts_fixture.py
