@@ -63,6 +63,8 @@ export function middleware(request:NextRequest){
    process.env.HFT_STORES_RUNTIME_PROFILE===undefined&&
    process.env.HFT_MASTERS_RUNTIME_PROFILE===undefined;
   if(live&&liveRoutes.has(path))return NextResponse.next();
+  if(live&&process.env.HFT_INTAKE_PROFILE==='HFT_INTAKE_OWNER_REVIEW_V1'&&process.env.HFT_ENVIRONMENT==='production-qualification'&&process.env.VERCEL_ENV==='preview'&&
+   (path==='/stores/intake'||path==='/api/hft/intake'))return NextResponse.next();
   return NextResponse.json({state:'UNAVAILABLE',code:'LIVE_R1_RUNTIME_NOT_ADMITTED'},
    {status:503,headers:{'Cache-Control':'no-store'}});
  }
