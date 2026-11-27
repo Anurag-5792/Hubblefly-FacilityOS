@@ -133,7 +133,7 @@ export function assertOperatorRuntimeProfile(env:QualificationEnv):void{
 }
 export const QUAL077_BINDING_SQL=`SELECT b.admission_sha256,b.payload,
  current_database() AS db,(SELECT oid::text FROM pg_catalog.pg_database WHERE datname=current_database()) AS db_oid,
- session_user AS login,current_user AS role,inet_server_addr()::text AS address,inet_server_port() AS port,
+ session_user AS login,current_user AS role,pg_catalog.host(inet_server_addr()) AS address,inet_server_port() AS port,
  current_setting('server_version_num') AS version,
  (SELECT count(*)=1 FROM hft_qual077.execution_binding) AS singular,
  EXISTS(SELECT 1 FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid=a.attrelid

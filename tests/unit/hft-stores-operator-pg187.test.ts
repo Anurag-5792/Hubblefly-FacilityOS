@@ -8,11 +8,12 @@ import {assertSecureStartup} from '../../lib/hft/security/authorization.ts';
 import {resolveVerifiedRequestOperator} from '../../lib/hft/security/verified-request.ts';
 import {STORES_PROFILE,assertRetainedStoresProfile,isRetainedStoresProfile}
  from '../../lib/hft/stores/ops-a2-retained-profile.ts';
-import {assertProtectedPostingEnvironment}
+import {assertProtectedPostingEnvironment,withProtectedPostingTransaction,withProtectedReadbackTransaction}
  from '../../lib/hft/persistence/protected-posting-transaction.ts';
-import {assertOnlineRuntimeCatalog}
+import {assertOnlineRuntimeCatalog,ONLINE_RUNTIME_CATALOG_SQL}
  from '../../lib/hft/persistence/online-db-qualification.ts';
-import type {PgQueryClient}
+import {bindRoleOperationFence} from '../../lib/hft/roles/role-operation-fence.ts';
+import type {PgPool,PgQueryClient}
  from '../../lib/hft/persistence/isolated-pg-transaction.ts';
 import {assertP0PersistenceEnvironment} from '../../lib/hft/stores/p0-persistence.ts';
 import {assertOnlinePgTransport,onlinePgPoolOptions}
@@ -182,5 +183,43 @@ test('operator catalog enforces four gateway-only EXECUTEs and exact non-login o
   await assert.rejects(assertOnlineRuntimeCatalog(
    catalog({...base,...defect}),'OPS_A2_STORES'),
    /HFT_ONLINE_DB_RUNTIME_ACL_OR_SCHEMA_NOT_QUALIFIED/);
+ }
+});
+
+// Exact retained profile: client TLS must precede even BEGIN. No real connection or stock writes.
+test('retained RECEIVE/readback verifies proxy TLS and same-database role fence before callback',async()=>{
+ for(const readOnly of [false,true]){
+  for(const defect of ['none','tls','cidr','fence','catalog'] as const){
+   const queries:string[]=[];let invoked=false;const released:boolean[]=[];
+   const client:PgQueryClient={connection:{stream:{encrypted:true,authorized:defect!=='tls',authorizationError:null,
+    servername:host,remoteAddress:'192.0.2.1',remotePort:5432,getProtocol:()=> 'TLSv1.3',
+    getCipher:()=>({name:'TLS_AES_256_GCM_SHA384'}),
+    getPeerCertificate:()=>({raw:Buffer.from('synthetic'),subjectaltname:'DNS:'+host})}},
+    async query<T extends Record<string,unknown>>(sql:string){
+     queries.push(sql);let rows:Record<string,unknown>[]=[];
+     if(sql.includes('AS db_name'))rows=[{db_name:env.PGDATABASE,db_login:env.HFT_P2_RUNTIME_LOGIN,db_role:env.HFT_P2_RUNTIME_LOGIN,
+      server_address:defect==='cidr'?'127.0.0.1/32':'127.0.0.1',server_port:5432}];
+     else if(sql===ONLINE_RUNTIME_CATALOG_SQL)rows=[{function_count:4,functions_secure:true,gateway_owner_count:4,
+      unexpected_functions:0,direct_relation_grants:defect==='catalog'?1:0,privileged_memberships:0,schema_usage:true,
+      schema_create:false,secret_usage:false,crypto_usage:false,nonprivileged_login:true,server_version_num:180007}];
+     else if(sql.includes('pg_try_advisory_xact_lock_shared'))rows=[{acquired:true,db:env.PGDATABASE,db_oid:'12345',address:'127.0.0.1',port:5432,
+      isolation:readOnly?'repeatable read':'serializable',read_only:readOnly?'on':'off'}];
+     else if(sql.includes('pg_stat_ssl'))throw Error('RETAINED_BACKEND_FLAG_IS_NOT_CLIENT_TLS');
+     return {rows:rows as T[],rowCount:rows.length};
+    },release(destroy){released.push(destroy===true);}};
+   const pool:PgPool={connect:async()=>client};
+   bindRoleOperationFence(pool,env.PGDATABASE,async()=>({database:env.PGDATABASE,oid:defect==='fence'?'54321':'12345',address:'127.0.0.1',port:5432}));
+   const run=readOnly?withProtectedReadbackTransaction:withProtectedPostingTransaction;
+   const work=()=>run(pool,env,async()=>{invoked=true;return 'VERIFIED_FIXTURE';});
+   if(defect==='none'){
+    assert.equal(await work(),'VERIFIED_FIXTURE');assert.equal(queries.at(-1),'COMMIT');
+    assert.ok(queries.some(q=>q.includes('pg_catalog.host(inet_server_addr()) AS server_address')));
+    assert.ok(queries.some(q=>q.includes('pg_catalog.host(inet_server_addr()) AS address')));
+   }else{
+    await assert.rejects(work());assert.equal(invoked,false);
+    if(defect==='tls'){assert.deepEqual(queries,[]);assert.deepEqual(released,[true]);}
+    else assert.equal(queries.at(-1),'ROLLBACK');
+   }
+  }
  }
 });

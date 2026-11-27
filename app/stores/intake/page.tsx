@@ -1,6 +1,7 @@
 'use client';
 import {useCallback,useEffect,useState,useRef,type FormEvent} from 'react';
 import Link from 'next/link';
+import {CorporateBrand} from '../../masters/live/workspace-components';
 import {workspaceView,workspaceViewUrl} from '../../../lib/hft/ui-reuse/workspace-view-state.ts';
 import s from '../../masters/live/workspace.module.css';
 import {INTAKE_VIEWS,type IntakeView} from '../../../lib/hft/intake/intake-contract.ts';
@@ -127,14 +128,14 @@ export default function IntakePage(){
  }
  function refreshConnection(){if(logoutRef.current||logoutUnconfirmed.current)return;closed.current=false;setNotice('');setReload(x=>x+1);}
  return <div className={s.shell}>
-  <aside className={s.sidebar}><div className={s.brand}><div className={s.brandMark}>H</div><div><strong>HUBBLEFLY</strong><span>HFT-OS</span></div></div>
+  <aside className={s.sidebar}><CorporateBrand/>
    <div className={s.sideCaption}>STORES · INVENTORY REVIEW</div>
    {state==='ready'&&<nav className={s.navigation} aria-label="Inventory registers">{INTAKE_VIEWS.map(v=><button type="button" key={v} disabled={busy||!!pending||state!=='ready'} aria-current={v===view?'page':undefined} className={v===view?s.navSelected:s.navButton} onClick={()=>selectView(v)}>{names[v]}</button>)}</nav>}
-   <div className={s.sidebarBottom}><Link className={s.navButton} href="/masters/live">Masters workspace</Link><span>Stock posting not enabled</span></div>
+   <div className={s.sidebarBottom}>{!busy&&!pending&&<><Link className={s.navButton} href="/masters/live">Masters workspace</Link><Link className={s.navButton} href="/">Application dashboard</Link></>}<span>Stock posting not enabled</span></div>
   </aside>
   <div className={s.main}><header className={s.topbar}><div className={s.breadcrumb}>HFT-OS / Stores / <strong>Inventory intake</strong></div>{(ctx||state==='ready'||state==='loading')&&<button type="button" className={s.secondary} disabled={signingOut} onClick={()=>void signOut()}>Sign out</button>}</header>
    <main className={s.content}>
-    {state==='signin'||state==='error'?<section className={s.signinCard}><h1>Inventory review</h1><p>{state==='signin'?'This private inventory requires a separately authorized corporate owner session.':'The inventory connection is unavailable. Any unresolved request must be reconciled before retrying.'}</p>{notice&&<p role="status">{notice}</p>}{!signingOut&&<a className={s.primary} href="/api/hft/live-masters/auth/start">Corporate Google sign-in</a>}<button type="button" className={s.secondary} disabled={signingOut||logoutUnconfirmed.current} onClick={refreshConnection}>Refresh connection</button><button type="button" className={s.secondary} disabled={signingOut} onClick={()=>void signOut()}>Sign out</button></section>:
+    {state==='signin'||state==='error'?<section className={s.signinCard}><h1>Inventory review</h1><p>{state==='signin'?'This private inventory requires a separately authorized corporate owner session.':'The inventory connection is unavailable. Any unresolved request must be reconciled before retrying.'}</p>{notice&&<p role="status">{notice}</p>}{!signingOut&&<a className={s.primary} href="/api/hft/live-masters/auth/start?return=intake">Corporate Google sign-in</a>}<button type="button" className={s.secondary} disabled={signingOut||logoutUnconfirmed.current} onClick={refreshConnection}>Refresh connection</button><button type="button" className={s.secondary} disabled={signingOut} onClick={()=>void signOut()}>Sign out</button></section>:
     <><div className={s.pageHeading}><div><p className={s.kicker}>STORES / IMPORTED DATA</p><h1>{names[view]}</h1><p>Review the actual shared source records. Imported counts are not approved stock balances.</p></div></div>
     <div className={s.notice+' '+s.warning} role="status">Unadmitted inventory · Source quantities and locations are recorded observations. Current stock is the worksheet projection, not the authoritative ledger.</div>
     {notice&&<div className={s.notice} role="status">{notice}</div>}

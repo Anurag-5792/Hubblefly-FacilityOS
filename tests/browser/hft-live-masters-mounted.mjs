@@ -3,7 +3,8 @@
  */
 import assert from 'node:assert/strict';
 import {spawn,execFileSync} from 'node:child_process';
-import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,rm,mkdir,writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {setTimeout as sleep} from 'node:timers/promises';
@@ -77,6 +78,8 @@ const mock=`(()=>{
    return deny(401,'LIVE_R1_ACTOR_CONTEXT_CHANGED');
   if(!p.scope||p.scope.legalEntityId!==context.legalEntityId||p.scope.siteId!==context.siteId||!context.warehouseIds.includes(p.scope.warehouseId))
    return deny(403,'LIVE_R1_SCOPE_OR_PERMISSION_DENIED');
+  if(p.intent==='LIST'&&window.__visualListDelay)await new Promise(r=>setTimeout(r,window.__visualListDelay));
+  if(p.intent==='LIST'&&window.__visualListError)return deny(503,'LIVE_R1_DATABASE_NOT_ADMITTED_OR_UNAVAILABLE');
   const rows=read(),keyId=idOf(p),current=rows[keyId];
   if(p.intent==='LIST')return ok(Object.values(rows).filter(x=>x.record.kind===p.kind&&x.record.scope.warehouseId===p.scope.warehouseId&&x.record.recordId.toLowerCase().includes(p.search.toLowerCase())).map(x=>x.record));
   if(p.intent==='GET')return ok(current?.record||null);
@@ -130,9 +133,11 @@ async function workflow(){
  await click('Open');await wait(()=>has('Edit employee'),'EDIT_FORM');
  await field('Designation','Supervisor');await field('Reason for updating this record','Synthetic change verification');
  await click('Save changes');await wait(()=>has('Record saved and verified'),'EDIT');
+ await wait(()=>run('document.querySelector("form")===null'),'EDIT_WINDOW_CLOSED');
  await wait(()=>has('Supervisor'),'EDIT_READBACK');
  const update=await run('window.__liveCalls.find(p=>p.intent==="SAVE")');
  assert.equal(update.action,'UPDATE');assert.equal(update.expectedRevision,1);
+ await click('Open');await wait(()=>has('Edit employee'),'REOPEN_AFTER_EDIT');
  await wait(()=>has('Audit details · revision 2'),'AUDIT');
  await run('(()=>{const n=[...document.querySelectorAll("label")].find(x=>x.firstChild?.textContent==="Warehouse").querySelector("select");Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,"value").set.call(n,"FIXTURE-WH2");n.dispatchEvent(new Event("change",{bubbles:true}));})()');
  await wait(()=>has('No employees recorded'),'SCOPE_SWITCH');
@@ -238,6 +243,131 @@ async function workflow(){
  assert.ok(await run('document.querySelector("input[aria-label=Company]").getBoundingClientRect().height>=36'),'INPUT_STYLING');
  console.log('LIVE_MASTERS_MOUNTED=PASS; synthetic signed-out/context/scope/create/edit/history/actor isolation/re-login/legacy/storage failures/mobile');
 }
+// Separate capture mode; ordinary two-actor regression remains unchanged.
+const captures=[];
+const captureDir=process.env.HFT_UI_CAPTURE_DIR;
+async function capture(name,width,height){
+ if(!captureDir)throw Error('VISUAL_CAPTURE_DIR_REQUIRED');
+ await viewport(width,height);
+ await run('window.scrollTo(0,0)');
+ await sleep(220);
+ await run(`(()=>{const old=document.getElementById('hft-test-watermark');if(old)old.remove();const tag=document.createElement('div');tag.id='hft-test-watermark';tag.textContent='SYNTHETIC TEST DATA · CI BROWSER CAPTURE';Object.assign(tag.style,{display:'block',background:'#15283f',color:'#fff',padding:'8px 12px',font:'600 11px system-ui',textAlign:'center',pointerEvents:'none'});document.body.append(tag);const portal=document.querySelector('nextjs-portal');if(portal)portal.style.display='none';})()`);
+ const metrics=await send('Page.getLayoutMetrics');
+ const size=metrics.cssContentSize;
+ const h=Math.min(4000,Math.max(height,Math.ceil(size.height)));
+ const result=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width,height:h,scale:1}});
+ const bytes=Buffer.from(result.data,'base64');
+ await writeFile(join(captureDir,name+'.png'),bytes,{flag:'wx'});
+ captures.push({file:name+'.png',viewport:{width,height},image:{width,height:h},documentWidth:size.width,sha256:createHash('sha256').update(bytes).digest('hex')});
+ await run('document.getElementById("hft-test-watermark")?.remove()');
+}
+async function visual(){
+ await mkdir(captureDir,{recursive:true});
+ await viewport(1440,900);
+ await send('Page.navigate',{url:URL_ROOT+'/masters/live'});
+ await wait(()=>has('Corporate Google sign-in'),'VISUAL_SIGNIN');
+ await wait(()=>run('[...document.querySelectorAll("img[alt=\'Hubblefly corporate logo\']")].some(i=>i.complete&&i.naturalWidth>0)'),'ORIGINAL_LOGO_LOADED');
+ await capture('01-desktop-sign-in',1440,900);
+ await capture('02-mobile-sign-in',390,844);
+ await viewport(1440,900);
+ await run('sessionStorage.setItem("hft.live.fixture.login","yes")');
+ await send('Page.reload');await wait(()=>has('No employees recorded'),'VISUAL_EMPTY');
+ await capture('03-desktop-empty',1440,900);
+ await click('Add employee');await wait(()=>run('Boolean(document.querySelector("form"))'),'VISUAL_CREATE');
+ await field('Employee ID','FIXTURE-EMP-01');await field('Full name','Synthetic Employee');
+ await field('Department','QA');await field('Designation','Operator');await field('Reason for adding this record','Synthetic visual create');
+ await capture('04-desktop-create',1440,900);
+ await capture('05-mobile-create',390,844);
+ await viewport(1440,900);await click('Save record');await wait(()=>has('Record saved and verified'),'VISUAL_SAVE');
+ await wait(()=>has('Synthetic Employee'),'VISUAL_CREATE_READBACK');
+ // Populate additional synthetic authorized records in the test intercept only.
+ await run(`(()=>{const k='hft.live.fixture.records',rows=JSON.parse(sessionStorage.getItem(k)||'{}');
+ const scope={legalEntityId:'FIXTURE-HFT',siteId:'FIXTURE-SITE',warehouseId:'FIXTURE-WH1'};
+ const now='2026-11-26T08:00:00.000Z';
+ function add(kind,recordId,values){const record={kind,scope,recordId,revision:1,deleted:false,values,state:'RECORDED_UNAPPROVED',createdBy:'FIXTURE-A',updatedBy:'FIXTURE-A',createdAt:now,updatedAt:now};rows[[scope.warehouseId,kind,recordId].join('|')]={record,history:[]};}
+ [['02','Synthetic Asha Rao','Stores','Storekeeper'],['03','Synthetic Dev Mehta','Engineering','Engineer'],['04','Synthetic Mira Das','QA','Inspector'],['05','Synthetic Ravi Sen','Procurement','Buyer'],['06','Synthetic Noor Ali','Stores','Coordinator'],['07','Synthetic Tara Shah','Engineering','Technician']].forEach(([n,fullName,department,designation])=>add('EMPLOYEE','FIXTURE-EMP-'+n,{fullName,department,designation}));
+ add('ITEM','FIXTURE-ITEM-01',{uom:'PCS',controlType:'SERIAL'});add('ITEM','FIXTURE-ITEM-02',{uom:'PCS',controlType:'BATCH'});
+ add('SUPPLIER','FIXTURE-SUP-01',{legalName:'Synthetic Components Ltd'});add('SUPPLIER','FIXTURE-SUP-02',{legalName:'Synthetic Materials Ltd'});
+ add('WAREHOUSE','FIXTURE-WH1',{name:'Synthetic Main Warehouse'});add('SITE','FIXTURE-SITE',{siteName:'Synthetic Assembly Site'});
+ add('LOCATION','FIXTURE-RACK-01',{parentLocationId:''});add('LOCATION','FIXTURE-BIN-01',{parentLocationId:'FIXTURE-RACK-01'});
+ sessionStorage.setItem(k,JSON.stringify(rows));})()`);
+ await send('Page.reload');await wait(()=>has('Synthetic Asha Rao'),'VISUAL_POPULATED');
+ await capture('06-desktop-directory',1440,900);await capture('07-mobile-directory',390,844);
+ assert.equal(await run('document.documentElement.scrollWidth<=window.innerWidth+2'),true);
+ assert.equal(await run(`[...document.querySelectorAll('nav[aria-label="Master data"] button')].length===6&&[...document.querySelectorAll('nav[aria-label="Master data"] button')].every(b=>{const r=b.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth})`),true,'MOBILE_ALL_MODULES_VISIBLE');
+ assert.equal(await run(`[...document.querySelectorAll('tbody tr')].length===7&&[...document.querySelectorAll('tbody tr button')].every(b=>{const r=b.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.width>0&&r.height>=36})`),true,'MOBILE_ROW_ACTIONS_VISIBLE');
+ await viewport(1440,900);
+ await run(`document.querySelector('button[aria-label="Summary filter: Retired"]').click()`);
+ await wait(()=>has('No matching records'),'SUMMARY_RETIRED_FILTER');
+ await run(`document.querySelector('button[aria-label="Summary filter: Total employees"]').click()`);
+ await wait(()=>run('document.querySelectorAll("tbody tr").length===7'),'SUMMARY_ALL_FILTER');
+ await run(`(()=>{const n=document.querySelector('select[aria-label="Filter by department"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(n,'Stores');n.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+ await wait(()=>has('Synthetic Asha Rao'),'VISUAL_FILTER');
+ await wait(()=>run('document.querySelectorAll("tbody tr").length===2'),'VISUAL_FILTER_COUNT');
+ await capture('08-desktop-filter',1440,900);
+ await run(`(()=>{const n=document.querySelector('input[aria-label="Search loaded records"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(n,'FIXTURE-EMP-02');n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+ await click('Find by ID');await wait(()=>has('Database ID search: FIXTURE-EMP-02'),'VISUAL_ID_SEARCH');
+ await wait(()=>run('document.querySelectorAll("tbody tr").length===1'),'VISUAL_ID_COUNT');
+ await capture('08b-desktop-id-search',1440,900);
+ await send('Page.reload');await wait(()=>has('Synthetic Employee'),'VISUAL_RELOAD');
+ // Target the record we really created through the mounted UI.
+ await run(`(()=>{const tr=[...document.querySelectorAll('tr')].find(r=>r.textContent.includes('FIXTURE-EMP-01'));const b=tr?.querySelector('button');if(!b)throw Error('MISSING_OPEN');b.click();})()`);
+ await wait(()=>has('Edit employee'),'VISUAL_EDIT');
+ await field('Designation','Supervisor');await field('Reason for updating this record','Synthetic visual edit');
+ await capture('09-desktop-edit',1440,900);await capture('10-mobile-edit',390,844);
+ await viewport(1440,900);await click('Save changes');await wait(()=>has('Record saved and verified'),'VISUAL_EDIT_SAVE');
+ await wait(()=>run('document.querySelector("form")===null'),'VISUAL_EDIT_WINDOW_CLOSED');
+ await wait(()=>has('Supervisor'),'VISUAL_EDIT_READBACK');
+ await wait(()=>run(`Boolean([...document.querySelectorAll('tr')].find(r=>r.textContent.includes('FIXTURE-EMP-01'))?.querySelector('button:not(:disabled)'))`),'VISUAL_REOPEN_READY');
+ await run(`(()=>{const tr=[...document.querySelectorAll('tr')].find(r=>r.textContent.includes('FIXTURE-EMP-01'));const b=tr?.querySelector('button');if(!b||b.disabled)throw Error('MISSING_OPEN');b.click();})()`);
+ await wait(()=>has('Audit details · revision 2'),'VISUAL_HISTORY');
+ await capture('11-desktop-history',1440,900);
+ await capture('12-mobile-history',390,844);
+ await viewport(1440,900);
+ await run(`document.querySelector('button[aria-label="Close record"]')?.click()`);
+ await run('window.__visualListDelay=3500');await click('Refresh');await wait(()=>has('Loading records'),'VISUAL_LOADING');
+ await capture('13-desktop-loading',1440,900);
+ await wait(()=>has('Synthetic Employee'),'VISUAL_LOADING_DONE');
+ await run('window.__visualListDelay=0;window.__visualListError=true');await click('Refresh');await wait(()=>has('Records unavailable'),'VISUAL_ERROR');
+ await capture('14-desktop-error',1440,900);
+ await run('window.__visualListError=false');await click('Refresh');await wait(()=>has('Synthetic Employee'),'VISUAL_ERROR_RECOVER');
+ await run(`(()=>{const n=[...document.querySelectorAll('label')].find(x=>x.firstChild?.textContent==='Warehouse').querySelector('select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(n,'FIXTURE-WH2');n.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+ await wait(()=>has('No employees recorded'),'VISUAL_SCOPE_EMPTY');
+ await capture('15-mobile-scope-empty',390,844);
+ await viewport(1440,900);
+ await run(`(()=>{const n=[...document.querySelectorAll('label')].find(x=>x.firstChild?.textContent==='Warehouse').querySelector('select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(n,'FIXTURE-WH1');n.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+ for(const [name,sentinel] of [['Items','FIXTURE-ITEM-01'],['Suppliers','Synthetic Components Ltd'],['Warehouses','Synthetic Main Warehouse'],['Locations','FIXTURE-BIN-01'],['Sites','Synthetic Assembly Site']]){
+  await click(name);await wait(()=>has(sentinel),'VISUAL_'+name);
+  await capture('16-desktop-'+name.toLowerCase(),1440,900);
+  if(name==='Items'){
+   await capture('17-mobile-items',390,844);await viewport(1440,900);
+   await run(`(()=>{const n=document.querySelector('select[aria-label="Filter by tracking type"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(n,'SERIAL');n.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+   await wait(()=>run('document.querySelectorAll("tbody tr").length===1'),'ITEM_TRACKING_FILTER');
+   await click('Clear filters');await wait(()=>run('document.querySelectorAll("tbody tr").length===2'),'ITEM_CLEAR_FILTER');
+   await click('Add item');await wait(()=>has('Record details'),'ITEM_CREATE_FORM');
+   await field('Item code','FIXTURE-ITEM-03');await field('Unit of measure','PCS');
+   await run(`(()=>{const n=document.querySelector('form select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(n,'BATCH');n.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+   await field('Reason for adding this record','Synthetic item create');await capture('18-desktop-item-create',1440,900);
+   await click('Save record');await wait(()=>has('Record saved and verified'),'ITEM_SAVE');
+   assert.equal(await run('window.__liveCalls.filter(p=>p.intent==="SAVE").at(-1).values.controlType'),'BATCH');
+   await run(`document.querySelector('button[aria-label="Close record"]')?.click()`);
+  }
+  if(name==='Locations'){
+   await click('Add location');await wait(()=>has('Record details'),'LOCATION_CREATE');
+   await field('Location ID','FIXTURE-BIN-02');
+   const opts=await run(`[...document.querySelector('select[aria-describedby="parent-reference-hint"]').options].map(o=>o.value)`);
+   assert.deepEqual(opts,['','FIXTURE-RACK-01','FIXTURE-BIN-01']);
+   await run(`(()=>{const n=document.querySelector('select[aria-describedby="parent-reference-hint"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(n,'FIXTURE-RACK-01');n.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+   await field('Reason for adding this record','Synthetic scoped parent selection');
+   await capture('19-desktop-location-create',1440,900);await capture('20-mobile-location-create',390,844);
+   await viewport(1440,900);await click('Save record');await wait(()=>has('Record saved and verified'),'LOCATION_SAVE');
+   assert.equal(await run('window.__liveCalls.filter(p=>p.intent==="SAVE").at(-1).values.parentLocationId'),'FIXTURE-RACK-01');
+   await run(`document.querySelector('button[aria-label="Close record"]')?.click()`);
+  }
+ }
+ await writeFile(join(captureDir,'capture-metadata.json'),JSON.stringify({synthetic:true,source:process.env.GITHUB_SHA||null,images:captures},null,2)+'\n',{flag:'wx'});
+ console.log('LIVE_MASTERS_VISUAL=PASS; '+captures.length+' actual Chromium PNG captures; synthetic intercept only');
+}
 try{
  tmp=await mkdtemp(join(tmpdir(),'hft-live-ui-'));
  let tail='';
@@ -258,7 +388,7 @@ try{
  await new Promise((resolve,reject)=>{ws.addEventListener('open',resolve,{once:true});ws.addEventListener('error',reject,{once:true});});
  ws.addEventListener('message',evt=>{const m=JSON.parse(String(evt.data));const p=pending.get(m.id);if(!p)return;pending.delete(m.id);if(m.error)p.reject(Error(JSON.stringify(m.error)));else p.resolve(m.result);});
  await send('Page.enable');await send('Runtime.enable');await send('Page.addScriptToEvaluateOnNewDocument',{source:mock});
- await workflow();
+ if(process.argv.includes('--visual'))await visual();else await workflow();
 }catch(error){console.error('LIVE_MASTERS_MOUNTED=FAIL',error);process.exitCode=1;}
 finally{
  if(ws)ws.close();
