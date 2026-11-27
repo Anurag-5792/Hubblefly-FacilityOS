@@ -187,8 +187,20 @@ def shape_gate(target):
       "columns":[{"name":n,"type":t,"notnull":True,"acl":None} for n,t in (("seq","integer"),("raw","text"),("sha","text"))],
       "constraints":sorted(["PRIMARY KEY (seq)","CHECK (((seq >= 0) AND (seq <= 2)))","CHECK ((octet_length(raw) <= 1048576))","CHECK ((sha ~ '^[0-9a-f]{64}$'::text))"]),
       "indexes":["CREATE UNIQUE INDEX hf100_install_receipt_pkey ON public.hf100_install_receipt USING btree (seq)"],"triggers":0,"rules":0}
-    q="SELECT (v-'rows'-'functions') || jsonb_build_object('functions',(SELECT jsonb_agg(x-'definition') FROM jsonb_array_elements(v->'functions') x)) FROM (SELECT ("+SHAPE.strip()+")::jsonb AS v) s"
-    return equality_gate(q,expected,"HF100_REGISTRY_EXPLICIT_SHAPE_DRIFT")
+    q="""SELECT (v-'rows'-'functions'-'constraints') || jsonb_build_object(
+ 'functions',(SELECT jsonb_agg(x-'definition') FROM jsonb_array_elements(v->'functions') x),
+ 'constraints',(SELECT jsonb_agg(x ORDER BY x COLLATE "C") FROM jsonb_array_elements_text(v->'constraints') x))
+ FROM (SELECT ("""+SHAPE.strip()+""")::jsonb AS v) s"""
+    # Exact key/array comparison; sort constraint names in byte order rather
+    # than the server's locale. Report only the failing field, never its value.
+    return """DO $hf100_shape$ DECLARE observed jsonb; expected jsonb; k text; BEGIN
+ observed:=("""+q+"""); expected:=convert_from(decode('"""+canonical(expected).hex()+"""','hex'),'UTF8')::jsonb;
+ IF observed IS DISTINCT FROM expected THEN
+  SELECT key INTO k FROM jsonb_object_keys(expected || observed) AS key WHERE observed->key IS DISTINCT FROM expected->key ORDER BY key LIMIT 1;
+  RAISE EXCEPTION 'HF100_REGISTRY_EXPLICIT_SHAPE_DRIFT:%',k;
+ END IF;
+END $hf100_shape$;
+"""
 def verify_shape(s,target):
     owner=OWNER;installer=target["installer"]
     need([x["name"] for x in s["relations"]]==["hf100_install_receipt","hf100_install_receipt_pkey"] and
