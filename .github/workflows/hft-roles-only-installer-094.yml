@@ -1,0 +1,24 @@
+name: HF094 Roles-only Installer Verification
+on:
+  push:
+    branches:
+      - engineering/hft-r1-roles-only-installer-094
+permissions:
+  contents: read
+jobs:
+  installer-source-and-disposable-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact installer source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Inspect exact installer bytes and application baseline
+        run: |
+          git diff --exit-code 4681edbfddfa960b4af9ad8597745a7d66b9c90e HEAD -- app lib db tools/hft_apply_migrations.py
+          python3 tools/hft_roles_only_install_094.py --inspect
+          python3 -m unittest discover -s tests -p test_hf094_roles_only_installer.py -v
+      - name: PostgreSQL 18.7 disposable parser, ACL, rollback and negative postflight
+        run: python3 tests/postgres/hf094_roles_only_fixture.py

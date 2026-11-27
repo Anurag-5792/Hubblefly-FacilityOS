@@ -1,0 +1,49 @@
+{
+  "schema": "HF094_ROLES_ONLY_INSTALLER_V1",
+  "state": "REVIEW_CANDIDATE_NOT_ADMITTED",
+  "application_source_commit": "4681edbfddfa960b4af9ad8597745a7d66b9c90e",
+  "application_source_tree": "f090740ac321d92e0663bcab48f5610de83caede",
+  "target": {
+    "project": "wandering-cake-50222227",
+    "branch": "br-shiny-night-b3qgsj8t",
+    "endpoint": "ep-hidden-fire-b324s21q",
+    "host": "ep-hidden-fire-b324s21q.c-4.ap-southeast-1.aws.neon.tech",
+    "port": 5432,
+    "database": "hft_r1_retained_masters_np077",
+    "database_oid": 16397,
+    "server_version_num": 180007,
+    "installer": "hft_r1_retained_masters_np077_owner"
+  },
+  "canonical_manifest_sha256": "ce51d77af4db16b8d97dcbcc10cd0472ef806f7c581b16982f95f21120fa7355",
+  "canonical_helper_sha256": "3cc1e19e2e72ad2a4f30c24285707e9331063cdb9fa45a3c59c7e3ba202b6e91",
+  "original_role_sql_sha256": "e9d34e58be95cca5ce83a848243e88cb95919dec843763dc234de78559644641",
+  "files": [
+    {
+      "path": "10-role-bootstrap.sql",
+      "git_blob": "bedc2b7d00c80d2f118dfae572d61a8058f3a111",
+      "sha256": "67c7640927b88229bd6a271d54eedc4c9d89eb06a184fda5e6a250b10532feab"
+    },
+    {
+      "path": "20-role-assignment.sql",
+      "git_blob": "579dc8deec52177bcee5f9e5f68162cd6d8e9297",
+      "sha256": "42133adb467a66d61c05a9bcef0065a349dda40a2d22d5f0f97aee4dbbc4faa0"
+    },
+    {
+      "path": "90-catalog-acl-postflight.sql",
+      "git_blob": "576db70b86267444da63e1af85a327283402a0b4",
+      "sha256": "139c0bbeafc702aa010ac6ae525a6e7dcbee02bddaf71cf0a24c0e5df67af7b3"
+    }
+  ],
+  "sequence": [
+    "10-role-bootstrap.sql",
+    "canonical revisions 0001–0006 in order",
+    "20-role-assignment.sql",
+    "90-catalog-acl-postflight.sql",
+    "COMMIT",
+    "fresh read-only catalog postflight"
+  ],
+  "runtime_login": "hft_r1_roles_np_login",
+  "login_enabled": false,
+  "stock_posting": false,
+  "owner_bootstrap": false
+}
