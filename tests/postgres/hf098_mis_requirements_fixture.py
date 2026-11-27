@@ -121,7 +121,7 @@ def main():
         read_sig="hft.planning_requirements_read_v1(text,text,text,text,text,text,uuid)"
         action_sig="hft.planning_action_allowed_v1(text,text,text,text,text,text,text)"
         backend=(ROOT/"lib/hft/planning/mis-read-backend.ts").read_text()
-        reads=re.findall(r"'(hft(?:_app_roles)?\.[a-z_]+)'",backend.split("const reads=[",1)[1].split("];",1)[0])
+        reads=re.findall(r"'(hft(?:_app_roles)?\.[a-z_0-9]+)'",backend.split("const reads=[",1)[1].split("];",1)[0])
         assert len(reads)==16
         q("CREATE ROLE "+owner+" NOLOGIN NOINHERIT; CREATE ROLE "+login+" LOGIN NOINHERIT; REVOKE ALL ON DATABASE "+DB+" FROM PUBLIC; GRANT CONNECT ON DATABASE "+DB+" TO "+login+"; REVOKE ALL ON SCHEMA hft,hft_app_roles FROM PUBLIC; REVOKE ALL ON ALL TABLES IN SCHEMA hft,hft_app_roles FROM PUBLIC; REVOKE ALL ON ALL SEQUENCES IN SCHEMA hft,hft_app_roles FROM PUBLIC; REVOKE ALL ON ALL FUNCTIONS IN SCHEMA hft,hft_app_roles FROM PUBLIC; GRANT USAGE ON SCHEMA hft TO "+login+","+owner+"; GRANT USAGE ON SCHEMA hft_app_roles TO "+owner+"; GRANT SELECT ON "+",".join(reads)+" TO "+owner+"; ALTER FUNCTION "+read_sig+" OWNER TO "+owner+"; GRANT EXECUTE ON FUNCTION "+action_sig+" TO "+owner+"; GRANT EXECUTE ON FUNCTION "+read_sig+" TO "+login+";")
         def qr(s,check=True):
