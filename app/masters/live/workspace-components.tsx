@@ -1,4 +1,6 @@
 import type {ReactNode} from 'react';
+import Image from 'next/image';
+import logo from '../../assets/hubblefly-official-logo.png';
 import {LIVE_KINDS,type LiveKind,type LiveRecord} from '../../../lib/hft/live/live-contract.ts';
 import s from './workspace.module.css';
 
@@ -27,16 +29,22 @@ const paths:Record<string,string>={
 export function Icon({name}:{name:string}){return <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24"
  fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]||paths.box}/></svg>;}
 
+export function CorporateBrand({large=false}:{large?:boolean}){
+ return <div className={s.corporateBrand+(large?' '+s.corporateLarge:'')}>
+  <Image src={logo} alt="Hubblefly corporate logo" unoptimized priority className={s.corporateLogo}/>
+  <span className={s.productName}>HFT-OS</span><span className={s.companyName}>Hubblefly Technologies Limited</span>
+ </div>;
+}
 export function MasterNavigation({kind,ready,disabled,onChange}:{kind:LiveKind;ready:boolean;disabled:boolean;onChange:(kind:LiveKind)=>void}){
  return <aside className={s.sidebar}>
-  <div className={s.brand}><div className={s.brandMark} aria-hidden="true">H</div><div><strong>HUBBLEFLY</strong><span>FacilityOS</span></div></div>
+  <CorporateBrand/>
   {ready&&<><div className={s.sideCaption}>MASTER DATA</div>
    <nav className={s.navigation} aria-label="Master data">
     {LIVE_KINDS.map(k=><button key={k} type="button" aria-pressed={kind===k} aria-current={kind===k?'page':undefined}
      className={kind===k?s.navSelected:s.navButton} disabled={disabled}
      onClick={()=>onChange(k)}><Icon name={meta[k].icon}/><span>{meta[k].plural}</span></button>)}
    </nav></>}
-  <div className={s.sidebarBottom}><Icon name="lock"/><div><strong>Masters workspace</strong><span>Other modules not released</span></div></div>
+  <div className={s.sidebarBottom}><Icon name="lock"/><div><strong>Assigned access</strong><span>Protected master data</span></div></div>
  </aside>;
 }
 export const trackingLabel=(value:string)=>(({NONE:'No tracking',BATCH:'Batch tracked',SERIAL:'Serial tracked'} as Record<string,string>)[value]||value);
@@ -61,4 +69,34 @@ export function MasterDirectoryTable({kind,records,locked,onOpen}:{kind:LiveKind
 }
 export function FieldSection({title,description,children}:{title:string;description?:string;children:ReactNode}){
  return <section className={s.formSection}><h3>{title}</h3>{description&&<p className={s.fieldHint}>{description}</p>}{children}</section>;
+}
+
+export type SummaryFilter='all'|'recorded'|'retired'|'revised'|'serial'|'batch'|'root'|'child';
+export function summaryMatches(r:LiveRecord,filter:SummaryFilter):boolean{
+ switch(filter){
+ case 'recorded':return !r.deleted;
+ case 'retired':return r.deleted;
+ case 'revised':return r.revision>1;
+ case 'serial':return !r.deleted&&r.values.controlType==='SERIAL';
+ case 'batch':return !r.deleted&&r.values.controlType==='BATCH';
+ case 'root':return !r.deleted&&!r.values.parentLocationId;
+ case 'child':return !r.deleted&&!!r.values.parentLocationId;
+ default:return true;
+ }
+}
+export function DirectorySummary({kind,records,complete,ready,received,selected,disabled,onSelect}:{
+ kind:LiveKind;records:readonly LiveRecord[];complete:boolean;ready:boolean;received:string;
+ selected:SummaryFilter;disabled:boolean;onSelect:(filter:SummaryFilter)=>void
+}){
+ const common:{key:SummaryFilter;label:string;icon:string}[]=[{key:'all',label:'Total '+meta[kind].plural.toLowerCase(),icon:meta[kind].icon},{key:'recorded',label:'Recorded',icon:'check'}];
+ const cards=kind==='ITEM'?[...common,{key:'serial' as const,label:'Serial tracked',icon:'box'},{key:'batch' as const,label:'Batch tracked',icon:'warehouse'}]:
+ kind==='LOCATION'?[...common,{key:'root' as const,label:'Root references',icon:'site'},{key:'child' as const,label:'Child references',icon:'pin'}]:
+ [...common,{key:'revised' as const,label:'Revised records',icon:'history'},{key:'retired' as const,label:'Retired',icon:'lock'}];
+ return <section className={s.summarySection} aria-label="Directory summary">
+  <div className={s.summaryCaption}><strong>Directory at a glance</strong><span>{!ready?'Awaiting verified list':complete?'Current scope and active search filters':'Full totals unavailable · capped or ID search'}{ready&&received?' · Read '+new Date(received).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):''}</span></div>
+  <div className={s.summaryGrid}>{cards.map(c=><button type="button" key={c.key} aria-pressed={selected===c.key}
+   aria-label={'Summary filter: '+c.label} disabled={disabled||!ready} onClick={()=>onSelect(selected===c.key?'all':c.key)} className={s.summaryCard}>
+   <span className={s.summaryIcon}><Icon name={c.icon}/></span><span>{c.label}</span><strong>{ready&&complete?records.filter(r=>summaryMatches(r,c.key)).length:'—'}</strong><small>{ready&&complete?'Filter directory':'Total not verified'}</small>
+  </button>)}</div>
+ </section>;
 }

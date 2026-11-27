@@ -3,7 +3,7 @@ import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
 import {LIVE_KINDS,LIVE_FIELDS,LIVE_R1_VERSION,validateLiveRequest,validatedScope,
  type LiveKind,type LiveRecord,type LiveScope} from '../../../lib/hft/live/live-contract.ts';
 import s from './workspace.module.css';
-import {meta,Icon,MasterNavigation,MasterDirectoryTable,FieldSection} from './workspace-components.tsx';
+import {meta,Icon,MasterNavigation,MasterDirectoryTable,FieldSection,CorporateBrand,DirectorySummary,summaryMatches,type SummaryFilter} from './workspace-components.tsx';
 
 const labels:Record<string,string>={fullName:'Full name',department:'Department',designation:'Designation',
  uom:'Unit of measure',controlType:'Tracking type',legalName:'Legal name',name:'Warehouse name',
@@ -122,6 +122,7 @@ export default function LiveMastersPage(){
  const [records,setRecords]=useState<LiveRecord[]>([]),[loadedKey,setLoadedKey]=useState(''),[listState,setListState]=useState<'idle'|'loading'|'ready'|'error'>('idle');
  const [filter,setFilter]=useState(''),[serverSearch,setServerSearch]=useState(''),[department,setDepartment]=useState('');
  const [statusFilter,setStatusFilter]=useState(''),[trackingFilter,setTrackingFilter]=useState('');
+ const [summaryFilter,setSummaryFilter]=useState<SummaryFilter>('all'),[listReceived,setListReceived]=useState('');
  const editorPanel=useRef<HTMLElement|null>(null),addButton=useRef<HTMLButtonElement|null>(null);
  const [refresh,setRefresh]=useState(0),[editor,setEditor]=useState<Editor|null>(null),[audit,setAudit]=useState<Audit[]>([]);
  const [busy,setBusy]=useState(false),busyRef=useRef(false);
@@ -136,7 +137,7 @@ export default function LiveMastersPage(){
  const dropSession=useCallback(()=>{
   sessionRef.current=null;setSession(null);setPending(null);setStorageState('checking');
   setAuth('signed-out');setRecords([]);setLoadedKey('');setListState('idle');setEditor(null);setAudit([]);
-  setWarehouse('');setFilter('');setServerSearch('');setDepartment('');setStatusFilter('');setTrackingFilter('');setNotice(null);
+  setWarehouse('');setFilter('');setServerSearch('');setDepartment('');setStatusFilter('');setTrackingFilter('');setSummaryFilter('all');setListReceived('');setNotice(null);
  },[]);
  const isCurrent=(ctx:Session)=>sessionRef.current===ctx&&ctx.expiresAt>Date.now()/1000;
  useEffect(()=>{
@@ -167,7 +168,7 @@ export default function LiveMastersPage(){
   void read(session,kind,requested,'LIST','',serverSearch,controller.signal).then(value=>{
    if(controller.signal.aborted||sessionRef.current!==session)return;
    if(!Array.isArray(value)||value.length>100)throw Error('INVALID_LIST');
-   setRecords(value.map(v=>parseRecord(v,kind,requested)));setLoadedKey([kind,entity,site,warehouse,serverSearch].join('|'));setListState('ready');
+   setRecords(value.map(v=>parseRecord(v,kind,requested)));setLoadedKey([kind,entity,site,warehouse,serverSearch].join('|'));setListReceived(new Date().toISOString());setListState('ready');
   }).catch(error=>{
    if(controller.signal.aborted||sessionRef.current!==session)return;
    setRecords([]);setLoadedKey([kind,entity,site,warehouse,serverSearch].join('|'));setListState('error');
@@ -178,7 +179,7 @@ export default function LiveMastersPage(){
  },[auth,session,entity,site,warehouse,kind,serverSearch,refresh,dropSession]);
  function begin(){if(busyRef.current)return false;busyRef.current=true;setBusy(true);return true;}
  function end(){busyRef.current=false;setBusy(false);}
- function resetSelection(){setEditor(null);setAudit([]);setFilter('');setServerSearch('');setDepartment('');setStatusFilter('');setTrackingFilter('');setRecords([]);setLoadedKey('');setListState('loading');setNotice(null);}
+ function resetSelection(){setEditor(null);setAudit([]);setFilter('');setServerSearch('');setDepartment('');setStatusFilter('');setTrackingFilter('');setSummaryFilter('all');setListReceived('');setRecords([]);setLoadedKey('');setListState('loading');setNotice(null);}
  function changeKind(next:LiveKind){if(busyRef.current||pending||next===kind)return;resetSelection();setKind(next);}
  function changeWarehouse(next:string){if(busyRef.current||pending||!session?.scope.warehouseIds.includes(next)||next===warehouse)return;resetSelection();setWarehouse(next);}
  function startNew(){
@@ -273,13 +274,14 @@ export default function LiveMastersPage(){
  const editorOpen=editor!==null;
  useEffect(()=>{if(editorOpen)editorPanel.current?.focus();},[editorOpen]);
  function closeRecord(){setEditor(null);setAudit([]);addButton.current?.focus();}
- function clearFilters(){setFilter('');setServerSearch('');setDepartment('');setStatusFilter('');setTrackingFilter('');}
- const filtered=currentRecords.filter(r=>{
+ function clearFilters(){setFilter('');setServerSearch('');setDepartment('');setStatusFilter('');setTrackingFilter('');setSummaryFilter('all');}
+ const matching=currentRecords.filter(r=>{
   const q=filter.trim().toLocaleLowerCase();
   return (!q||(r.recordId+' '+recordDetails(r)).toLocaleLowerCase().includes(q))&&
    (!department||r.values.department===department)&&(!trackingFilter||r.values.controlType===trackingFilter)&&
    (!statusFilter||(statusFilter==='retired')===r.deleted);
  });
+ const filtered=matching.filter(r=>summaryMatches(r,summaryFilter));
  const departments=[...new Set(currentRecords.map(r=>r.values.department).filter(Boolean))].sort();
  const existingAnchor=currentRecords.find(r=>r.recordId===anchor(kind,scope));
  const canCreate=!editor&&!locked&&auth==='ready'&&currentListState==='ready'&&!existingAnchor;
@@ -287,22 +289,23 @@ export default function LiveMastersPage(){
  return <div className={s.shell}>
   <MasterNavigation kind={kind} ready={auth==='ready'} disabled={busy||!!pending||auth!=='ready'} onChange={changeKind}/>
   <div className={s.main}>
-   <header className={s.topbar}><div className={s.breadcrumb}><span>FacilityOS</span> <Icon name="chevron"/> <strong>{auth==='ready'?'Master data / '+current.plural:'Corporate access'}</strong></div>
+   <header className={s.topbar}><div className={s.breadcrumb}><span>HFT-OS</span> <Icon name="chevron"/> <strong>{auth==='ready'?'Master data / '+current.plural:'Corporate access'}</strong></div>
     <div className={s.headerRight}><span className={s.environment}>{session?(session.qualification?'Qualification':'Masters only'):'Protected workspace'}</span>
      {auth==='ready'&&<button className={s.secondary} type="button" disabled={busy} onClick={()=>void signOut()}><Icon name="logout"/> Sign out</button>}</div>
    </header>
    <main className={s.content}>
     {auth!=='ready'?<section className={s.signinCard} aria-label="Corporate sign-in">
-     <div className={s.signinIcon}><Icon name="lock"/></div>
-     <p className={s.kicker}>HUBBLEFLY FACILITYOS</p>
-     <h1>Master data workspace</h1>
+     <div className={s.signinIntro}><CorporateBrand large/><p className={s.kicker}>CORPORATE WORKSPACE</p><h2>Master data.<br/>One trusted workspace.</h2><p>Maintain the people, items and locations behind your operations.</p><div className={s.signinBenefits}><span><Icon name="lock"/> Scoped access</span><span><Icon name="history"/> Revision history</span></div></div>
+     <div className={s.signinForm}><div className={s.signinIcon}><Icon name="lock"/></div>
+     <p className={s.kicker}>SECURE SIGN-IN</p>
+     <h1>Welcome to HFT-OS</h1>
      <p>{auth==='checking'?'Checking your corporate session…':auth==='unavailable'?'The workspace is not available right now. Refresh or sign in using your corporate account.':'Sign in with your corporate Google account to access your assigned company and warehouse.'}</p>
      {notice&&<p className={s.notice} role="status">{notice.text}</p>}
      {auth!=='checking'&&<a className={s.primary} href="/api/hft/live-masters/auth/start">Corporate Google sign-in <Icon name="chevron"/></a>}
      {auth==='unavailable'&&<button className={s.secondary} type="button" onClick={()=>window.location.reload()}>Refresh workspace</button>}
-     <p className={s.small}>Access is restricted to approved corporate accounts. Stock posting is not enabled.</p>
+     <p className={s.small}>Access is restricted to approved corporate accounts. Stock posting is not enabled.</p></div>
     </section>:<>
-     <div className={s.pageHeading}><div><p className={s.kicker}>MASTER DATA</p><h1>{current.plural}</h1><p>{current.desc}</p></div>
+     <div className={s.pageHeading}><div className={s.heroCopy}><p className={s.kicker}>OPERATIONS / MASTER DATA</p><div className={s.heroTitle}><span className={s.heroIcon}><Icon name={current.icon}/></span><h1>{current.plural}</h1></div><p>{current.desc}</p></div>
       <button ref={addButton} className={s.primary} type="button" disabled={!canCreate} onClick={startNew}><Icon name="plus"/> Add {current.singular}</button>
      </div>
      <section className={s.context} aria-label="Assigned workspace">
@@ -319,6 +322,7 @@ export default function LiveMastersPage(){
       <strong>Check original save before continuing</strong><p>Request reference: <code>{pending.requestId}</code></p>
       <button type="button" className={s.secondary} onClick={()=>void reconcile()} disabled={busy||storageState==='blocked'||!session||pending.actorPartition!==session.actorPartition||!permitted(session,pending.scope)}>Check change history</button>
      </section>}
+     <DirectorySummary kind={kind} records={matching} complete={currentListState==='ready'&&!serverSearch&&currentRecords.length<100} ready={currentListState==='ready'} received={listReceived} selected={summaryFilter} disabled={busy||!!pending} onSelect={setSummaryFilter}/>
      <div className={s.workspaceGrid+(editor?' '+s.withEditor:'')}>
       <section className={s.directory} aria-label={current.plural+' directory'}>
        <div className={s.cardHeading}><div><h2>{current.plural} directory</h2><p aria-live="polite">{currentListState==='ready'?filtered.length+' shown · '+currentRecords.length+' loaded in assigned scope':'Scoped records'}</p></div>
@@ -330,7 +334,7 @@ export default function LiveMastersPage(){
         <select aria-label="Filter by status" value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}><option value="">All statuses</option><option value="recorded">Recorded</option><option value="retired">Retired</option></select>
         <button type="button" className={s.secondary} disabled={busy||!filter.trim()||!/^[A-Za-z0-9 ._-]{1,80}$/.test(filter.trim())}
          onClick={()=>{setServerSearch(filter.trim());setRefresh(v=>v+1);}}>Find by ID</button>
-        {(filter||serverSearch||department||statusFilter||trackingFilter)&&<button type="button" className={s.textButton} disabled={busy} onClick={clearFilters}>Clear filters</button>}
+        {(filter||serverSearch||department||statusFilter||trackingFilter||summaryFilter!=='all')&&<button type="button" className={s.textButton} disabled={busy} onClick={clearFilters}>Clear filters</button>}
        </div>
        {serverSearch&&<p className={s.filterNote}>Database ID search: {serverSearch} <button type="button" className={s.textButton} disabled={busy} onClick={()=>{setServerSearch('');setFilter('');}}>Clear</button></p>}
        {currentListState==='loading'?<div className={s.empty} role="status"><span className={s.spinner}/><h3>Loading records</h3><p>Reading your assigned workspace.</p></div>:
