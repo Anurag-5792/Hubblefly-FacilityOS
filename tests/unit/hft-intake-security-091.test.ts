@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
-import {INTAKE_GATEWAY_BODIES,INTAKE_LOGIN,INTAKE_OWNER,INTAKE_RUNTIME_SIGNATURES,assertIntakeCatalog} from '../../lib/hft/intake/intake-admission.ts';
+import {INTAKE_GATEWAY_BODIES,INTAKE_LOGIN,INTAKE_OWNER,INTAKE_INSTALLER,INTAKE_RUNTIME_SIGNATURES,intakeAdmissionSql,assertIntakeCatalog} from '../../lib/hft/intake/intake-admission.ts';
 import {IntakeAccessFence,readIntakeMarker,intakeMarkerKey,hasOtherIntakeMarkers,persistIntakeMarker,clearIntakeMarker,type IntakePending} from '../../lib/hft/intake/intake-client-state.ts';
 import {intakeContextMatches,intakeFailure} from '../../lib/hft/intake/intake-request-boundary.ts';
 const A='a'.repeat(64),B='b'.repeat(64),req='00000000-0000-4000-8000-000000000088';
@@ -10,7 +10,8 @@ const target={database:'hft_inventory_intake_088',oid:'12345'};
 function catalog(){
  return {db:target.database,oid:target.oid,login:INTAKE_LOGIN,session_login:INTAKE_LOGIN,restricted:true,memberships:0,
  sibling_access:0,target_connect_only:true,schema_usage:true,schema_create:0,direct_access:0,other_execute:0,
- owner_restricted:true,owner_extra_access:0,functions:[...INTAKE_RUNTIME_SIGNATURES],
+ owner_restricted:true,owner_extra_access:0,owner_read_count:6,owner_insert_count:13,owner_name_update:true,
+ trigger_count:5,triggers_verified:5,functions:[...INTAKE_RUNTIME_SIGNATURES],
  gateways:Object.entries(INTAKE_GATEWAY_BODIES).map(([signature,bodySha256])=>({signature,bodySha256,owner:INTAKE_OWNER,
  definer:true,path:['search_path=pg_catalog, pg_temp'],language:'plpgsql',returns:signature.startsWith('assert_access(')?'void':'jsonb',
  kind:'f',volatility:'v',returnsSet:false,aclOk:true,runtimeExecute:!signature.startsWith('assert_access(')}))};
@@ -22,13 +23,28 @@ test('catalog pins exact existing gateway source bodies and refuses altered sign
   assert.ok(body);assert.equal(createHash('sha256').update(body).digest('hex'),hash);
  }
  assert.doesNotThrow(()=>assertIntakeCatalog(catalog(),target));
- const bad=[{sibling_access:1},{target_connect_only:false},{owner_restricted:false},{owner_extra_access:1},{direct_access:1},{other_execute:1},{schema_create:1},
+ const bad=[{sibling_access:1},{target_connect_only:false},{owner_restricted:false},{owner_extra_access:1},{owner_read_count:5},{owner_insert_count:12},{owner_name_update:false},
+ {trigger_count:4},{trigger_count:6},{triggers_verified:4},{direct_access:1},{other_execute:1},{schema_create:1},
  {functions:['read_page']},{session_login:'wrong'},{memberships:1},{restricted:false}];
  for(const patch of bad)assert.throws(()=>assertIntakeCatalog({...catalog(),...patch},target),/NOT_ADMITTED/);
  for(const patch of [{bodySha256:A},{owner:'legacy_owner'},{path:['search_path=pg_catalog, hft_intake']},{aclOk:false},{definer:false},{signature:'assert_access(text)'},{runtimeExecute:true}]){
   const c=catalog();Object.assign(c.gateways[0],patch);assert.throws(()=>assertIntakeCatalog(c,target),/NOT_ADMITTED/);
  }
  const c=catalog();c.gateways.push(c.gateways[0]);assert.throws(()=>assertIntakeCatalog(c,target),/NOT_ADMITTED/);
+});
+test('catalog SQL preserves PostgreSQL signature separators, exact target admin edge and trigger/column privilege pins',()=>{
+ assert.ok(intakeAdmissionSql.includes("replace(pg_catalog.oidvectortypes(p.proargtypes),', ',',')"));
+ assert.ok(intakeAdmissionSql.includes("rolname='"+INTAKE_INSTALLER+"'"));
+ assert.ok(intakeAdmissionSql.includes('m.member=(SELECT datdba FROM pg_catalog.pg_database WHERE datname=current_database())'));
+ assert.ok(intakeAdmissionSql.includes("rolname='cloud_admin'"));
+ assert.ok(intakeAdmissionSql.includes('m.admin_option AND NOT m.inherit_option AND NOT m.set_option'));
+ assert.ok(intakeAdmissionSql.includes('m.member=o.oid OR'));
+ assert.ok(intakeAdmissionSql.includes("pg_catalog.has_sequence_privilege(o.oid,c.oid,'USAGE,SELECT,UPDATE')"));
+ assert.ok(intakeAdmissionSql.includes("e.relname=c.relname AND e.attname=a.attname"));
+ assert.ok(intakeAdmissionSql.includes("t.tgenabled='O'"));
+ assert.ok(intakeAdmissionSql.includes("NOT t.prosecdef AND t.proconfig=ARRAY['search_path=pg_catalog, pg_temp']"));
+ assert.ok(intakeAdmissionSql.includes("t.prosrc,'UTF8')),'hex')=e.body_hash"));
+ assert.ok(intakeAdmissionSql.includes("d.datname<>current_database() AND d.datallowconn"));
 });
 test('bound READ and every mutation reject stale context; revocation during rename/readback is access loss not rollback',()=>{
  for(const intent of ['READ','RENAME','RECONCILE'] as const){
