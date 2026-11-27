@@ -1,5 +1,6 @@
 /** Route hints only; independent handlers still verify identity and authority. */
 import {hostedOperatorAttempt,hostedOperatorMode,type OperatorEnv} from '../roles/hosted-operator-profile.ts';
+import {misRequirementsConfigured} from '../planning/mis-profile.ts';
 import {identityProofModeAdmitted} from '../live/live-identity-mode.ts';
 export type LoginDestination='proof'|'masters'|'intake'|'roles'|'stores';
 export function liveWorkspaceRoutesAdmitted(e:OperatorEnv):boolean{
@@ -45,7 +46,7 @@ export function workspaceModules(e:OperatorEnv):ModuleLink[]{
   link('Users & Roles','Canonical employee-based permissions.','/settings/users-roles',!proof&&(hosted!==null||ordinary)),
   link('Stores operations','Protected workflow; independent transaction controls remain.','/stores/operations',!proof&&(hosted==='ROLES_RECEIVE'||retained||ordinary)),
   link('Inventory intake','Owner-only source review, not admitted balances.','/stores/intake',intake),
-  link('Management MIS','Read-only planning; authoritative source adapter not admitted.','/mis',ordinary,'Awaiting authorized source'),
+  link('Management MIS','Read-only approved BOM requirements; stock readiness separately admitted.','/mis',ordinary||hosted!==null&&misRequirementsConfigured(e),'Awaiting authorized source'),
   link('Draft Masters','Provisional records, distinct from Live Masters.','/draft',draft||ordinary),
   link('Governed Masters','Protected P3 master workflow.','/stores/masters',ordinary)
  ];

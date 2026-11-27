@@ -1,0 +1,9 @@
+# HF098 — isolated MIS requirements increment
+
+This branch preserves the accepted integrated workspace and reuses PR22 stock planning and PR26 canonical draft persistence. It introduces explicit scoped planning action events, immutable approval/retirement decisions, and an effective BOM projection. Gross exploded component demand assumes all referenced assemblies must be manufactured. It is not net demand, stock availability, a shortage or buildable capacity. No real item, BOM, permission, role or stock seed is supplied.
+
+The two reviewed SQL files are non-executable forward candidates; STOP guards intentionally remain in place. The disposable PG18.7 fixture applies them only to its network-isolated temporary database. No production or retained database is touched.
+
+An admitted installation requires the canonical role/identity substrate, item-version catalog, exact approved installer/technical binding, current explicit planning action evidence and approved model/BOM records. For the requirements-only runtime use a dedicated login and separate restricted NOLOGIN security-definer owner. No direct runtime table privilege, no stock reads, no draft writer or approval EXECUTE; restrict underlying owner SELECT to the 16 named read relations and the action predicate. Verify exact function bodies, fence, effective interval view, catalog and TLS. The application fails closed without the separately admitted exact hosted preview profile. A synthetic fixture is not authority to create an actual login or grant. Full stock/conditional planning remains disabled in the requirements-only profile; preserve the existing planner and do not infer stock from intake observations.
+
+Qualification requires real source mappings and independently accepted installation, ACL, evidence and actor scope. Scope boundaries: no production promotion, new spend, stock mutation, role expansion, actual deployment or DDL under this source delivery.

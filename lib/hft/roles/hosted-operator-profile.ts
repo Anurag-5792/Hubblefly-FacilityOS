@@ -1,4 +1,5 @@
 /** HF094: edge-safe hosted operator admission. Not a grant or SQL installation. */
+import {misRequirementsConfigured} from '../planning/mis-profile.ts';
 export type OperatorEnv=Readonly<Record<string,string|undefined>>;
 export const HOSTED_OPERATOR_PROFILE='HFT_R1_HOSTED_OPERATOR_PREVIEW_V1';
 export const HOSTED_OPERATOR_ISSUER='hft-r1-hosted-operator-v1';
@@ -41,7 +42,8 @@ const rolesPaths=new Set(['/','/settings','/settings/users-roles','/api/hft/sett
  '/api/hft/live-masters/auth/start','/api/hft/live-masters/auth/callback','/api/hft/live-masters/signout']);
 const storesPaths=new Set(['/stores','/stores/operations','/api/hft/stores/read','/api/hft/stores/receive']);
 export function hostedOperatorPathAdmitted(path:string,e:OperatorEnv):boolean{
- try{const mode=hostedOperatorMode(e);return rolesPaths.has(path)||(mode==='ROLES_RECEIVE'&&storesPaths.has(path));}
+ try{const mode=hostedOperatorMode(e);return rolesPaths.has(path)||(mode==='ROLES_RECEIVE'&&storesPaths.has(path))||
+  (misRequirementsConfigured(e)&&(path==='/mis'||path==='/api/hft/mis'));}
  catch{return false;}
 }
 export function assertHostedOperatorDuty(e:OperatorEnv,duty:'role'|'stock'):void{
