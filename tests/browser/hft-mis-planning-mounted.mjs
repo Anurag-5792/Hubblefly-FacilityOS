@@ -124,11 +124,38 @@ async function workflow(){
  await click('View requirements');await wait(()=>has('Calculated for 1 unit(s).'),'APPROVED_REQUIREMENTS');
  await field(0,'3');await click('Calculate requirements');await wait(()=>has('Calculated for 3 unit(s).'),'REQUIREMENTS_RECALCULATE');
  await click('Gross leaf requirements');await wait(()=>run('[...document.querySelectorAll("tbody tr")].some(r=>r.innerText.includes("RAW")&&r.cells[2].innerText==="15"&&r.cells[3].innerText==="—"&&r.cells[4].innerText==="—")'),'GROSS_15_NO_STOCK');
- await capture('09-desktop-requirements',1440,900);await capture('10-mobile-requirements',390,844);
+ await capture('09-desktop-requirements',1440,900);await capture('10-mobile-requirements',390,844);await viewport(1440,900);
+ const beforeToggle=await run('window.__misCalls.length');
+ const beforeWidth=await run('document.querySelector("main").getBoundingClientRect().width');
+ await click('Hide Sidebar');await wait(()=>run('document.getElementById("mis-sidebar").hidden'),'MIS_SIDEBAR_COLLAPSED');
+ assert.ok(await run('document.querySelector("main").getBoundingClientRect().width')>beforeWidth);
+ assert.equal(await run('window.__misCalls.length'),beforeToggle);assert.ok(await has('Calculated for 3 unit(s).'));
+ await capture('11-desktop-collapsed-requirements',1440,900);await capture('12-mobile-collapsed-requirements',390,844);
+ await click('Show Sidebar');await wait(()=>run('!document.getElementById("mis-sidebar").hidden'),'MIS_SIDEBAR_RESTORED');
+ assert.equal(await run('window.__misCalls.length'),beforeToggle);
+ await viewport(1440,900);
+ await run('[...document.querySelectorAll("button")].find(b=>b.textContent.includes("Procurement review")&&b.querySelector("strong")).click()');
+ await wait(()=>has('Net purchase quantity'),'PROCUREMENT_REVIEW');
+ assert.ok(await has('Not assessed'));assert.ok(await run('[...document.querySelectorAll("tbody tr")].every(r=>r.cells[3].innerText==="—"&&r.cells[4].innerText==="—"&&r.cells[6].innerText==="Not assessed")'));
+ await capture('13-desktop-procurement-review',1440,900);
+ // Inspect bytes produced by the real download interaction, without leaving
+ // an uncontrolled file in Chromium's default download directory.
+ await run('(()=>{const orig=URL.createObjectURL.bind(URL),click=HTMLAnchorElement.prototype.click;window.__report=null;window.__downloads=0;URL.createObjectURL=b=>{b.text().then(x=>window.__report=x);return orig(b)};HTMLAnchorElement.prototype.click=function(){if(this.download.endsWith(".csv")){window.__downloads++;window.__reportName=this.download;return;}return click.call(this)}})()');
+ const beforeExport=await run('window.__misCalls.length');
+ await click('Export CSV report');await wait(()=>run('window.__downloads===1&&typeof window.__report==="string"'),'ACTUAL_REPORT_BYTES');
+ assert.equal(await run('window.__misCalls.length'),beforeExport+1);
+ const report=await run('window.__report');
+ assert.ok(report.includes('GROSS_LEAF')&&report.includes('approval_evidence_sha256')&&report.includes('NOT_ASSESSED')&&report.includes('"15"'));
+ assert.equal(await run('window.__reportName'),'HFT-OS-BOM-requirements-r1-3-units.csv');
+ await writeFile(join(captureDir,'synthetic-requirements-report.csv'),report,{flag:'wx'});
+ await run('window.__reqDeny=true');await click('Export CSV report');await wait(()=>has('Report source or management authorization changed.'),'REPORT_ACCESS_LOSS');
+ assert.equal(await run('window.__downloads'),1);assert.equal(await has('Synthetic approved drone'),false);
+ await run('window.__reqDeny=false');await click('Refresh source');await wait(()=>has('Synthetic approved drone'),'REPORT_SOURCE_RELOAD');
+ await click('View requirements');await wait(()=>has('Calculated for 1 unit(s).'),'REQUIREMENTS_REOPEN');
  await run('window.__reqDeny=true');await click('Calculate requirements');await wait(()=>has('Management access, BOM revision or source verification changed.'),'REQ_DENIAL');
  assert.equal(await has('Synthetic approved drone'),false);
  await writeFile(join(captureDir,'capture-metadata.json'),JSON.stringify({synthetic:true,source:process.env.GITHUB_SHA,images:captures},null,2)+'\n',{flag:'wx'});
- console.log('MIS_PLANNING_MOUNTED=PASS; source unavailable, priority controls, full/core, approved BOM drilldown, gross demand, unknown stock, denial clearing, desktop/mobile synthetic captures');
+ console.log('MIS_PLANNING_MOUNTED=PASS; source unavailable, priority controls, full/core, approved BOM drilldown, gross demand, unknown stock, procurement review, fresh CSV export/denial, sidebar continuity, denial clearing, desktop/mobile synthetic captures');
 }
 
 try{

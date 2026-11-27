@@ -12,3 +12,31 @@
 .modelDirectory{display:grid;gap:10px}.modelDirectory article{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1px solid #e4dfda;border-radius:12px;padding:16px}.modelDirectory article div{display:grid;gap:3px}.modelDirectory strong{font-size:17px}.modelDirectory small,.modelDirectory span{color:#595959}
 .quantityForm{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.quantityForm input{max-width:125px}.reqTabs{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}.signinLink{color:#9b4314;font-weight:700}.panel code{overflow-wrap:anywhere}.modelDirectory article button{white-space:nowrap}.overviewCards button:disabled{opacity:.75;cursor:not-allowed}
 @media(max-width:720px){.overviewCards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.overviewCards button{padding:12px}.overviewCards strong{font-size:28px}.modelDirectory article{align-items:flex-start;flex-direction:column}.modelDirectory article button{width:100%}.misBrand>div{width:72px}.misBrand img{width:35px}.misBrand>div>span:last-child{display:none}.managementTabs{padding:8px 12px}.managementTabs button{padding:8px 10px;font-size:12px}}
+
+/* HF099: same HF097 collapsible rail, original logo and approved colour palette. */
+.managementShell{min-height:100vh;display:grid;grid-template-columns:248px minmax(0,1fr)}
+.managementShell.managementCollapsed{grid-template-columns:minmax(0,1fr)}
+.managementSidebar{position:sticky;top:0;min-height:100vh;height:100vh;display:flex;flex-direction:column;gap:10px;padding:22px 16px 16px;background:#fff;border-right:1px solid #e4dfda;box-shadow:3px 0 18px #10101010;overflow:auto}
+.managementSidebar[hidden]{display:none!important}
+.managementSidebar>div:first-child{margin-bottom:4px}
+.railCaption{color:#595959;letter-spacing:.13em;font-size:10px;font-weight:800;margin:10px 8px 0}
+.managementTabs{display:grid;gap:7px;padding:0;background:transparent;border:0}
+.managementTabs button{display:flex;align-items:center;gap:9px;text-align:left;min-height:48px;line-height:1.4;font:650 14px/1.4 system-ui,sans-serif;white-space:normal}
+.managementTabs button[aria-pressed=true]{background:#fff0e4;box-shadow:inset 4px 0 #f6904f;color:#9b4314;border-color:#f0d8c6}
+.managementTabs button svg,.managementToolbar button svg,.railFoot svg{width:18px;height:18px;flex-shrink:0}
+.railNote{color:#595959;background:#faf7f3;border:1px solid #e4dfda;padding:12px;border-radius:12px;font-size:12px;line-height:1.5}
+.railFoot{margin-top:auto;display:grid;gap:12px;padding:12px 8px;border-top:1px solid #e4dfda}
+.railFoot a,.railFoot span{display:flex;gap:7px;align-items:center;color:#595959;font-size:12px}
+.railFoot a{color:#9b4314;font-weight:650;text-decoration:none}
+.managementMain{min-width:0}
+.managementToolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-height:64px;padding:10px clamp(14px,3vw,42px);background:#fff;border-bottom:1px solid #e4dfda;color:#404040}
+.managementToolbar button{display:flex;align-items:center;gap:8px;min-height:40px;padding:8px 12px;background:#fff;color:#404040;border:1px solid #d7cfc6;border-radius:9px;font:650 13px/1.3 system-ui,sans-serif;cursor:pointer}
+.managementToolbar strong{font-size:13px;overflow-wrap:anywhere}
+.managementToolbar :is(button,a):focus-visible,.managementSidebar :is(button,a):focus-visible{outline:3px solid #b65a20;outline-offset:3px}
+.misCompactBrand>div{display:flex;align-items:center;gap:7px;border:0;padding:0;background:transparent}
+.misCompactBrand img{width:35px;height:auto}.misCompactBrand>div>span{font-size:13px;letter-spacing:.05em}.misCompactBrand>div>span:last-child{display:none}
+.managementMain .shell{min-width:0;padding-left:clamp(14px,3vw,42px);padding-right:clamp(14px,3vw,42px)}
+.overviewCards{grid-template-columns:repeat(5,minmax(0,1fr))}
+.shell .exportButton{background:#f6904f;color:#101010;border-color:#f6904f}
+@media(max-width:1200px){.overviewCards{grid-template-columns:repeat(3,minmax(0,1fr))}.managementShell{grid-template-columns:210px minmax(0,1fr)}}
+@media(max-width:720px){.managementShell,.managementShell.managementCollapsed{display:block}.managementSidebar{position:relative;min-height:0;height:auto;padding:9px 12px 10px;gap:5px;border-right:0;border-bottom:1px solid #e4dfda;box-shadow:none}.managementTabs{grid-template-columns:1fr 1fr}.managementTabs button{min-height:40px;font-size:12px;padding:7px 8px}.railCaption,.railFoot,.railNote{display:none}.managementToolbar{min-height:48px;padding:8px 12px;gap:7px}.managementToolbar button{min-height:36px;font-size:11px;padding:6px 8px}.managementToolbar strong{font-size:11px}.misCompactBrand img{width:28px}.managementMain .shell{padding-left:12px;padding-right:12px}.overviewCards{grid-template-columns:repeat(2,minmax(0,1fr))}.hero h1{overflow-wrap:anywhere}.top div{min-width:0}.sectionTitle{min-width:0}.quantityForm{max-width:100%}}
