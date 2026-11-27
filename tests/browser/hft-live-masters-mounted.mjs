@@ -115,24 +115,31 @@ async function workflow(){
  await run('sessionStorage.setItem("hft.live.fixture.login","yes")');
  await send('Page.reload');
  await wait(()=>has('No employees recorded'),'EMPTY_DIRECTORY');
- // New mounted cross-workspace regression: live module navigation and URL-only
- // tab state are preserved without transferring any business authority.
+ // Integrated navigation and URL-only tab state, without transferring any authority.
  await click('Items');await wait(()=>has('No items recorded'),'INTEGRATED_ITEM_VIEW');
  assert.equal(await run('new URL(location.href).searchParams.get("view")'),'ITEM');
  await send('Page.reload');await wait(()=>has('No items recorded'),'INTEGRATED_ITEM_RELOAD');
- assert.equal(await run('document.querySelector("input[aria-label=Company]").value'),'FIXTURE-HFT');
- assert.equal(await run('window.__liveCalls.filter(p=>p.intent==="LIST").every(p=>p.kind==="ITEM"&&p.scope.warehouseId==="FIXTURE-WH1")'),true);
+ assert.equal(await run('window.__liveCalls.filter(p=>p.intent==="LIST").every(p=>p.kind==="ITEM"&&p.scope.legalEntityId==="FIXTURE-HFT"&&p.scope.siteId==="FIXTURE-SITE"&&p.scope.warehouseId==="FIXTURE-WH1")'),true);
  await click('Employees');await wait(()=>has('No employees recorded'),'INTEGRATED_EMPLOYEE_VIEW');
- await run('document.querySelector("nav[aria-label=\\\"Application navigation\\\"] a").click()');
+ await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application navigation").querySelector("a").click()');
  await wait(()=>has('HFT-OS workspace'),'INTEGRATED_DASHBOARD');
- assert.equal(await run('Boolean(document.querySelector("nav[aria-label=\\\"Application modules\\\"] a[href=\\\"/masters/live\\\"]"))'),true);
- assert.equal(await run('Boolean(document.querySelector("nav[aria-label=\\\"Application modules\\\"] a[href=\\\"/stores/intake\\\"]"))'),false);
- assert.equal(await run('Boolean(document.querySelector("nav[aria-label=\\\"Application modules\\\"] a[href=\\\"/stores/operations\\\"]"))'),false);
- await run('document.querySelector("nav[aria-label=\\\"Application modules\\\"] a[href=\\\"/masters/live\\\"]").click()');
+ assert.equal(await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application modules").querySelector("a[href=\\\"/masters/live\\\"]")!==null'),true);
+ assert.equal(await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application modules").querySelector("a[href=\\\"/stores/intake\\\"]")!==null'),false);
+ assert.equal(await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application modules").querySelector("a[href=\\\"/stores/operations\\\"]")!==null'),false);
+ await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application modules").querySelector("a[href=\\\"/masters/live\\\"]").click()');
  await wait(()=>has('No employees recorded'),'INTEGRATED_RETURN_TO_MASTERS');
- assert.equal(await run('document.querySelector("input[aria-label=Company]").value'),'FIXTURE-HFT');
- assert.equal(await run('document.querySelector("input[aria-label=Company]").readOnly'),true);
- assert.equal(await run('document.querySelector("input[aria-label=Site]").readOnly'),true);
+ assert.equal(await run('[...document.querySelectorAll("section")].some(e=>e.getAttribute("aria-label")==="Assigned workspace")'),false);
+ assert.equal(await run('document.querySelector("input[aria-label=Company]")===null&&document.querySelector("input[aria-label=Site]")===null'),true);
+ assert.deepEqual(await run('Array.from(document.querySelector("select[aria-label=Warehouse]").options,o=>o.value)'),['FIXTURE-WH1','FIXTURE-WH2']);
+ assert.equal(await run('window.__liveCalls.filter(p=>p.intent==="LIST").every(p=>p.scope.legalEntityId==="FIXTURE-HFT"&&p.scope.siteId==="FIXTURE-SITE"&&p.scope.warehouseId==="FIXTURE-WH1")'),true);
+ const beforeToggle=await run('window.__liveCalls.length');
+ const beforeWidth=await run('document.querySelector("main").getBoundingClientRect().width');
+ await click('Hide Sidebar');
+ await wait(()=>run('document.getElementById("master-sidebar").hidden&&document.querySelector("button[aria-controls=master-sidebar]").getAttribute("aria-expanded")==="false"'),'SIDEBAR_COLLAPSED');
+ assert.ok(await run('document.querySelector("main").getBoundingClientRect().width')>beforeWidth);
+ assert.equal(await run('window.__liveCalls.length'),beforeToggle);
+ assert.equal(await run('[...document.querySelectorAll("header img")].some(i=>i.alt==="Hubblefly corporate logo")'),true);
+ await click('Show Sidebar');await wait(()=>run('!document.getElementById("master-sidebar").hidden'),'SIDEBAR_EXPANDED');
  await click('Add employee');await wait(()=>run('Boolean(document.querySelector("form"))'),'CREATE_FORM');
  await field('Employee ID','FIXTURE-EMP-01');await field('Full name','Synthetic Employee');
  await field('Department','QA');await field('Designation','Operator');await field('Reason for adding this record','Synthetic initial create');
@@ -147,6 +154,10 @@ async function workflow(){
  await wait(()=>has('Synthetic Employee'),'PERSISTED_REOPEN');
  await click('Open');await wait(()=>has('Edit employee'),'EDIT_FORM');
  await field('Designation','Supervisor');await field('Reason for updating this record','Synthetic change verification');
+ const editorCalls=await run('window.__liveCalls.length');
+ await click('Hide Sidebar');await click('Show Sidebar');
+ assert.equal(await run('Array.from(document.querySelectorAll("form input")).some(n=>n.value==="Supervisor")'),true);
+ assert.equal(await run('window.__liveCalls.length'),editorCalls);
  await click('Save changes');await wait(()=>has('Record saved and verified'),'EDIT');
  await wait(()=>run('document.querySelector("form")===null'),'EDIT_WINDOW_CLOSED');
  await wait(()=>has('Supervisor'),'EDIT_READBACK');
@@ -168,6 +179,9 @@ async function workflow(){
  const before=await run('window.__liveCalls.filter(p=>p.intent==="SAVE").length');
  assert.equal(before,2);
  const markerA=await stored(keyA);assert.ok(markerA);
+ const pendingCalls=await run('window.__liveCalls.length');await click('Hide Sidebar');await click('Show Sidebar');
+ assert.equal(await stored(keyA),markerA);assert.equal(await run('window.__liveCalls.length'),pendingCalls);
+ assert.equal(await run('document.querySelector("select[aria-label=Warehouse]").disabled'),true);
  const requestA=JSON.parse(markerA).requestId;
  assert.equal(JSON.parse(markerA).actorPartition,'a'.repeat(64));
  assert.equal(await stored(keyB),null);
@@ -203,6 +217,8 @@ async function workflow(){
  await click('Sign out');await wait(()=>has('Corporate Google sign-in'),'B_SIGNOUT');
  await run('sessionStorage.setItem("hft.live.fixture.login","other-disjoint")');await send('Page.reload');
  await wait(()=>has('No employees recorded'),'B_DISJOINT_LIST');
+ assert.equal(await run('document.querySelector("select[aria-label=Warehouse]")===null'),true);
+ assert.equal(await run('window.__liveCalls.filter(p=>p.intent==="LIST").every(p=>p.scope.warehouseId==="FIXTURE-WH3")'),true);
  assert.equal(await has(requestA),false);assert.equal(await has('Check original save before continuing'),false);
  assert.equal(await run('window.__pendingReads.every(x=>x.verified&&!x.key.endsWith("a".repeat(64)))'),true);
  assert.equal(await run('window.__liveCalls.filter(p=>p.intent==="HISTORY"||p.intent==="SAVE").length'),0);
@@ -255,8 +271,11 @@ async function workflow(){
  await run('sessionStorage.removeItem("hft.live.fixture.storageFailure")');
  await viewport(390,844);await sleep(300);
  assert.ok(await run('document.documentElement.scrollWidth<=window.innerWidth+2'),'MOBILE_HORIZONTAL_OVERFLOW');
- assert.ok(await run('document.querySelector("input[aria-label=Company]").getBoundingClientRect().height>=36'),'INPUT_STYLING');
- console.log('LIVE_MASTERS_MOUNTED=PASS; synthetic signed-out/context/scope/create/edit/history/actor isolation/re-login/legacy/storage failures/profile-aware dashboard and URL reload/mobile');
+ assert.ok(await run('document.querySelector("button[aria-controls=master-sidebar]").getBoundingClientRect().height>=36'),'TOGGLE_STYLING');
+ await click('Hide Sidebar');await wait(()=>run('document.getElementById("master-sidebar").hidden'),'MOBILE_COLLAPSE');
+ assert.ok(await run('document.documentElement.scrollWidth<=window.innerWidth+2'),'MOBILE_COLLAPSED_OVERFLOW');
+ await click('Show Sidebar');await wait(()=>run('!document.getElementById("master-sidebar").hidden'),'MOBILE_EXPAND');
+ console.log('LIVE_MASTERS_MOUNTED=PASS; synthetic signed-out/context/scope/create/edit/history/actor isolation/re-login/legacy/storage failures/profile-aware dashboard and URL reload/scope header/sidebar continuity/mobile');
 }
 // Separate capture mode; ordinary two-actor regression remains unchanged.
 const captures=[];
@@ -307,7 +326,8 @@ async function visual(){
  add('LOCATION','FIXTURE-RACK-01',{parentLocationId:''});add('LOCATION','FIXTURE-BIN-01',{parentLocationId:'FIXTURE-RACK-01'});
  sessionStorage.setItem(k,JSON.stringify(rows));})()`);
  await send('Page.reload');await wait(()=>has('Synthetic Asha Rao'),'VISUAL_POPULATED');
- await capture('06-desktop-directory',1440,900);await capture('07-mobile-directory',390,844);
+ await capture('06-desktop-directory',1440,900);await click('Hide Sidebar');await capture('06b-desktop-sidebar-hidden',1440,900);await click('Show Sidebar');
+ await capture('07-mobile-directory',390,844);await click('Hide Sidebar');await capture('07b-mobile-sidebar-hidden',390,844);await click('Show Sidebar');
  assert.equal(await run('document.documentElement.scrollWidth<=window.innerWidth+2'),true);
  assert.equal(await run(`[...document.querySelectorAll('nav[aria-label="Master data"] button')].length===6&&[...document.querySelectorAll('nav[aria-label="Master data"] button')].every(b=>{const r=b.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth})`),true,'MOBILE_ALL_MODULES_VISIBLE');
  assert.equal(await run(`[...document.querySelectorAll('tbody tr')].length===7&&[...document.querySelectorAll('tbody tr button')].every(b=>{const r=b.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.width>0&&r.height>=36})`),true,'MOBILE_ROW_ACTIONS_VISIBLE');
@@ -329,7 +349,7 @@ async function visual(){
  await run(`(()=>{const tr=[...document.querySelectorAll('tr')].find(r=>r.textContent.includes('FIXTURE-EMP-01'));const b=tr?.querySelector('button');if(!b)throw Error('MISSING_OPEN');b.click();})()`);
  await wait(()=>has('Edit employee'),'VISUAL_EDIT');
  await field('Designation','Supervisor');await field('Reason for updating this record','Synthetic visual edit');
- await capture('09-desktop-edit',1440,900);await capture('10-mobile-edit',390,844);
+ await capture('09-desktop-edit',1440,900);await click('Hide Sidebar');await capture('09b-desktop-editor-sidebar-hidden',1440,900);await click('Show Sidebar');await capture('10-mobile-edit',390,844);
  await viewport(1440,900);await click('Save changes');await wait(()=>has('Record saved and verified'),'VISUAL_EDIT_SAVE');
  await wait(()=>run('document.querySelector("form")===null'),'VISUAL_EDIT_WINDOW_CLOSED');
  await wait(()=>has('Supervisor'),'VISUAL_EDIT_READBACK');
@@ -352,6 +372,7 @@ async function visual(){
  await viewport(1440,900);
  await run(`(()=>{const n=[...document.querySelectorAll('label')].find(x=>x.firstChild?.textContent==='Warehouse').querySelector('select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(n,'FIXTURE-WH1');n.dispatchEvent(new Event('change',{bubbles:true}));})()`);
  for(const [name,sentinel] of [['Items','FIXTURE-ITEM-01'],['Suppliers','Synthetic Components Ltd'],['Warehouses','Synthetic Main Warehouse'],['Locations','FIXTURE-BIN-01'],['Sites','Synthetic Assembly Site']]){
+  assert.equal(await run('[...document.querySelectorAll("section")].some(e=>e.getAttribute("aria-label")==="Assigned workspace")'),false);
   await click(name);await wait(()=>has(sentinel),'VISUAL_'+name);
   await capture('16-desktop-'+name.toLowerCase(),1440,900);
   if(name==='Items'){

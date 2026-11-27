@@ -119,6 +119,7 @@ function definitiveDenial(error:unknown){
 }
 export default function LiveMastersPage(){
  const [kind,setKind]=useState<LiveKind>('EMPLOYEE'),[warehouse,setWarehouse]=useState('');
+ const [sidebarVisible,setSidebarVisible]=useState(true);
  const [viewReady,setViewReady]=useState(false);
  useEffect(()=>{setKind(workspaceView(window.location.href,'view',LIVE_KINDS,'EMPLOYEE'));setViewReady(true);},[]);
  const [session,setSession]=useState<Session|null>(null),sessionRef=useRef<Session|null>(null),[auth,setAuth]=useState<'checking'|'signed-out'|'ready'|'unavailable'>('checking');
@@ -289,11 +290,17 @@ export default function LiveMastersPage(){
  const existingAnchor=currentRecords.find(r=>r.recordId===anchor(kind,scope));
  const canCreate=!editor&&!locked&&auth==='ready'&&currentListState==='ready'&&!existingAnchor;
  const editField=(key:string,value:string)=>setEditor(e=>e?{...e,values:{...e.values,[key]:value}}:null);
- return <div className={s.shell}>
-  <MasterNavigation kind={kind} ready={auth==='ready'} disabled={busy||!!pending||auth!=='ready'} onChange={changeKind}/>
+ return <div className={s.shell+(!sidebarVisible?' '+s.sidebarHidden:'')}>
+  <MasterNavigation hidden={!sidebarVisible} kind={kind} ready={auth==='ready'} disabled={busy||!!pending||auth!=='ready'} onChange={changeKind}/>
   <div className={s.main}>
-   <header className={s.topbar}><div className={s.breadcrumb}><span>HFT-OS</span> <Icon name="chevron"/> <strong>{auth==='ready'?'Master data / '+current.plural:'Corporate access'}</strong></div>
-    <div className={s.headerRight}><span className={s.environment}>{session?(session.qualification?'Qualification':'Masters only'):'Protected workspace'}</span>
+   <header className={s.topbar}><div className={s.headerLead}>
+    {!sidebarVisible&&<div className={s.compactBrand}><CorporateBrand/></div>}
+    <button type="button" className={s.secondary+' '+s.sidebarToggle} aria-controls="master-sidebar" aria-expanded={sidebarVisible} onClick={()=>setSidebarVisible(v=>!v)}><Icon name="sidebar"/> {sidebarVisible?'Hide Sidebar':'Show Sidebar'}</button>
+    <div className={s.breadcrumb}><span>HFT-OS</span> <Icon name="chevron"/> <strong>{auth==='ready'?'Master data / '+current.plural:'Corporate access'}</strong></div>
+   </div>
+    <div className={s.headerRight}>
+     {auth==='ready'&&session&&session.scope.warehouseIds.length>1&&<label className={s.scopeControl}>Warehouse<select aria-label="Warehouse" value={warehouse} disabled={busy||!!pending} onChange={e=>changeWarehouse(e.target.value)}>{session.scope.warehouseIds.map(id=><option key={id} value={id}>{id}</option>)}</select></label>}
+     <span className={s.environment}>{session?(session.qualification?'Qualification':'Masters only'):'Protected workspace'}</span>
      {auth==='ready'&&<button className={s.secondary} type="button" disabled={busy} onClick={()=>void signOut()}><Icon name="logout"/> Sign out</button>}</div>
    </header>
    <main className={s.content}>
@@ -311,12 +318,6 @@ export default function LiveMastersPage(){
      <div className={s.pageHeading}><div className={s.heroCopy}><p className={s.kicker}>OPERATIONS / MASTER DATA</p><div className={s.heroTitle}><span className={s.heroIcon}><Icon name={current.icon}/></span><h1>{current.plural}</h1></div><p>{current.desc}</p></div>
       <button ref={addButton} className={s.primary} type="button" disabled={!canCreate} onClick={startNew}><Icon name="plus"/> Add {current.singular}</button>
      </div>
-     <section className={s.context} aria-label="Assigned workspace">
-      <div className={s.contextLead}><span className={s.contextIcon}><Icon name="site"/></span><div><strong>Assigned workspace</strong><small>Assigned access only</small></div></div>
-      <label>Company<input aria-label="Company" value={entity} readOnly/></label>
-      <label>Site<input aria-label="Site" value={site} readOnly/></label>
-      <label>Warehouse<select aria-label="Warehouse" value={warehouse} disabled={busy||!!pending} onChange={e=>changeWarehouse(e.target.value)}>{session?.scope.warehouseIds.map(id=><option key={id} value={id}>{id}</option>)}</select></label>
-     </section>
      {session?.qualification&&<div className={s.qualificationNote}><Icon name="lock"/><span><strong>Qualification only.</strong> Test records; no stock or procurement authority.</span></div>}
      {notice&&<div className={s.notice+' '+s[notice.tone]} role="status"><span>{notice.text}</span><button type="button" className={s.iconButton} aria-label="Dismiss message" onClick={()=>setNotice(null)}><Icon name="close"/></button></div>}
      {storageState==='blocked'&&<div className={s.notice+' '+s.warning} role="alert">Browser request tracking is unavailable. Changes are disabled until it is restored.</div>}
@@ -349,7 +350,7 @@ export default function LiveMastersPage(){
        <footer className={s.tableFooter}><span>{currentListState==='ready'?filtered.length+' of '+currentRecords.length+' loaded records':'No verified list yet'}</span><span>Up to 100 per database search. Filters apply to loaded rows. Recorded does not mean approved.</span></footer>
       </section>
       {editor&&<aside ref={editorPanel} tabIndex={-1} className={s.editor} aria-label={editor.action==='CREATE'?'New record':'Record details'}>
-       <div className={s.cardHeading}><div><p className={s.kicker}>{current.plural}</p><h2>{editor.deleted?'View':editor.action==='CREATE'?'Add':'Edit'} {current.singular}</h2><p>{editor.action==='CREATE'?'Create a record in the assigned scope.':editor.recordId+' · Revision '+editor.revision}</p></div>
+       <div className={s.cardHeading}><div><p className={s.kicker}>{current.plural}</p><h2>{editor.deleted?'View':editor.action==='CREATE'?'Add':'Edit'} {current.singular}</h2><p>{editor.action==='CREATE'?'Create a record in the assigned scope.':editor.recordId+' · Revision '+editor.revision}</p>{editor.action!=='CREATE'&&<p className={s.recordScope}>Company {scope.legalEntityId} · Site {scope.siteId} · Warehouse {scope.warehouseId}</p>}</div>
         <button type="button" className={s.iconButton} disabled={busy} aria-label="Close record" onClick={closeRecord}><Icon name="close"/></button></div>
        <form className={s.form} onSubmit={e=>void save(e)}>
         <FieldSection title="Record details" description="All fields are required unless marked optional."><div className={s.fieldGrid}>

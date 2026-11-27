@@ -25,7 +25,8 @@ const paths:Record<string,string>={
  refresh:'M20 11a8 8 0 1 0-2 6 M20 3v8h-8',chevron:'M9 18l6-6-6-6',
  close:'M6 6l12 12 M18 6 6 18',check:'M5 12l4 4L19 6',
  logout:'M10 4H4v16h6 M10 12h11 M17 8l4 4-4 4',
- history:'M3 12a9 9 0 1 0 3-6.7 M3 3v6h6 M12 7v5l3 2'
+ history:'M3 12a9 9 0 1 0 3-6.7 M3 3v6h6 M12 7v5l3 2',
+ sidebar:'M3 4h18v16H3z M9 4v16'
 };
 export function Icon({name}:{name:string}){return <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24"
  fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]||paths.box}/></svg>;}
@@ -36,8 +37,8 @@ export function CorporateBrand({large=false}:{large?:boolean}){
   <span className={s.productName}>HFT-OS</span><span className={s.companyName}>Hubblefly Technologies Limited</span>
  </div>;
 }
-export function MasterNavigation({kind,ready,disabled,onChange}:{kind:LiveKind;ready:boolean;disabled:boolean;onChange:(kind:LiveKind)=>void}){
- return <aside className={s.sidebar}>
+export function MasterNavigation({kind,ready,disabled,onChange,hidden=false}:{kind:LiveKind;ready:boolean;disabled:boolean;onChange:(kind:LiveKind)=>void;hidden?:boolean}){
+ return <aside id="master-sidebar" hidden={hidden} className={s.sidebar}>
   <CorporateBrand/>
   {ready&&<><div className={s.sideCaption}>MASTER DATA</div>
    <nav className={s.navigation} aria-label="Master data">
