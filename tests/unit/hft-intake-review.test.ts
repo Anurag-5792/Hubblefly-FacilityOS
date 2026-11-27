@@ -11,7 +11,16 @@ const env={HFT_INTAKE_PROFILE:INTAKE_PROFILE,HFT_ENVIRONMENT:'production-qualifi
 test('inventory owner cookie is separately admitted, session-bound and expires',()=>{
  const cookie=issueIntakeCookie(env,cfg,identity,sid,now);
  assert.notEqual(cookie,clearIntakeCookie);
- assert.equal(verifyIntakeCookie(cookie,env,sid,now+1).grant,grant);
+ const original=verifyIntakeCookie(cookie,env,sid,now+1);
+ assert.equal(original.grant,grant);
+ const changedIdentity={...identity,providerSubject:'replacement-owner'};
+ const changed={...env,HFT_INTAKE_OWNER_BINDING_SHA256:providerBinding(cfg.issuer,cfg.clientId,changedIdentity.email,changedIdentity.providerSubject)};
+ assert.throws(()=>verifyIntakeCookie(cookie,changed,sid,now+1),/SESSION_INVALID/);
+ const replacement=issueIntakeCookie(changed,cfg,changedIdentity,sid,now);
+ assert.notEqual(verifyIntakeCookie(replacement,changed,sid,now+1).contextId,original.contextId);
+ const renewed=issueIntakeCookie(env,cfg,identity,grant,now+2);
+ assert.equal(verifyIntakeCookie(renewed,env,grant,now+3).contextId,original.contextId);
+ assert.throws(()=>verifyIntakeCookie(cookie,{...env,HFT_INTAKE_ACCESS_UNTIL:new Date((now+1)*1000).toISOString()},sid,now+2),/NOT_ADMITTED/);
  assert.throws(()=>verifyIntakeCookie(cookie,env,grant,now+1),/SESSION_INVALID/);
  assert.throws(()=>verifyIntakeCookie(cookie,env,sid,now+601),/SESSION_INVALID/);
  assert.throws(()=>verifyIntakeCookie(cookie,{...env,VERCEL_ENV:'production'},sid,now+1),/NOT_ADMITTED/);

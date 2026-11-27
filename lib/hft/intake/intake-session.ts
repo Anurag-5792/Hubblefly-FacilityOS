@@ -21,7 +21,7 @@ export function intakeGrant(env:LiveEnv,now=Math.floor(Date.now()/1000)){
  binding==='0'.repeat(64)||!Number.isFinite(until)||Math.floor(until/1000)<=now||
  !env.HFT_SESSION_ISSUER||!env.HFT_SESSION_ED25519_PUBLIC_KEY_PEM||!env.HFT_PUBLIC_ORIGIN)
  throw Error('INTAKE_GRANT_NOT_ADMITTED');
- return {grant,binding,until:Math.floor(until/1000),contextId:digest('HFT-INTAKE-REVIEW-CONTEXT-V1:'+grant)};
+ return {grant,binding,until:Math.floor(until/1000),contextId:digest(JSON.stringify(['HFT-INTAKE-REVIEW-CONTEXT-V2',grant,binding]))};
 }
 export function issueIntakeCookie(env:LiveEnv,config:{issuer:string;clientId:string;privatePem:string},
  identity:{email:string;providerSubject:string},sessionId:string,now=Math.floor(Date.now()/1000)):string{
@@ -32,8 +32,8 @@ export function issueIntakeCookie(env:LiveEnv,config:{issuer:string;clientId:str
   const key=createPrivateKey(config.privatePem);
   if(key.asymmetricKeyType!=='ed25519')return clearIntakeCookie;
   const exp=Math.min(now+600,g.until);
-  const head=encode({alg:'EdDSA',typ:'JWT',kid:'hft-intake-v1'});
-  const body=encode({iss:env.HFT_SESSION_ISSUER,aud:INTAKE_PROFILE,sub:g.grant,sid:sessionId,iat:now,exp});
+  const head=encode({alg:'EdDSA',typ:'JWT',kid:'hft-intake-v2'});
+  const body=encode({iss:env.HFT_SESSION_ISSUER,aud:INTAKE_PROFILE,sub:g.grant,sid:sessionId,ctx:g.contextId,iat:now,exp});
   const signed=head+'.'+body;
   const signature=sign(null,Buffer.from(signed,'ascii'),key).toString('base64url');
   return intakeCookieName+'='+signed+'.'+signature+'; '+common+'; Max-Age='+String(exp-now);
@@ -58,8 +58,8 @@ export function verifyIntakeCookie(raw:string|null,env:LiveEnv,sessionId:string,
  if(key.asymmetricKeyType!=='ed25519'||!verify(null,Buffer.from(pieces[0]+'.'+pieces[1],'ascii'),key,Buffer.from(pieces[2],'base64url')))
  throw Error('INTAKE_SIGNATURE_INVALID');
  const h=part(pieces[0]),b=part(pieces[1]);
- if(Object.keys(h).length!==3||h.alg!=='EdDSA'||h.typ!=='JWT'||h.kid!=='hft-intake-v1'||
- Object.keys(b).length!==6||b.iss!==env.HFT_SESSION_ISSUER||b.aud!==INTAKE_PROFILE||b.sub!==g.grant||
+ if(Object.keys(h).length!==3||h.alg!=='EdDSA'||h.typ!=='JWT'||h.kid!=='hft-intake-v2'||
+ Object.keys(b).length!==7||typeof b.ctx!=='string'||!eq(b.ctx,g.contextId)||b.iss!==env.HFT_SESSION_ISSUER||b.aud!==INTAKE_PROFILE||b.sub!==g.grant||
  b.sid!==sessionId||!uuid.test(sessionId)||typeof b.iat!=='number'||typeof b.exp!=='number'||
  !Number.isSafeInteger(b.iat)||!Number.isSafeInteger(b.exp)||b.iat>now+30||b.exp<=now||
  b.exp<=b.iat||b.exp-b.iat>600||b.exp>g.until)
