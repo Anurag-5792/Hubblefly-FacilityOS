@@ -33,6 +33,7 @@ async function run(expression){
 }
 
 import {buildPlan} from '../../lib/hft/planning/build-plan.ts';
+import {calculateRequirements,parseRequirementsCatalog} from '../../lib/hft/planning/requirements.ts';
 const scope={legalEntityId:'FIXTURE-HFT',siteId:'FIXTURE-SITE',warehouseId:'FIXTURE-WH'};
 const at='2026-11-28T00:00:00.000Z';
 const line=itemCode=>({itemCode,productVersion:'V1',uom:'PCS',quantity:'1'});
@@ -48,11 +49,26 @@ const catalog={state:'CATALOG',scope,asOf:at,sourceEpoch:snapshot.sourceEpoch,co
 const request=(mode,order)=>({scope,mode,condition:'NEW_ONLY',priorities:order.map(modelId=>({modelId,cap:null})),protect:[],ignore:mode==='CORE'?[{itemCode:'COMMON',productVersion:'V1',uom:'PCS'}]:[]});
 const outcomes={FULL_AB:buildPlan(snapshot,request('FULL',['A','B'])),FULL_BA:buildPlan(snapshot,request('FULL',['B','A'])),CORE_BA:buildPlan(snapshot,request('CORE',['B','A']))};
 assert.equal(outcomes.FULL_AB.combinedTotal,12);assert.equal(outcomes.CORE_BA.combinedTotal,20);
-const mock=`(()=>{const catalog=${JSON.stringify(catalog)},outcomes=${JSON.stringify(outcomes)};
- const orig=window.fetch.bind(window);window.__misCalls=[];window.__deny=false;
+const mid='00000000-0000-4000-8000-000000000001',root='00000000-0000-4000-8000-000000000002',child='00000000-0000-4000-8000-000000000003';
+const names={companyName:'Synthetic company',siteName:'Synthetic site',warehouseName:'Synthetic warehouse'};
+const reqline=(itemCode,quantityMicro,childRevisionId=null)=>({itemCode,productVersion:'V1',uom:'PCS',quantityMicro,childRevisionId,verified:true});
+const approved={state:'REQUIREMENTS_SOURCE',scope,scopeName:names,asOf:at,stockAdmitted:false,sourceEpoch:'a'.repeat(64),rootRevisionId:root,
+ models:[{id:mid,name:'Synthetic approved drone',variant:'Fixture V1',revisionId:root,revision:1,evidenceSha256:'b'.repeat(64),effectiveFrom:'2026-01-01T00:00:00Z',effectiveTo:null}],
+ nodes:[{revisionId:root,bomId:'00000000-0000-4000-8000-000000000004',kind:'DRONE',itemCode:null,versionCode:null,evidenceSha256:'b'.repeat(64),verified:true,lines:[reqline('SFG-A','2000000',child),reqline('RAW','1000000')]},
+ {revisionId:child,bomId:'00000000-0000-4000-8000-000000000005',kind:'SFG',itemCode:'SFG-A',versionCode:'V1',evidenceSha256:'c'.repeat(64),verified:true,lines:[reqline('RAW','2000000')]}]};
+const overview=parseRequirementsCatalog({...approved,state:'CATALOG',rootRevisionId:null,nodes:null},scope);
+const reqResults={1:calculateRequirements(approved,scope,mid,1),3:calculateRequirements(approved,scope,mid,3)};
+assert.equal(reqResults[3].grossLeaf[0].required,'15');
+const mock=`(()=>{const catalog=${JSON.stringify(catalog)},outcomes=${JSON.stringify(outcomes)},overview=${JSON.stringify(overview)},reqResults=${JSON.stringify(reqResults)};
+ const orig=window.fetch.bind(window);window.__misCalls=[];window.__deny=false;window.__reqEnabled=false;window.__reqDeny=false;
  window.fetch=async(input,options={})=>{
  const path=typeof input==="string"?input:new URL(input.url).pathname;if(path!=="/api/hft/mis")return orig(input,options);
  const p=JSON.parse(options.body);window.__misCalls.push(p);
+ if(p.intent==="CONTEXT"&&window.__reqEnabled)return new Response(JSON.stringify({state:"MIS_CONTEXT",contextId:"c".repeat(64),expiresAt:Math.floor(Date.now()/1000)+600,stockAdmitted:false,scopes:[{scope:overview.scope,scopeName:overview.scopeName}]}),{status:200});
+ if(p.intent==="OVERVIEW"||p.intent==="REQUIREMENTS"){
+  if(window.__reqDeny||!window.__reqEnabled||options.headers["x-hft-operator-context"]!=="c".repeat(64)||JSON.stringify(p.scope)!==JSON.stringify(overview.scope))return new Response(JSON.stringify({state:"UNAVAILABLE"}),{status:403});
+  const d=p.intent==="OVERVIEW"?overview:reqResults[p.units];return new Response(JSON.stringify(d??{state:"UNAVAILABLE"}),{status:d?200:422});
+ }
  if(window.__deny||JSON.stringify(p.scope)!==JSON.stringify(catalog.scope))return new Response(JSON.stringify({state:"UNAVAILABLE"}),{status:403});
  if(p.intent==="CATALOG")return new Response(JSON.stringify(catalog),{status:200});
  if(p.intent==="PLAN"){const k=p.scenario.mode+"_"+p.scenario.priorities.map(x=>x.modelId).join("");const d=outcomes[k];return new Response(JSON.stringify(d??{state:"UNAVAILABLE"}),{status:d?200:422});}
@@ -83,7 +99,8 @@ async function capture(name,width,height){
 }
 async function workflow(){
  await mkdir(captureDir,{recursive:true});await viewport(1440,900);await send('Page.navigate',{url:URL_ROOT+'/mis'});
- await wait(()=>has('Verified model and effective BOM catalog unavailable.'),'NO_SOURCE');
+ await wait(()=>has('No admitted management source.'),'NO_MANAGEMENT_SOURCE');
+ await click('Plan My Builds');await wait(()=>has('Verified model and effective BOM catalog unavailable.'),'NO_SOURCE');
  await capture('01-desktop-no-source',1440,900);await capture('02-mobile-no-source',390,844);await viewport(1440,900);
  for(const [i,value] of Object.values(scope).entries())await field(i,value);
  await click('Load source');await wait(()=>has('Synthetic drone A'),'CATALOG');
@@ -101,8 +118,17 @@ async function workflow(){
  await capture('05-desktop-core-build',1440,900);await capture('06-mobile-core-build',390,844);await viewport(1440,900);
  await run('window.__deny=true');await click('Show Build Readiness');await wait(()=>has('Source or authorization could not be verified.'),'DENIAL');
  assert.equal(await has('Synthetic drone A'),false);
+ await run('window.__reqEnabled=true');await click('Management overview');
+ await wait(()=>has('Synthetic approved drone'),'APPROVED_MODEL');
+ await capture('07-desktop-management',1440,900);await capture('08-mobile-management',390,844);await viewport(1440,900);
+ await click('View requirements');await wait(()=>has('Calculated for 1 unit(s).'),'APPROVED_REQUIREMENTS');
+ await field(0,'3');await click('Calculate requirements');await wait(()=>has('Calculated for 3 unit(s).'),'REQUIREMENTS_RECALCULATE');
+ await click('Gross leaf requirements');await wait(()=>run('[...document.querySelectorAll("tbody tr")].some(r=>r.innerText.includes("RAW")&&r.cells[2].innerText==="15"&&r.cells[3].innerText==="—"&&r.cells[4].innerText==="—")'),'GROSS_15_NO_STOCK');
+ await capture('09-desktop-requirements',1440,900);await capture('10-mobile-requirements',390,844);
+ await run('window.__reqDeny=true');await click('Calculate requirements');await wait(()=>has('Management access, BOM revision or source verification changed.'),'REQ_DENIAL');
+ assert.equal(await has('Synthetic approved drone'),false);
  await writeFile(join(captureDir,'capture-metadata.json'),JSON.stringify({synthetic:true,source:process.env.GITHUB_SHA,images:captures},null,2)+'\n',{flag:'wx'});
- console.log('MIS_PLANNING_MOUNTED=PASS; source unavailable, priority controls, full/core results, denial clearing, desktop/mobile synthetic captures');
+ console.log('MIS_PLANNING_MOUNTED=PASS; source unavailable, priority controls, full/core, approved BOM drilldown, gross demand, unknown stock, denial clearing, desktop/mobile synthetic captures');
 }
 
 try{

@@ -7,6 +7,7 @@ on:
       - engineering/hft-r1-inventory-intake-088
       - engineering/hft-r1-mis-planning-019
       - engineering/hft-r1-workspace-integration-095
+      - engineering/hft-r1-mis-operational-098
   pull_request:
     branches:
       - main
@@ -31,6 +32,9 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Verify source contracts and production build
         run: npm run verify
+      - name: HF098 disposable PostgreSQL lifecycle and restricted requirements reader
+        if: github.ref == 'refs/heads/engineering/hft-r1-mis-operational-098'
+        run: python3 tests/postgres/hf098_mis_requirements_fixture.py
       - name: C050 mounted React scope regression (CI-local synthetic P3)
         run: node tests/browser/hft-c050-mounted.mjs
       - name: Live Masters mounted workspace regression (CI-local synthetic records)
