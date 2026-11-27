@@ -96,8 +96,8 @@ def combined(raw,contract_raw,v1,runner_sha,policy_sha,now=None):
     need(all(isinstance(x,str) and idpat.fullmatch(x) for x in (control["folder_id"],control["reader_permission_id"],custody["folder_id"],custody["writer_permission_id"])) and control["folder_id"]!=custody["folder_id"],"HF100_DRIVE_ID_INVALID")
     need(all(pin(x) for x in (control["folder_acl_sha256"],custody["folder_acl_sha256"],custody["file_acl_sha256"])),"HF100_DRIVE_ACL_PIN_REQUIRED")
     for field in ("status","owner_keyring","recovery_keyring"):
-        f=control[field];exact(f,("id","version","sha256","acl_sha256"))
-        need(isinstance(f["id"],str) and idpat.fullmatch(f["id"]) and isinstance(f["version"],str) and re.fullmatch(r"[1-9]\d{0,19}",f["version"]) and pin(f["sha256"]) and pin(f["acl_sha256"]),"HF100_CONTROL_FILE_PIN_REQUIRED")
+        file_pin=control[field];exact(file_pin,("id","version","sha256","acl_sha256"))
+        need(isinstance(file_pin["id"],str) and idpat.fullmatch(file_pin["id"]) and isinstance(file_pin["version"],str) and re.fullmatch(r"[1-9]\d{0,19}",file_pin["version"]) and pin(file_pin["sha256"]) and pin(file_pin["acl_sha256"]),"HF100_CONTROL_FILE_PIN_REQUIRED")
     need(len({control[k]["id"] for k in ("status","owner_keyring","recovery_keyring")})==3 and control["owner_keyring"]["sha256"]==c["owner_keyring_sha256"],"HF100_CONTROL_KEY_PIN_MISMATCH")
     b=c["backup"];exact(b,("recovery_fingerprint","recovery_keyring_sha256"))
     need(isinstance(b["recovery_fingerprint"],str) and FP.fullmatch(b["recovery_fingerprint"]) and pin(b["recovery_keyring_sha256"]) and b["recovery_keyring_sha256"]==control["recovery_keyring"]["sha256"],"HF100_RECOVERY_PIN_INVALID")
