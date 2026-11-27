@@ -4,6 +4,7 @@ on:
     branches:
       - engineering/hft-r1-stores-foundation
       - engineering/hft-r1-neon-proxy-tls-qualification-010
+      - engineering/hft-r1-operator-connectivity-093
   pull_request:
     branches:
       - main

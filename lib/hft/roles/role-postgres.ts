@@ -6,6 +6,7 @@ import {ROLE_FENCE_KEYS} from './role-enforcement.ts';
 import {deny,scopeFrom,sameScope,validateAssignment,type Assignment,type AuditEvent,type Employee,type Principal,type Scope} from './role-assignment.ts';
 import {eventDigest,type RoleStore,type RoleTransaction,type SessionIdentity} from './role-service.ts';
 export interface RoleSqlClient {
+ readonly connection?: {stream?:unknown};
  query<T=Record<string,unknown>>(sql:string,values?:unknown[]):Promise<{rows:T[];rowCount?:number|null}>;
  release(destroy?:boolean):void;
 }

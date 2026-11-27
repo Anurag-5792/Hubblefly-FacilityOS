@@ -3,6 +3,7 @@ import { assertSecureStartup } from '../security/authorization.ts';
 
 export type QueryResult<Row> = Readonly<{ rows: readonly Row[]; rowCount: number | null }>;
 export interface PgQueryClient {
+  readonly connection?: {stream?:unknown};
   query<Row extends Record<string, unknown> = Record<string, unknown>>(
     text: string, parameters?: readonly (string | number | bigint | boolean | null)[],
   ): Promise<QueryResult<Row>>;

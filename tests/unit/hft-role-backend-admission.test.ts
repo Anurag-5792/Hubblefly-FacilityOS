@@ -48,8 +48,11 @@ const accepted={
  secret_schema_usage:false,identity_binding_write:false,
  audit_write_or_delete:false,stock_history_read:false,stock_account_read:false
 };
-function client(patch:Record<string,unknown>={}):RoleSqlClient{
- return {async query<T=Record<string,unknown>>(sql:string,values?:unknown[]){
+function client(patch:Record<string,unknown>={},socket:Record<string,unknown>={}):RoleSqlClient{
+ return {connection:{stream:{encrypted:true,authorized:true,authorizationError:null,
+  servername:host,remoteAddress:'192.0.2.1',remotePort:5432,getProtocol:()=> 'TLSv1.3',
+  getCipher:()=>({name:'TLS_AES_256_GCM_SHA384'}),
+  getPeerCertificate:()=>({raw:Buffer.from('synthetic'),subjectaltname:'DNS:'+host}),...socket}},async query<T=Record<string,unknown>>(sql:string,values?:unknown[]){
   assert.equal(sql,ROLE_BACKEND_CATALOG_SQL);assert.equal(values,undefined);
   return {rows:[{...accepted,...patch}] as T[],rowCount:1};
  },release(){}};
@@ -85,7 +88,7 @@ test('database catalog accepts exact independent role schema and restricted acto
   {db_oid:undefined},{server_address:null},{server_port:0},
   {protected_column_write_count:1},{binding_column_write_count:1},{audit_column_write_count:1},{scope_unauthorized_write:true},
   {db:'other'},{db_role:'hft_engineering'},{pg_version:180006},
-  {tls:false},{role_table_count:3},{audit_trigger_count:1},
+  {server_address:'127.0.0.1/32'},{role_table_count:3},{audit_trigger_count:1},
   {schema_create:true},{restricted_login:false},{assignment_insert:false},
   {audit_read:false},{scope_epoch_update:false},
   {protected_function_execute_count:1},{protected_relation_write_count:1},
@@ -96,6 +99,14 @@ test('database catalog accepts exact independent role schema and restricted acto
   /ROLE_DATABASE_IDENTITY_ACL_OR_AUDIT_NOT_ADMITTED/);
 });
 
+test('retained role checkout accepts proxy termination only with verified client TLS',async()=>{
+ assert.match(ROLE_BACKEND_CATALOG_SQL,/pg_catalog\.host\(inet_server_addr\(\)\) AS server_address/);
+ await assert.doesNotReject(assertRoleConnection(client({tls:false,tls_version:null}),base));
+ for(const socket of [{encrypted:false},{authorized:false},{servername:'wrong.example.org'},
+  {remotePort:5433},{getProtocol:()=> 'TLSv1.1'},
+  {getPeerCertificate:()=>({raw:Buffer.from('synthetic'),subjectaltname:'DNS:wrong.example.org'})}])
+  await assert.rejects(assertRoleConnection(client({tls:false,tls_version:null},socket),base),/CLIENT_TLS_NOT_VERIFIED/);
+});
 test('missing protected or role schemas fail explicitly; safe OID lookups only',async()=>{
  for(const schema of ['hft','hft_secret','hft_app_roles'])
   await assert.rejects(assertRoleConnection(client({missing_required_schemas:[schema]}),base),

@@ -5,6 +5,7 @@ import {isRoleQualificationAttempt,assertRoleQualificationProfile,assertQualific
  * connector: requires independently admitted hft_app_roles SQL and LOGIN.
  */
 import {X509Certificate} from 'node:crypto';
+import {assertVerifiedLiveTls} from '../live/live-tls.ts';
 import {ROLE_TRIGGER_CATALOG_SQL,ROLE_ENFORCEMENT_SHA256,assertRoleEnforcement}
  from './role-enforcement.ts';
 import {isIP} from 'node:net';
@@ -94,7 +95,7 @@ export function openRoleBackendPool(env:RoleBackendEnv):ManagedRolePool{
 export const ROLE_BACKEND_CATALOG_SQL=`
 SELECT current_database() AS db,session_user AS db_login,
  (SELECT oid::text FROM pg_catalog.pg_database WHERE datname=current_database()) AS db_oid,
- inet_server_addr()::text AS server_address,inet_server_port() AS server_port,
+ pg_catalog.host(inet_server_addr()) AS server_address,inet_server_port() AS server_port,
  current_user AS db_role,current_setting('server_version_num')::integer AS pg_version,
  pg_is_in_recovery() AS replica,
  ARRAY(SELECT required.name FROM (VALUES('hft'),('hft_secret'),('hft_app_roles')) required(name)
@@ -226,6 +227,10 @@ type Catalog=Readonly<{
 export async function assertRoleConnection(client:RoleSqlClient,
  env:RoleBackendEnv):Promise<RoleDatabaseIdentity>{
  assertRoleBackendProfile(env);
+ const isolated=isRoleQualificationAttempt(env);
+ // Retained Neon terminates TLS at its proxy; verify the actual client socket.
+ // The separately admitted CLI profile keeps its original backend TLS requirement.
+ if(!isolated)assertVerifiedLiveTls(client,env.HFT_ROLE_PG_HOST!,Number(env.HFT_ROLE_PG_PORT));
  const result=await client.query<Catalog>(ROLE_BACKEND_CATALOG_SQL);
  const v=result.rows[0];
  if(v&&Array.isArray(v.missing_required_schemas)&&v.missing_required_schemas.length)
@@ -237,8 +242,8 @@ export async function assertRoleConnection(client:RoleSqlClient,
   v.replication_mode!=='origin'||v.db!==env.HFT_ROLE_PG_DATABASE||
   v.db_login!==env.HFT_ROLE_PG_LOGIN||v.db_role!==v.db_login||
   String(v.pg_version)!==env.HFT_ROLE_PG_SERVER_VERSION_NUM||
-  v.replica!==false||v.tls!==true||
-  !['TLSv1.2','TLSv1.3'].includes(v.tls_version||'')||
+  v.replica!==false||(isolated&&(v.tls!==true||
+  !['TLSv1.2','TLSv1.3'].includes(v.tls_version||'')))||
   v.schema_usage!==true||v.schema_create!==false||
   v.scope_read!==true||v.scope_epoch_update!==true||
   v.binding_read!==true||v.assignment_read!==true||
