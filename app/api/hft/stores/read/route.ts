@@ -1,4 +1,5 @@
 /** Scope-bound read-only Stores source. No direct SELECT or fabricated records. */
+import {assertHostedOperatorDuty,hostedOperatorAttempt} from '../../../../../lib/hft/roles/hosted-operator-profile.ts';
 import {resolveVerifiedRequestOperator,assertVerifiedRequestOperator}
  from '../../../../../lib/hft/security/verified-request.ts';
 import {validateStoresQuery,readP0Stores} from '../../../../../lib/hft/stores/p0-readback.ts';
@@ -19,6 +20,8 @@ const headers={'Cache-Control':'no-store, no-cache, must-revalidate',
 const fail=(status:number,code:string)=>Response.json({state:'UNAVAILABLE',code,durable:false},
  {status,headers});
 export async function POST(request:Request):Promise<Response>{
+ try{if(!isRoleQualificationAttempt(process.env))assertHostedOperatorDuty(process.env,'stock');}
+ catch{return fail(503,'HOSTED_OPERATOR_STOCK_NOT_ADMITTED');}
  if(request.headers.get('content-type')?.split(';')[0].trim()!=='application/json')
   return fail(415,'P0_READ_JSON_REQUIRED');
  const length=request.headers.get('content-length');
@@ -29,6 +32,7 @@ export async function POST(request:Request):Promise<Response>{
   const actor=resolveVerifiedRequestOperator(request,process.env,
    isRoleQualificationAttempt(process.env)?'ISOLATED_ROLE_QUALIFICATION':
     stores?'RETAINED_STORES_OPERATOR':'DEFAULT');
+  if(hostedOperatorAttempt(process.env)&&request.headers.get('x-hft-operator-context')!==actor.hostedOperatorContext)return fail(401,'HOSTED_OPERATOR_CONTEXT_CHANGED');
   const text=await request.text();
   if(Buffer.byteLength(text,'utf8')>4096) return fail(413,'P0_READ_BODY_TOO_LARGE');
   const q=validateStoresQuery(JSON.parse(text) as unknown);
