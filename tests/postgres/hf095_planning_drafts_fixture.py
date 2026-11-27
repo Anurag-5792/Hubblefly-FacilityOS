@@ -110,8 +110,8 @@ def main():
         assert q("SELECT count(*) FROM hft.planning_bom_revision;").stdout.strip()=="4"
         assert q("SELECT count(*) FROM hft.planning_draft_request;").stdout.strip()=="5"
         assert q("SELECT count(*) FROM hft.stock_entry;").stdout.strip()=="0"
-        deny("DELETE FROM hft.planning_draft_request;","immutable")
-        deny("UPDATE hft.planning_bom_line SET quantity_micro=1;","immutable")
+        deny("DELETE FROM hft.planning_draft_request;","IMMUTABLE_HFT_FACT")
+        deny("UPDATE hft.planning_bom_line SET quantity_micro=1;","IMMUTABLE_HFT_FACT")
         q("CREATE ROLE fixture_planning_runtime NOLOGIN; GRANT USAGE ON SCHEMA hft TO fixture_planning_runtime;")
         deny("SET ROLE fixture_planning_runtime; "+command("DRONE_CREATE",{"name":"Other","variant":"Fixture"}),"permission denied")
         deny("SET ROLE fixture_planning_runtime; SELECT * FROM hft.planning_draft_request;","permission denied")
