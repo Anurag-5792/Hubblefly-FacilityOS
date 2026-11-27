@@ -55,7 +55,7 @@ class FixturePg(h.Pg):
         if "CREATE ROLE hft_engineering" in sql and self.mode=="commit_unknown":raise RuntimeError("synthetic lost commit reply")
         return p.stdout.strip()
     def wire(self):
-        row=self.exec("BEGIN READ ONLY; SET LOCAL search_path=pg_catalog,pg_temp;\n"+h.v2.catalog_sql()+"COMMIT;")
+        row=self.exec("BEGIN READ ONLY; SET LOCAL search_path=pg_catalog,pg_temp;\n"+r.catalog_query(h.v2.CATALOG)+";\nCOMMIT;")
         return a.strict(row),{"tls":"SYNTHETIC_LOCAL_SOCKET"}
     def dump(self):
         if self.mode=="backup":raise RuntimeError("synthetic backup transport failure")
@@ -86,7 +86,12 @@ def case(mode,home,fp,key):
         target={**v1.TARGET,"database":f.DB,"database_oid":oid}
         def adapt(s):return re.sub(r"\b"+re.escape(v1.TARGET["database"])+r"\b",f.DB,s).replace("<>16397","<>"+str(oid)).replace("'cloud_admin'","'postgres'")
         _,raw,plan=v1.load_package();sql={k:adapt(v) for k,v in raw.items()}
+        if mode.startswith("provider_"):
+            f.sql("CREATE ROLE neon_superuser NOLOGIN INHERIT CREATEROLE CREATEDB REPLICATION BYPASSRLS; CREATE ROLE neon_service LOGIN INHERIT CREATEROLE CREATEDB REPLICATION BYPASSRLS; GRANT pg_read_all_data,pg_write_all_data TO neon_superuser WITH ADMIN TRUE, INHERIT TRUE, SET TRUE; GRANT pg_maintain TO neon_superuser WITH ADMIN TRUE, INHERIT TRUE, SET FALSE; ALTER ROLE "+f.INSTALLER+" INHERIT; GRANT neon_superuser TO "+f.INSTALLER+",neon_service WITH ADMIN FALSE, INHERIT TRUE, SET TRUE; CREATE ROLE ordinary_fixture NOLOGIN;")
+            if mode=="provider_ordinary":f.sql("GRANT pg_read_all_data TO ordinary_fixture;")
         pg=FixturePg(target,mode);base,_=pg.wire()
+        if mode=="provider_membership_drift":f.sql("GRANT pg_monitor TO ordinary_fixture;")
+        if mode=="provider_role_drift":f.sql("ALTER ROLE ordinary_fixture LOGIN;")
         order=t.derived();order["expires_at"]=a.iso(a.clock()+dt.timedelta(minutes=10));order["not_before"]=a.iso(a.clock()-dt.timedelta(minutes=1))
         order["baseline_sha256"]=a.sha(a.canonical(base));order["provider_evidence"]={"synthetic":"disposable fixture"};order["backup"]={"recovery_fingerprint":fp,"recovery_keyring_sha256":a.sha(key)}
         paths={"gpg":shutil.which("gpg")};cust=Custody(key)
@@ -103,12 +108,12 @@ def case(mode,home,fp,key):
             return out
         def act():return h.guarded_apply(pg,cust,order,KEY,{"synthetic":"host"},[],lambda:order["provider_evidence"],auth,backup,sql,plan)
         with patch.dict(os.environ,{"HFT_HF094_RECOVERY_GNUPGHOME":str(home)}):
-            if mode=="success":act()
+            if mode in ("success","provider_success"):act()
             else:
                 try:act()
                 except RuntimeError as e:print("HF100_FIXTURE_EXPECTED_STOP",mode,str(e))
                 else:raise AssertionError("unexpected success "+mode)
-        if mode in ("unauthorized","revoked"):
+        if mode in ("unauthorized","revoked","provider_ordinary","provider_membership_drift","provider_role_drift"):
             assert not cust.items
             assert f.sql("SELECT to_regclass('public.hf100_install_receipt') IS NULL;").stdout.strip()=="t"
             assert pg.statements==0
@@ -117,10 +122,10 @@ def case(mode,home,fp,key):
         records=[a.unseal(KEY,x["raw"].encode()) for x in shape["rows"]]
         assert records[0]["phase"]=="CLAIM" and records[-1]["phase"]=="TERMINAL",records
         assert all(records[i]["previous_sha256"]==shape["rows"][i-1]["sha"] for i in range(1,len(records)))
-        expected="COMMITTED_CATALOG_READBACK" if mode=="success" else "SQL_OUTCOME_UNCERTAIN_NO_RETRY" if mode in ("late","interrupted","commit_unknown") else "FAILED_BEFORE_DDL_NO_RETRY"
+        expected="COMMITTED_CATALOG_READBACK" if mode in ("success","provider_success") else "SQL_OUTCOME_UNCERTAIN_NO_RETRY" if mode in ("late","interrupted","commit_unknown") else "FAILED_BEFORE_DDL_NO_RETRY"
         assert records[-1]["data"]["state"]==expected,records
         assert cust.read("terminal.json")[0]==shape["rows"][-1]["raw"].encode()
-        installed=mode in ("success","commit_unknown")
+        installed=mode in ("success","commit_unknown","provider_success")
         assert f.sql("SELECT to_regnamespace('hft') IS NOT NULL;").stdout.strip()==("t" if installed else "f")
         if installed:
             assert f.sql("SELECT count(*) FROM hft.schema_revision;").stdout.strip()=="6"
@@ -129,7 +134,11 @@ def case(mode,home,fp,key):
             f.must_fail(f.sql("SET ROLE hft_r1_roles_np_login; SELECT * FROM public.hf100_install_receipt;",check=False),"permission denied")
         else:
             assert f.sql("SELECT count(*) FROM pg_roles WHERE rolname IN('hft_engineering','hft_r1_roles_owner','hft_r1_roles_np_login');").stdout.strip()=="0"
-        f.must_fail(f.as_installer("DELETE FROM public.hf100_install_receipt;",False),"permission denied")
+        if mode=="provider_success":
+            assert f.as_installer("SELECT has_table_privilege(current_user,'public.hf100_install_receipt','SELECT,INSERT,UPDATE,DELETE');").stdout.strip()=="t"
+            assert f.sql("SELECT has_table_privilege('ordinary_fixture','public.hf100_install_receipt','SELECT,INSERT,UPDATE,DELETE,MAINTAIN');").stdout.strip()=="f"
+            assert f.sql("SELECT has_function_privilege('ordinary_fixture','public.hf100_append_receipt(text,text)','EXECUTE');").stdout.strip()=="f"
+        else:f.must_fail(f.as_installer("DELETE FROM public.hf100_install_receipt;",False),"permission denied")
         f.must_fail(f.as_installer(r.append_sql(shape["rows"][0]["raw"].encode()),False),"HF100_ALREADY_CONSUMED")
         n=pg.statements
         try:act()
@@ -152,6 +161,6 @@ def main():
         home=Path(d);home.chmod(0o700)
         legacy.gpg(home,"--quick-generate-key","HF100 fixture <fixture@example.invalid>","ed25519","cert","1d")
         fp=legacy.fingerprint(home);legacy.gpg(home,"--quick-add-key",fp,"cv25519","encr","1d");key=legacy.gpg(home,"--export",fp)
-        for mode in ("unauthorized","revoked","backup","restore","revoked_after_backup","late","interrupted","commit_unknown","success"):case(mode,home,fp,key)
+        for mode in ("unauthorized","revoked","backup","restore","revoked_after_backup","late","interrupted","commit_unknown","success","provider_success","provider_ordinary","provider_membership_drift","provider_role_drift"):case(mode,home,fp,key)
     print("HF100_PG18_GUARDED_INSTALLER=PASS; actual persistent claim, encrypted backup/native isolated restore, rollback, revoked/duplicate denial, interrupted/unknown outcome and independent postflight; synthetic custody")
 if __name__=="__main__":main()

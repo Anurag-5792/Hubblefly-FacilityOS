@@ -130,18 +130,19 @@ class Pg:
           env=self.env,data=sql.encode(),timeout=180).stdout.decode().strip()
     def wire(self):
         t=self.target
-        out=self.exec("\\conninfo\nBEGIN READ ONLY;\nSET LOCAL search_path=pg_catalog,pg_temp;\n"+v2.catalog_sql()+"COMMIT;").splitlines()
+        out=self.exec("\\conninfo\nBEGIN READ ONLY;\nSET LOCAL search_path=pg_catalog,pg_temp;\n"+registry.catalog_query(v2.CATALOG)+";\nCOMMIT;").splitlines()
         ssl=[l for l in out if re.search(r"SSL connection \(protocol: TLSv1\.[23], cipher: [A-Za-z0-9_-]+",l)]
         rows=[l for l in out if l.startswith("{")]
         need(len(ssl)==1 and len(rows)==1,"HF100_ACTUAL_CLIENT_TLS_REQUIRED")
         c=strict(rows[0]);need(c["database"]==t["database"] and c["oid"]==str(t["database_oid"]) and c["session"]==c["current"]==c["owner"]==t["installer"] and c["version"]==str(t["server_version_num"]) and c["replica"] is False and c["port"]==t["port"] and c["address"],"HF100_WIRE_IDENTITY_MISMATCH")
         return c,{"client_tls":ssl[0],"verify_full":self.env["PGSSLMODE"],"channel_binding":self.env["PGCHANNELBINDING"],"catalog_sha256":sha(canonical(c))}
     def shape(self):
-        return strict(self.exec("BEGIN READ ONLY;\nSET LOCAL search_path=pg_catalog,pg_temp;\n"+registry.privilege_gate(self.target)+registry.SHAPE.strip()+";\nCOMMIT;"))
+        return strict(self.exec("BEGIN READ ONLY;\nSET LOCAL search_path=pg_catalog,pg_temp;\n"+registry.privilege_gate(self.target,self.registry_baseline)+registry.shape_gate(self.target)+registry.SHAPE.strip()+";\nCOMMIT;"))
     def claim(self,baseline,raw):
-        need(sha(raw) in self.exec(registry.bootstrap(self.target,v2.CATALOG,baseline,raw)).splitlines(),"HF100_DB_CLAIM_UNCERTAIN_NO_RETRY")
+        self.registry_baseline=baseline["registry_privileges"]
+        need(sha(raw) in self.exec(registry.bootstrap(self.target,registry.catalog_query(v2.CATALOG),baseline,raw)).splitlines(),"HF100_DB_CLAIM_UNCERTAIN_NO_RETRY")
     def append(self,raw):
-        need(sha(raw) in self.exec("BEGIN ISOLATION LEVEL SERIALIZABLE;\nSET LOCAL search_path=pg_catalog,pg_temp;\n"+registry.privilege_gate(self.target)+registry.append_sql(raw)+"COMMIT;").splitlines(),"HF100_DB_RECEIPT_UNCERTAIN")
+        need(sha(raw) in self.exec("BEGIN ISOLATION LEVEL SERIALIZABLE;\nSET LOCAL search_path=pg_catalog,pg_temp;\n"+registry.privilege_gate(self.target,self.registry_baseline)+registry.shape_gate(self.target)+registry.append_sql(raw)+"COMMIT;").splitlines(),"HF100_DB_RECEIPT_UNCERTAIN")
     def dump(self):
         t=self.target
         return run([self.paths["pg_dump"],"-w","-Fc","--create","-h",t["host"],"-p",str(t["port"]),"-U",t["installer"],"-d",t["database"]],env=self.env,timeout=180).stdout
@@ -187,7 +188,7 @@ def capture(pg,order,custody,paths,cat,shape,key,attempt,claim_ref,restore=nativ
 def assemble(sql,plan,order,cat,shape,prepared_sha,target):
     statement=v1.build_transaction(sql,plan,order["owner_order_sha256"],prepared_sha,order["expires_at"])
     need(statement.count(sql[v1.FILES[0]])==1,"HF100_FROZEN_SQL_ASSEMBLY_DENIED")
-    return statement.replace(sql[v1.FILES[0]],registry.equality_gate(v2.CATALOG,cat,"HF100_PRE_DDL_BASELINE_DRIFT")+registry.install_fence(target,shape)+sql[v1.FILES[0]])
+    return statement.replace(sql[v1.FILES[0]],registry.equality_gate(registry.catalog_query(v2.CATALOG),cat,"HF100_PRE_DDL_BASELINE_DRIFT")+registry.install_fence(target,shape,registry.without_registry(cat["registry_privileges"]))+sql[v1.FILES[0]])
 def verify_chain(pg,custody,key,raws,refs):
     shape=pg.shape();registry.verify_shape(shape,pg.target);registry.check_rows(shape,raws)
     for raw in raws:
@@ -200,6 +201,7 @@ def guarded_apply(pg,custody,order,key,host,ci_result,provider,authorize,backup,
     # exact host/CI/target checks. No public flag permits fixture substitutions.
     authorize();custody.absent()
     base,tls=pg.wire();v2.fresh(base,pg.target)
+    registry.eligible(base["registry_privileges"],pg.target)
     need(sha(canonical(base))==order["baseline_sha256"],"HF100_SIGNED_BASELINE_DRIFT")
     attempt=str(uuid.uuid4())
     claim=control.seal(key,order,attempt,"CLAIM",None,{"host":host,"provider":order["provider_evidence"],"baseline_sha256":sha(canonical(base))})
@@ -274,7 +276,7 @@ def main():
         v2.provider(order,v1)
         with tempfile.TemporaryDirectory(prefix="hf100-measure-") as tmp:
             env,proof=transport(order,paths,a.passfile,a.ca,tmp)
-            pg=Pg(v1.TARGET,paths,env);cat,tls=pg.wire();v2.fresh(cat,v1.TARGET)
+            pg=Pg(v1.TARGET,paths,env);cat,tls=pg.wire();v2.fresh(cat,v1.TARGET);registry.eligible(cat["registry_privileges"],pg.target)
             print("HF100_BASELINE_SHA256="+sha(canonical(cat)))
             print("HF100_UNSIGNED_MEASUREMENT_ONLY; NO AUTHORITY, CLAIM, DUMP OR DDL")
         return
@@ -292,7 +294,7 @@ def main():
         env,proof=transport(order,paths,a.passfile,a.ca,tmp);host["probe"]=proof
         pg=Pg(v1.TARGET,paths,env)
         if a.qualify:
-            custody.absent();cat,_=pg.wire();v2.fresh(cat,v1.TARGET);need(sha(canonical(cat))==order["baseline_sha256"],"HF100_SIGNED_BASELINE_DRIFT");authorize()
+            custody.absent();cat,_=pg.wire();v2.fresh(cat,v1.TARGET);registry.eligible(cat["registry_privileges"],pg.target);need(sha(canonical(cat))==order["baseline_sha256"],"HF100_SIGNED_BASELINE_DRIFT");authorize()
             print("HF100_READONLY_PRECHECK_PASS; NO CLAIM, DUMP, RESTORE OR DDL");return
         result=guarded_apply(pg,custody,order,key,host,ci_result,lambda:v2.provider(order,v1),authorize,
             lambda cat,shape,attempt,anchor:capture(pg,order,custody,paths,cat,shape,key,attempt,anchor),sql,plan)

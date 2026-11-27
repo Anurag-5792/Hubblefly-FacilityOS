@@ -84,7 +84,7 @@ def bootstrap(target,baseline_query,baseline,claim):
      "REVOKE ALL ON FUNCTION "+FN+"(text,text) FROM PUBLIC;\n"
      "GRANT SELECT ON "+TABLE+" TO "+installer+";\nGRANT EXECUTE ON FUNCTION "+FN+"(text,text) TO "+installer+";\n"
      "RESET ROLE;\nREVOKE CREATE ON SCHEMA public FROM "+OWNER+";\nREVOKE "+OWNER+" FROM "+installer+" GRANTED BY CURRENT_USER;\n"
-     +append_sql(claim)+"COMMIT;\n")
+     +privilege_gate(target,baseline["registry_privileges"])+shape_gate(target)+append_sql(claim)+"COMMIT;\n")
 # Exact registry census is read independently, including all public objects.
 # Definitions are checked against known source, not a caller-provided PASS.
 SHAPE=r"""
@@ -106,20 +106,89 @@ SELECT jsonb_build_object(
  'rows',(SELECT coalesce(jsonb_agg(jsonb_build_object('seq',seq,'raw',raw,'sha',sha) ORDER BY seq),'[]'::jsonb) FROM public.hf100_install_receipt)
 )::text
 """
-def privilege_gate(target):
+# Bind all preexisting role identities, flags, grant edges and effective rights.
+PRIVILEGES=r"""
+SELECT jsonb_build_object(
+ 'roles',(SELECT coalesce(jsonb_agg(to_jsonb(q) ORDER BY q.oid),'[]'::jsonb) FROM (
+   SELECT oid,rolname,rolsuper,rolinherit,rolcreaterole,rolcreatedb,rolcanlogin,rolreplication,rolbypassrls,rolconnlimit,rolvaliduntil,rolconfig,
+    pg_has_role(oid,'pg_read_all_data','USAGE') AS read_all,pg_has_role(oid,'pg_write_all_data','USAGE') AS write_all,
+    pg_has_role(oid,'pg_maintain','USAGE') AS maintain_all,
+    pg_has_role(oid,'pg_read_all_data','SET') AS set_read,pg_has_role(oid,'pg_write_all_data','SET') AS set_write,
+    pg_has_role(oid,'pg_maintain','SET') AS set_maintain,
+    pg_has_role(oid,session_user,'USAGE') AS actor_usage,pg_has_role(oid,session_user,'SET') AS actor_set
+   FROM pg_roles) q),
+ 'memberships',(SELECT coalesce(jsonb_agg(to_jsonb(q) ORDER BY q.roleid,q.member,q.grantor),'[]'::jsonb) FROM (
+   SELECT roleid,member,grantor,admin_option,inherit_option,set_option FROM pg_auth_members) q)
+)
+"""
+def catalog_query(frozen):
+    return "SELECT (("+frozen.strip().rstrip(";")+")::jsonb || jsonb_build_object('registry_privileges',("+PRIVILEGES+")))::text"
+def admin_names(target):
+    return {target["installer"],"neon_superuser","neon_service",
+            "cloud_admin" if target["database"]=="hft_r1_retained_masters_np077" else "postgres",
+            "pg_read_all_data","pg_write_all_data","pg_maintain"}
+def eligible(p,target):
+    roles={x["rolname"]:x for x in p["roles"]}
+    need(OWNER not in roles,"HF100_ALREADY_CONSUMED_OR_REGISTRY_COLLISION")
+    allowed=admin_names(target)
+    for x in roles.values():
+        if any(x[k] for k in ("rolsuper","read_all","write_all","maintain_all","set_read","set_write","set_maintain","actor_usage","actor_set")):
+            need(x["rolname"] in allowed,"HF100_UNEXPECTED_PRIVILEGED_PRINCIPAL")
+    if target["database"]=="hft_r1_retained_masters_np077":
+        for name,oid in ((target["installer"],16393),("neon_superuser",16384),("neon_service",16395),("cloud_admin",10),
+                         ("pg_read_all_data",6181),("pg_write_all_data",6182),("pg_maintain",6337)):
+            need(name in roles and roles[name]["oid"]==oid,"HF100_PROVIDER_IDENTITY_DRIFT")
+        for name in (target["installer"],"neon_superuser","neon_service"):
+            x=roles[name]
+            need(not x["rolsuper"] and x["read_all"] and x["write_all"] and x["maintain_all"],"HF100_PROVIDER_RIGHTS_DRIFT")
+        need(roles["cloud_admin"]["rolsuper"],"HF100_PROVIDER_ADMIN_DRIFT")
+def without_registry(p):
+    ids={x["oid"] for x in p["roles"] if x["rolname"]==OWNER}
+    return {"roles":[x for x in p["roles"] if x["oid"] not in ids],
+            "memberships":[x for x in p["memberships"] if not ids.intersection((x["roleid"],x["member"],x["grantor"]))]}
+def baseline_gate(p):
+    # Frozen installation adds roles. Preserve all original identities and
+    # membership edges between them; inspect effective access for every role.
+    ids=",".join(str(int(x["oid"])) for x in p["roles"])
+    need(ids,"HF100_PRIVILEGE_BASELINE_REQUIRED")
+    q="SELECT jsonb_build_object('roles',coalesce((SELECT jsonb_agg(x ORDER BY (x->>'oid')::oid) FROM jsonb_array_elements(v->'roles') x WHERE (x->>'oid')::oid IN ("+ids+")),'[]'::jsonb),'memberships',coalesce((SELECT jsonb_agg(x ORDER BY (x->>'roleid')::oid,(x->>'member')::oid,(x->>'grantor')::oid) FROM jsonb_array_elements(v->'memberships') x WHERE (x->>'roleid')::oid IN ("+ids+") AND (x->>'member')::oid IN ("+ids+") AND (x->>'grantor')::oid IN ("+ids+")),'[]'::jsonb)) FROM ("+PRIVILEGES+") AS snapshot(v)"
+    return equality_gate(q,p,"HF100_PRIVILEGE_BASELINE_DRIFT")
+def privilege_gate(target,p):
     i=literal(target["installer"]);o=literal(OWNER)
-    return """DO $$ DECLARE r oid; actor oid; f oid; t oid; BEGIN
+    allowed=",".join(literal(x["rolname"]) for x in p["roles"] if x.get("rolname") in admin_names(target)) or "NULL"
+    return baseline_gate(p)+"""DO $$ DECLARE r oid; actor oid; f oid; t oid; BEGIN
  SELECT oid INTO STRICT r FROM pg_roles WHERE rolname="""+o+""" AND NOT(rolcanlogin OR rolinherit OR rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls);
  SELECT oid INTO STRICT actor FROM pg_roles WHERE rolname="""+i+""";
  SELECT 'public.hf100_append_receipt(text,text)'::regprocedure::oid,'public.hf100_install_receipt'::regclass::oid INTO f,t;
  IF pg_has_role(actor,r,'SET') OR pg_has_role(actor,r,'USAGE') OR has_schema_privilege(r,'public','CREATE')
  OR EXISTS(SELECT 1 FROM pg_auth_members WHERE member=r OR (roleid=r AND NOT COALESCE(member=actor AND grantor IN(actor,(SELECT oid FROM pg_roles WHERE rolname='cloud_admin'),(SELECT oid FROM pg_roles WHERE rolname='postgres')) AND admin_option AND NOT set_option AND NOT inherit_option,false)))
- OR NOT has_table_privilege(actor,t,'SELECT') OR has_table_privilege(actor,t,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN,SELECT WITH GRANT OPTION')
- OR NOT has_function_privilege(actor,f,'EXECUTE') OR has_function_privilege(actor,f,'EXECUTE WITH GRANT OPTION')
- OR EXISTS(SELECT 1 FROM pg_roles x WHERE x.oid NOT IN(r,actor) AND NOT x.rolsuper AND (has_table_privilege(x.oid,t,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE') OR has_function_privilege(x.oid,f,'EXECUTE')) AND x.rolname NOT LIKE 'pg\\_%')
+ OR EXISTS(SELECT 1 FROM pg_roles x WHERE x.oid<>r AND (
+   (x.rolname NOT IN ("""+allowed+""") AND (x.rolsuper OR pg_has_role(x.oid,actor,'USAGE') OR pg_has_role(x.oid,actor,'SET')
+    OR pg_has_role(x.oid,'pg_read_all_data','SET') OR pg_has_role(x.oid,'pg_write_all_data','SET') OR pg_has_role(x.oid,'pg_maintain','SET')
+    OR pg_has_role(x.oid,r,'SET') OR pg_has_role(x.oid,r,'USAGE')))
+   OR has_table_privilege(x.oid,t,'SELECT') IS DISTINCT FROM (x.rolsuper OR x.oid=actor OR pg_has_role(x.oid,'pg_read_all_data','USAGE'))
+   OR EXISTS(SELECT 1 FROM unnest(ARRAY['INSERT','UPDATE','DELETE']) k WHERE has_table_privilege(x.oid,t,k) IS DISTINCT FROM (x.rolsuper OR pg_has_role(x.oid,'pg_write_all_data','USAGE')))
+   OR has_table_privilege(x.oid,t,'MAINTAIN') IS DISTINCT FROM (x.rolsuper OR pg_has_role(x.oid,'pg_maintain','USAGE'))
+   OR EXISTS(SELECT 1 FROM unnest(ARRAY['TRUNCATE','REFERENCES','TRIGGER','SELECT WITH GRANT OPTION','INSERT WITH GRANT OPTION','UPDATE WITH GRANT OPTION','DELETE WITH GRANT OPTION','TRUNCATE WITH GRANT OPTION','REFERENCES WITH GRANT OPTION','TRIGGER WITH GRANT OPTION','MAINTAIN WITH GRANT OPTION']) k WHERE has_table_privilege(x.oid,t,k) IS DISTINCT FROM x.rolsuper)
+   OR has_function_privilege(x.oid,f,'EXECUTE') IS DISTINCT FROM (x.rolsuper OR x.oid=actor)
+   OR has_function_privilege(x.oid,f,'EXECUTE WITH GRANT OPTION') IS DISTINCT FROM x.rolsuper
+   OR (x.rolname NOT IN ("""+allowed+""") AND (has_table_privilege(x.oid,t,'SELECT,INSERT,UPDATE,DELETE,MAINTAIN') OR has_function_privilege(x.oid,f,'EXECUTE')))
+ ))
  THEN RAISE EXCEPTION 'HF100_REGISTRY_PRIVILEGE_DRIFT'; END IF;
 END $$;
 """
+def shape_gate(target):
+    owner=OWNER;installer=target["installer"]
+    expected={
+      "relations":[{"name":"hf100_install_receipt","kind":"r","owner":owner,"acl":sorted([owner+"=arwdDxtm/"+owner,installer+"=r/"+owner]),"rls":False,"force_rls":False},
+                   {"name":"hf100_install_receipt_pkey","kind":"i","owner":owner,"acl":[],"rls":False,"force_rls":False}],
+      "types":[{"name":"_hf100_install_receipt","owner":owner},{"name":"hf100_install_receipt","owner":owner}],
+      "functions":[{"name":"hf100_append_receipt","owner":owner,"definer":True,"config":["search_path=pg_catalog, pg_temp"],"body":body(target),"acl":sorted([owner+"=X/"+owner,installer+"=X/"+owner])}],
+      "columns":[{"name":n,"type":t,"notnull":True,"acl":None} for n,t in (("seq","integer"),("raw","text"),("sha","text"))],
+      "constraints":sorted(["PRIMARY KEY (seq)","CHECK (((seq >= 0) AND (seq <= 2)))","CHECK ((octet_length(raw) <= 1048576))","CHECK ((sha ~ '^[0-9a-f]{64}$'::text))"]),
+      "indexes":["CREATE UNIQUE INDEX hf100_install_receipt_pkey ON public.hf100_install_receipt USING btree (seq)"],"triggers":0,"rules":0}
+    q="SELECT (v-'rows'-'functions') || jsonb_build_object('functions',(SELECT jsonb_agg(x-'definition') FROM jsonb_array_elements(v->'functions') x)) FROM (SELECT ("+SHAPE.strip()+")::jsonb AS v) s"
+    return equality_gate(q,expected,"HF100_REGISTRY_EXPLICIT_SHAPE_DRIFT")
 def verify_shape(s,target):
     owner=OWNER;installer=target["installer"]
     need([x["name"] for x in s["relations"]]==["hf100_install_receipt","hf100_install_receipt_pkey"] and
@@ -134,8 +203,9 @@ def verify_shape(s,target):
 def check_delta(original,after):
     # Exactly one table, one index, two types, one function in existing public.
     a=dict(after);a["user_objects"]-=5
+    a["registry_privileges"]=without_registry(a["registry_privileges"])
     need(a==original,"HF100_REGISTRY_BASELINE_DELTA_DENIED")
 def check_rows(shape,raws):
     need(shape["rows"]==[{"seq":i,"raw":raw.decode(),"sha":sha(raw)} for i,raw in enumerate(raws)],"HF100_REGISTRY_RECEIPT_CHAIN_DRIFT")
-def install_fence(target,shape):
-    return lock()+identity_gate(target)+privilege_gate(target)+equality_gate(SHAPE,shape,"HF100_PREPARED_REGISTRY_DRIFT")
+def install_fence(target,shape,p):
+    return lock()+identity_gate(target)+privilege_gate(target,p)+shape_gate(target)+equality_gate(SHAPE,shape,"HF100_PREPARED_REGISTRY_DRIFT")

@@ -91,7 +91,8 @@ class Tests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"AUTHENTICATION"):a.unseal(key,c.replace(b'"test":true',b'"test":false'))
     def test_fixed_claim_assembly_no_raw_sql_injection(self):
         c=a.seal(b"k"*32,derived(),str(uuid.uuid4()),"CLAIM",None,{"text":"$hf100_gate$'; DROP TABLE secret;"})
-        s=r.bootstrap(h.v1.TARGET,h.v2.CATALOG,{"test":"$hf100_gate$"},c)
+        s=r.bootstrap(h.v1.TARGET,h.v2.CATALOG,{"test":"$hf100_gate$","registry_privileges":{"roles":[{"oid":10,"rolname":"cloud_admin"}],"memberships":[]}},c)
         self.assertNotIn("DROP TABLE",s);self.assertIn("BEGIN ISOLATION LEVEL SERIALIZABLE",s)
         self.assertIn("HF100_PRECLAIM_BASELINE_DRIFT",s);self.assertTrue(s.endswith("COMMIT;\n"))
+        self.assertLess(s.index("HF100_REGISTRY_EXPLICIT_SHAPE_DRIFT"),s.index("SELECT public.hf100_append_receipt"))
 if __name__=="__main__":unittest.main()
