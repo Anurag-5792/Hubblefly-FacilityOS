@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import {hostedOperatorAttempt,hostedOperatorPathAdmitted} from './lib/hft/roles/hosted-operator-profile';
+import {hostedOperatorAttempt,hostedOperatorPathAdmitted,hostedOperatorMode} from './lib/hft/roles/hosted-operator-profile';
 import {identityProofPathAdmitted} from './lib/hft/live/live-identity-mode';
 import { assertSecureStartup } from './lib/hft/security/authorization';
 import {assertRetainedMastersProfile,isRetainedMastersProfile}
@@ -38,7 +38,10 @@ const liveRoutes=new Set(['/masters/live','/api/hft/live-masters',
 export function middleware(request:NextRequest){
  const path=request.nextUrl.pathname;
  if(hostedOperatorAttempt(process.env)){
-  if(hostedOperatorPathAdmitted(path,process.env))return NextResponse.next();
+  if(hostedOperatorPathAdmitted(path,process.env)){
+   if(path==='/'||path==='/stores')return NextResponse.redirect(new URL(hostedOperatorMode(process.env)==='ROLES_RECEIVE'?'/stores/operations':'/settings/users-roles',request.url));
+   return NextResponse.next();
+  }
   return NextResponse.json({state:'UNAVAILABLE',code:'HOSTED_OPERATOR_ROUTE_NOT_ADMITTED'},
    {status:503,headers:{'Cache-Control':'no-store'}});
  }

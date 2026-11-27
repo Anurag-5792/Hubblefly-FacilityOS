@@ -2,12 +2,11 @@
  * Requires independently enrolled OIDC client and Ed25519 issuer secrets.
  * Never creates a fake user, approves a Master, or grants stock authority.
  */
-import {createCipheriv,createDecipheriv,createHash,createPrivateKey,
+import {createCipheriv,createDecipheriv,createHash,createHmac,createPrivateKey,
  createPublicKey,randomBytes,randomUUID,sign,timingSafeEqual,verify}
  from 'node:crypto';
 import {assertLiveProfile,type LiveEnv} from './live-profile.ts';
 import {identityProofModeAdmitted} from './live-identity-mode.ts';
-import {createHmac} from 'node:crypto';
 import {hostedOperatorAttempt,hostedOperatorMode} from '../roles/hosted-operator-profile.ts';
 import {operatorRoster,operatorBinding,assertCanonicalOperator} from '../roles/hosted-operator-identity.ts';
 import {assertRoleBackendProfile,openRoleBackendPool,assertRoleConnection} from '../roles/role-backend.ts';
