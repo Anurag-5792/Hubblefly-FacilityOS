@@ -72,13 +72,14 @@ async function field(index,value){
 }
 async function capture(name,width,height){
  if(!captureDir)throw Error('MIS_CAPTURE_DIR_REQUIRED');
- await viewport(width,height);await run('window.scrollTo(0,0)');await sleep(200);
- await run('(()=>{const e=document.createElement("div");e.id="test-watermark";e.textContent="SYNTHETIC TEST DATA · CI BROWSER CAPTURE";Object.assign(e.style,{padding:"10px",background:"#193632",color:"white",textAlign:"center"});document.body.prepend(e);const p=document.querySelector("nextjs-portal");if(p)p.style.display="none";})()');
+ await viewport(width,height);await run('window.scrollTo(0,0)');await sleep(600);
+ await run('(()=>{const e=document.createElement("div");e.id="test-watermark";e.textContent="SYNTHETIC TEST DATA · CI BROWSER CAPTURE";Object.assign(e.style,{padding:"10px",background:"#193632",color:"white",textAlign:"center"});document.body.append(e);const p=document.querySelector("nextjs-portal");if(p)p.style.display="none";})()');
  assert.ok(await run('document.documentElement.scrollWidth<=innerWidth+2'),'MOBILE_HORIZONTAL_OVERFLOW');
+ assert.equal(await run('Boolean(document.getElementById("test-watermark"))'),true,'CAPTURE_WATERMARK_MISSING');
  const metrics=await send('Page.getLayoutMetrics');const h=Math.min(4000,Math.max(height,Math.ceil(metrics.cssContentSize.height)));
  const result=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width,height:h,scale:1}});
  const bytes=Buffer.from(result.data,'base64');await writeFile(join(captureDir,name+'.png'),bytes,{flag:'wx'});
- captures.push({file:name+'.png',viewport:{width,height},sha256:createHash('sha256').update(bytes).digest('hex')});await run('document.getElementById("test-watermark").remove()');
+ captures.push({file:name+'.png',viewport:{width,height},sha256:createHash('sha256').update(bytes).digest('hex')});await run('document.getElementById("test-watermark")?.remove()');
 }
 async function workflow(){
  await mkdir(captureDir,{recursive:true});await viewport(1440,900);await send('Page.navigate',{url:URL_ROOT+'/mis'});
