@@ -6,6 +6,7 @@ on:
       - engineering/hft-r1-neon-proxy-tls-qualification-010
       - engineering/hft-r1-inventory-intake-088
       - engineering/hft-r1-mis-planning-019
+      - engineering/hft-r1-workspace-integration-095
   pull_request:
     branches:
       - main
@@ -34,6 +35,8 @@ jobs:
         run: node tests/browser/hft-c050-mounted.mjs
       - name: Live Masters mounted workspace regression (CI-local synthetic records)
         run: node tests/browser/hft-live-masters-mounted.mjs
+      - name: Hosted role history security regression (CI-local synthetic records)
+        run: node tests/browser/hft-role-history-094-mounted.mjs
       - name: Inventory security mounted regression (CI-local synthetic records)
         run: node tests/browser/hft-intake-security-091-mounted.mjs
       - name: MIS mounted read-only planner (CI-local synthetic only)

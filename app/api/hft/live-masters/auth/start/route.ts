@@ -1,5 +1,7 @@
 import {oidcConfig,startUrl,clearAuthCookies}
  from '../../../../../../lib/hft/live/live-oidc.ts';
+import {loginDestination} from '../../../../../../lib/hft/ui-reuse/workspace-profile.ts';
+import {intakeGrant} from '../../../../../../lib/hft/intake/intake-session.ts';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export async function GET(request:Request):Promise<Response>{
@@ -10,7 +12,11 @@ export async function GET(request:Request):Promise<Response>{
   if(requested!==proofMode)throw Error('LIVE_R1_IDENTITY_FLOW_MODE_MISMATCH');
   const config=oidcConfig(process.env,proofMode);
   if(proofMode&&u.origin!==config.proofBinding?.origin)throw Error('LIVE_R1_IDENTITY_ORIGIN_DENIED');
-  const result=startUrl(config,process.env.HFT_PUBLIC_ORIGIN!,proofMode);
+  const destination=loginDestination(process.env,u.searchParams.getAll('return'));
+  if(u.origin!==process.env.HFT_PUBLIC_ORIGIN)throw Error('LIVE_R1_AUTH_ORIGIN_DENIED');
+  if(destination==='intake')intakeGrant(process.env);
+  const result=startUrl(config,process.env.HFT_PUBLIC_ORIGIN!,proofMode,
+   destination==='roles'||destination==='stores'?destination:undefined,destination==='intake');
   const headers=new Headers({Location:result.location,'Cache-Control':'no-store',
    'Referrer-Policy':'no-referrer'});
   if(proofMode)for(const cookie of clearAuthCookies)headers.append('Set-Cookie',cookie);

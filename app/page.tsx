@@ -1,42 +1,17 @@
 import Link from 'next/link';
-/** No operational KPI may be shown without a verified, connected source. */
+import {CorporateBrand} from './masters/live/workspace-components';
+import {workspaceModules} from '../lib/hft/ui-reuse/workspace-profile';
+export const dynamic='force-dynamic';
+/** Navigation only. No business data or authority is inferred from a route hint. */
 export default function HomePage(){
+ const modules=workspaceModules(process.env);
  return <main className="app-shell">
-  <aside className="sidebar"><div className="brand">HUBBLEFLY <span>FacilityOS</span></div>
-   <nav><Link className="active" href="/">Dashboard</Link>
-    <Link href="/stores">Stores</Link><Link href="/draft">Draft Masters</Link><Link href="/stores/masters">Governed Masters</Link>
-    <Link href="/settings">Settings</Link><Link href="/mis">MIS & Analytics</Link></nav>
-   <div className="sidebar-footer">Phase 1 standalone <strong>ERPNext deferred to Phase 2</strong></div></aside>
-  <section className="workspace"><header className="topbar"><div>
-   <p className="eyebrow">Hubblefly Technologies Limited</p><h1>Operations Dashboard</h1>
-   </div><span className="status">NONPRODUCTION — NO LIVE POSTING</span></header>
-   <div className="stats-grid">{['Items in store','Open exceptions','Moves today','Pending counts'].map(label=>
-    <article key={label} className="stat-card"><span>{label}</span>
-     <strong style={{fontSize:20}}>Unavailable</strong>
-     <p className="masters-help">Verified operational source not connected</p></article>)}</div>
-   <div className="content-grid">
-    <article className="panel"><p className="eyebrow">Path B · Retained nonproduction</p>
-     <h2>Draft Masters Entry</h2>
-     <p className="masters-help">Create, edit, search and export provisional
-      Employee, Item, Supplier, Warehouse, Location, Legal Entity and Site records.
-      Every saved record remains DRAFT — NOT APPROVED. No stock posting.</p>
-     <Link className="mis-link" href="/draft">Open draft workspace</Link></article>
-    <article className="panel"><p className="eyebrow">Phase 1</p><h2>Employee & Stores Masters</h2>
-     <p className="masters-help">Scope-controlled master registration, amendments and pending approval requests.
-      Persistence requires approved isolated PostgreSQL and governance authority.</p>
-     <Link className="mis-link" href="/stores/masters">Open master workspace</Link></article>
-    <article className="panel"><p className="eyebrow">Stores</p><h2>Stock workflows</h2>
-     <p className="masters-help">GRN, QC, Issue, Return, Custody and stock adjustments remain disabled until qualified protected posting.</p>
-     <Link className="mis-link" href="/stores">View workflow availability</Link></article>
-    <article className="panel"><p className="eyebrow">Settings</p><h2>Users &amp; Roles</h2>
-     <p className="masters-help">Select active employees, review scoped permissions, and assign, change or revoke application roles. Saving requires the connected role backend.</p>
-     <Link className="mis-link" href="/settings/users-roles">Open Role Assignment</Link></article>
-    <article className="panel"><p className="eyebrow">Analytics</p><h2>MIS</h2>
-     <p className="masters-help">No synthetic stock charts or KPI totals. Reporting requires verified FacilityOS source data.</p>
-     <Link className="mis-link" href="/mis">View reporting status</Link></article>
-   </div>
+  <aside className="sidebar" style={{background:'#fff',color:'#193632'}}><CorporateBrand/>
+   <nav aria-label="Application modules">{modules.map(m=>m.href?<Link key={m.label} style={{color:'#075b52'}} href={m.href}>{m.label}</Link>:<span key={m.label} style={{padding:'10px 14px',color:'#667a71'}}>{m.label} · HOLD</span>)}</nav>
+  </aside>
+  <section className="workspace"><header className="topbar"><div><p className="eyebrow">Hubblefly Technologies Limited</p><h1>HFT-OS workspace</h1><p className="masters-help">Choose a configured module. Identity, permissions and data admission are checked independently.</p></div><span className="status">NO LIVE STOCK POSTING</span></header>
+   <div className="content-grid">{modules.map(m=><article className="panel" key={m.label}><h2>{m.label}</h2><p className="masters-help">{m.description}</p><p className="status">{m.status}</p>{m.href&&<Link className="mis-link" href={m.href}>Open {m.label}</Link>}</article>)}</div>
   </section>
-  <nav className="mobile-nav"><Link href="/">Home</Link><Link href="/stores">Stores</Link>
-   <Link href="/draft">Drafts</Link><Link href="/stores/masters">Masters</Link><Link href="/settings">Settings</Link></nav>
+  <nav className="mobile-nav" aria-label="Mobile application modules">{modules.filter(m=>m.href).map(m=><Link key={m.label} href={m.href!}>{m.label}</Link>)}</nav>
  </main>;
 }

@@ -1,3 +1,4 @@
+import {assertHostedOperatorDuty,hostedOperatorAttempt} from '../../../../../lib/hft/roles/hosted-operator-profile.ts';
 import {isRoleQualificationAttempt} from '../../../../../lib/hft/roles/role-isolated-profile.ts';
 import {resolveVerifiedRequestOperator}
  from '../../../../../lib/hft/security/verified-request.ts';
@@ -22,16 +23,23 @@ export async function POST(request:Request):Promise<Response>{
  if(!isRoleBackendProfile(process.env))
   return Response.json({state:'UNAVAILABLE',code:'ROLE_BACKEND_NOT_ADMITTED'},
    {status:503,headers});
- try{assertRoleBackendProfile(process.env);}
+ try{if(!isRoleQualificationAttempt(process.env))assertHostedOperatorDuty(process.env,'role');assertRoleBackendProfile(process.env);}
  catch{return Response.json({state:'UNAVAILABLE',code:'ROLE_BACKEND_NOT_ADMITTED'},
   {status:503,headers});}
+ let hostedActor:ReturnType<typeof resolveVerifiedRequestOperator>|undefined;
+ if(hostedOperatorAttempt(process.env)){
+  try{hostedActor=resolveVerifiedRequestOperator(request,process.env,'RETAINED_APP_ROLES');}
+  catch{return Response.json({state:'UNAVAILABLE',code:'HOSTED_OPERATOR_SESSION_REQUIRED'},{status:401,headers});}
+  if(request.headers.has('x-hft-operator-context')&&request.headers.get('x-hft-operator-context')!==hostedActor.hostedOperatorContext)
+   return Response.json({state:'UNAVAILABLE',code:'HOSTED_OPERATOR_CONTEXT_CHANGED'},{status:401,headers});
+ }
  let pool:ReturnType<typeof openRoleBackendPool>;
  try{pool=openRoleBackendPool(process.env);}
  catch{return Response.json({state:'UNAVAILABLE',code:'ROLE_BACKEND_NOT_ADMITTED'},
   {status:503,headers});}
  try{
   return await handleRoleApi(request,{
-   authenticate:async req=>resolveVerifiedRequestOperator(
+   authenticate:async req=>hostedActor??resolveVerifiedRequestOperator(
     req,process.env,isRoleQualificationAttempt(process.env)?'ISOLATED_ROLE_QUALIFICATION':'RETAINED_APP_ROLES'),
    store:()=>new PostgresRoleStore(pool,async connection=>
     assertRoleConnection(connection,process.env)),

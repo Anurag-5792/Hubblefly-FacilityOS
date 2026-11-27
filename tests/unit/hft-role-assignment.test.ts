@@ -136,9 +136,9 @@ test('checker and inspector cannot approve own preparation or one another',()=>{
 });
 class MemoryStore implements RoleStore {
  states=new Map<string,Assignment>([['ADMIN01',owner]]);events=new Map<string,AuditEvent>();reads=0;writes=0;saves=0;
- uncertain=false;readbackFailure=false;target=employee;queue=Promise.resolve();
+ uncertain=false;readbackFailure=false;target=employee;principal=actor;queue=Promise.resolve();
  tx(states=this.states,events=this.events):RoleTransaction{return {
-  principal:async()=>actor,scopes:async()=>[scope],
+  principal:async()=>this.principal,scopes:async()=>[scope],
   employee:async(_scope,id)=>id==='ADMIN01'?
    {employeeId:'ADMIN01',personId:'PERSON01',fullName:'Synthetic role administrator',active:true,version:1}:
    this.target,search:async()=>[this.target],
@@ -161,6 +161,30 @@ test('server ASSIGN actually saves and independently reads before success',async
 test('same request is idempotent and altered request ID reuse denied',async()=>{
  const s=new MemoryStore();await service(s).execute(raw());await service(s).execute(raw());assert.equal(s.saves,1);
  await assert.rejects(service(s).execute(raw({roles:['STORES_OPERATOR']})),/REQUEST_ID_REUSED/);
+});
+test('original role request belongs to subject, canonical employee and person; same-person reauth is allowed',async()=>{
+ const s=new MemoryStore(),command=raw();await service(s).execute(command);
+ const original=structuredClone(s.events.get(command.requestId));
+ const reconcile={action:'RECONCILE',scope,requestId:command.requestId};
+ s.principal={...actor,sessionId:'renewed-session'};
+ const reauth=new RoleService(s,{...session,sessionId:'renewed-session'},()=>now);
+ assert.equal((await reauth.execute(reconcile) as {state:string}).state,'SAVED_VERIFIED');
+ assert.equal((await reauth.execute(command) as {state:string}).state,'SAVED_VERIFIED');
+ for(const rebound of [{employeeId:'ADMIN03',personId:'PERSON03'},{employeeId:'ADMIN03'},{personId:'PERSON03'}]){
+  s.principal={...actor,...rebound,sessionId:'rebound-session'};
+  s.states.set(s.principal.employeeId,assigned(['OWNER_ADMIN'],s.principal.employeeId));
+  const other=new RoleService(s,{...session,sessionId:'rebound-session'},()=>now);
+  await assert.rejects(other.execute(command),/REQUEST_ID_REUSED/);
+  const result=await other.execute(reconcile) as {state:string;assignment?:unknown;auditDigest?:unknown};
+  assert.equal(result.state,'UNCONFIRMED');assert.equal(result.assignment,undefined);assert.equal(result.auditDigest,undefined);
+  assert.equal(s.saves,1);assert.deepEqual(s.events.get(command.requestId),original);
+ }
+});
+test('canonical reassignment between write and independent readback never reports success',async()=>{
+ const s=new MemoryStore(),read=s.read.bind(s);
+ s.read=async work=>{s.principal={...actor,personId:'PERSON03'};return read(work);};
+ assert.equal((await service(s).execute(raw()) as {state:string}).state,'UNCONFIRMED');
+ assert.equal(s.saves,1);assert.equal(s.events.get(raw().requestId)?.actorPersonId,actor.personId);
 });
 test('lost COMMIT never returns ASSIGNED; reconcile uses original request without write',async()=>{
  const s=new MemoryStore();s.uncertain=true;
