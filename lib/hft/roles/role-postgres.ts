@@ -6,6 +6,7 @@ import {ROLE_FENCE_KEYS} from './role-enforcement.ts';
 import {deny,scopeFrom,sameScope,validateAssignment,type Assignment,type AuditEvent,type Employee,type Principal,type Scope} from './role-assignment.ts';
 import {eventDigest,type RoleStore,type RoleTransaction,type SessionIdentity} from './role-service.ts';
 export interface RoleSqlClient {
+ readonly connection?: {stream?:unknown};
  query<T=Record<string,unknown>>(sql:string,values?:unknown[]):Promise<{rows:T[];rowCount?:number|null}>;
  release(destroy?:boolean):void;
 }
@@ -22,6 +23,9 @@ class Transaction implements RoleTransaction {
    'WHERE b.subject=$1 AND b.legal_entity_id=$2 AND e.site_id=$3 AND b.active AND e.active',
    [session.subject,session.scope.legalEntityId,session.scope.siteId]);
   if(r.rows.length!==1||session.expiresAt*1000<=Date.now())deny('ROLE_ACTOR_OR_SCOPE_DENIED');
+  if((session.canonicalEmployeeId!==undefined||session.canonicalPersonId!==undefined)&&
+   (r.rows[0].employee_id!==session.canonicalEmployeeId||r.rows[0].person_id!==session.canonicalPersonId))
+   deny('ROLE_CANONICAL_IDENTITY_CHANGED_DENIED');
   return {subject:session.subject,sessionId:session.sessionId,expiresAt:session.expiresAt,
    employeeId:r.rows[0].employee_id,personId:r.rows[0].person_id,
    scopes:session.scope.warehouseIds.map(warehouseId=>({legalEntityId:session.scope.legalEntityId,siteId:session.scope.siteId,warehouseId}))};

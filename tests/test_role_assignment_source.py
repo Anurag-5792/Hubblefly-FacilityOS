@@ -1,5 +1,6 @@
 """Application-role integration guards. No SQL execution or production grants."""
 from pathlib import Path
+import re
 import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,7 +39,23 @@ class RoleAssignmentSource(unittest.TestCase):
                'Assignment history','Save assignment','Revoke roles','RECONCILE','SAVED_VERIFIED','UNCONFIRMED'):
    self.assertIn(text,s)
   self.assertNotIn('localStorage',s)
-  self.assertNotIn('sessionStorage',s)
+  # HF094 permits only context-bound original-request evidence, not cached authorization.
+  # Every browser storage reference must enter one of the four reviewed marker helpers.
+  approved=r"\b(?:operatorPending|operatorOtherPending|writeOperatorPending|clearOperatorPending)\(sessionStorage,\s*'role',"
+  self.assertGreaterEqual(len(re.findall(approved,s)),4)
+  self.assertNotIn('sessionStorage',re.sub(approved,'',s))
+  self.assertIn('original={requestId,scope}',s)
+  helper=(ROOT/'lib/hft/roles/hosted-operator-client.ts').read_text()
+  self.assertIn('type PendingOperatorRequest={requestId:string;scope:OperatorScope}',helper)
+  self.assertIn("Object.keys(p).length!==2",helper)
+  self.assertIn("Object.keys(s).length!==3",helper)
+  self.assertIn("if(!digest.test(c))throw Error",helper)
+  self.assertIn("s.setItem(key(d,c),JSON.stringify(p))",helper)
+  self.assertIn("s.removeItem(key(d,c))",helper)
+  self.assertNotIn('localStorage',helper)
+  self.assertEqual(len(re.findall(r'\.setItem\(',helper)),1)
+  self.assertEqual(len(re.findall(r'\.getItem\(',helper)),1)
+  self.assertEqual(len(re.findall(r'\.removeItem\(',helper)),1)
   self.assertIn('AbortController',s)
  def test_existing_middleware_protections_remain(self):
   s=(ROOT/'middleware.ts').read_text()

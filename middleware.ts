@@ -1,4 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import {hostedOperatorAttempt,hostedOperatorPathAdmitted,hostedOperatorMode} from './lib/hft/roles/hosted-operator-profile';
+import {liveWorkspaceRoutesAdmitted,intakeWorkspaceRouteAdmitted} from './lib/hft/ui-reuse/workspace-profile';
 import {identityProofPathAdmitted} from './lib/hft/live/live-identity-mode';
 import { assertSecureStartup } from './lib/hft/security/authorization';
 import {assertRetainedMastersProfile,isRetainedMastersProfile}
@@ -31,11 +33,19 @@ const storesOperatorRoutes=new Set([
  '/','/stores','/stores/operations',
  '/api/hft/stores/receive','/api/hft/stores/read'
 ]);
-const liveRoutes=new Set(['/masters/live','/api/hft/live-masters',
+const liveRoutes=new Set(['/','/masters/live','/api/hft/live-masters',
  '/api/hft/live-masters/health','/api/hft/live-masters/auth/start',
  '/api/hft/live-masters/auth/callback','/api/hft/live-masters/signout']);
 export function middleware(request:NextRequest){
  const path=request.nextUrl.pathname;
+ if(hostedOperatorAttempt(process.env)){
+  if(hostedOperatorPathAdmitted(path,process.env)){
+   if(path==='/stores')return NextResponse.redirect(new URL(hostedOperatorMode(process.env)==='ROLES_RECEIVE'?'/stores/operations':'/settings/users-roles',request.url));
+   return NextResponse.next();
+  }
+  return NextResponse.json({state:'UNAVAILABLE',code:'HOSTED_OPERATOR_ROUTE_NOT_ADMITTED'},
+   {status:503,headers:{'Cache-Control':'no-store'}});
+ }
  if(process.env.HFT_LIVE_R1_IDENTITY_PROOF_MODE!==undefined){
   if(identityProofPathAdmitted(path,process.env))return NextResponse.next();
   return NextResponse.json({state:'UNAVAILABLE',code:'LIVE_R1_IDENTITY_ONLY'},
@@ -54,15 +64,9 @@ export function middleware(request:NextRequest){
  // The distinct production boundary never admits protected stock/P3/Draft APIs.
  // All allowed handlers independently recheck the full TLS/database/OIDC profile.
  if(process.env.HFT_LIVE_R1_PROFILE!==undefined){
-  const live=process.env.HFT_LIVE_R1_PROFILE==='HFT_R1_PRODUCTION_LIVE_MASTERS_V1'&&
-   ['production','production-qualification'].includes(process.env.HFT_ENVIRONMENT??'')&&
-   process.env.HFT_LIVE_POSTING_ENABLED==='false'&&
-   (process.env.HFT_ENVIRONMENT!=='production'||process.env.VERCEL_ENV==='production')&&
-   process.env.HFT_ROLE_ASSIGNMENT_RUNTIME_PROFILE===undefined&&
-   process.env.HFT_DRAFT_RUNTIME_PROFILE===undefined&&
-   process.env.HFT_STORES_RUNTIME_PROFILE===undefined&&
-   process.env.HFT_MASTERS_RUNTIME_PROFILE===undefined;
+  const live=liveWorkspaceRoutesAdmitted(process.env);
   if(live&&liveRoutes.has(path))return NextResponse.next();
+  if(live&&intakeWorkspaceRouteAdmitted(process.env)&&(path==='/stores/intake'||path==='/api/hft/intake'))return NextResponse.next();
   return NextResponse.json({state:'UNAVAILABLE',code:'LIVE_R1_RUNTIME_NOT_ADMITTED'},
    {status:503,headers:{'Cache-Control':'no-store'}});
  }

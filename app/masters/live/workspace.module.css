@@ -282,3 +282,5 @@
 .recordScope{margin-top:5px!important;font-size:11px!important;overflow-wrap:anywhere}
 @media(max-width:1100px){.topbar{flex-wrap:wrap}.headerRight{justify-content:flex-start}}
 @media(max-width:720px){.shell.sidebarHidden{display:block}.topbar{flex-wrap:wrap;gap:7px}.headerLead{flex:1 1 100%;gap:7px}.headerLead .breadcrumb{flex:1}.sidebarToggle{min-height:36px;font-size:11px!important;padding:6px 8px}.compactBrand .corporateLogo{width:28px}.headerRight{flex:1 1 100%;justify-content:flex-start;gap:7px}.headerRight .environment{display:inline-flex;font-size:10px}.scopeControl select{max-width:140px;min-height:36px}.scopeControl{font-size:11px}}
+
+.moduleNavigation{margin:16px 0 12px;border-top:1px solid #e4dfda;padding-top:12px}.moduleNavigation a{text-decoration:none}.moduleDisabled{display:block;padding:8px;color:#595959;font-size:12px}@media(max-width:720px){.moduleNavigation{margin:5px 0 0;padding-top:4px}.moduleNavigation .navButton{justify-content:flex-start;padding:8px;min-height:34px}}

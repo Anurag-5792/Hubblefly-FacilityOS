@@ -1,5 +1,7 @@
 import {assertRoleQualificationProfile} from '../roles/role-isolated-profile.ts';
 import {assertLiveProfile} from '../live/live-profile.ts';
+import {hostedOperatorAttempt,assertHostedOperatorDuty,hostedOperatorMode} from '../roles/hosted-operator-profile.ts';
+import {hostedActorForClaims} from '../roles/hosted-operator-identity.ts';
 /**
  * Nonproduction request-bound identity adapter. Verifies an Ed25519 issuer-
  * signed, short-lived cookie. It NEVER issues sessions, trusts forwarded
@@ -17,6 +19,7 @@ export type VerifiedRequestOperator = Readonly<{
   subject: string;
   sessionId: string;
   expiresAt: number;
+  canonicalEmployeeId?:string;canonicalPersonId?:string;hostedOperatorContext?:string;hostedStoresEnabled?:boolean;
   scope: Readonly<{ legalEntityId: string; siteId: string; warehouseIds: readonly string[] }>;
 }>;
 export type RequestIdentityEnvironment = Readonly<Record<string, string | undefined>>;
@@ -57,6 +60,11 @@ export function resolveVerifiedRequestOperator(request:Request,
  'RETAINED_STORES_OPERATOR'|'RETAINED_APP_ROLES'|'ISOLATED_ROLE_QUALIFICATION'|
  'LIVE_R1_MASTERS'='DEFAULT'
 ):VerifiedRequestOperator{
+  const hosted=hostedOperatorAttempt(env);
+  if(hosted&&purpose!=='RETAINED_APP_ROLES'&&purpose!=='RETAINED_STORES_OPERATOR')
+   throw Error('HOSTED_OPERATOR_SESSION_PURPOSE_DENIED');
+  if(purpose==='RETAINED_APP_ROLES')assertHostedOperatorDuty(env,'role');
+  if(purpose==='RETAINED_STORES_OPERATOR')assertHostedOperatorDuty(env,'stock');
   if(purpose==='LIVE_R1_MASTERS')assertLiveProfile(env);
   else if(purpose==='ISOLATED_ROLE_QUALIFICATION')assertRoleQualificationProfile(env);
   else if(purpose==='RETAINED_P3_MASTERS')assertRetainedMastersProfile(env);
@@ -118,7 +126,10 @@ export function resolveVerifiedRequestOperator(request:Request,
   if(purpose==='ISOLATED_ROLE_QUALIFICATION'&&
     ![subject,sessionId,legalEntityId,siteId,...warehouseIds].every(x=>x.startsWith('QUAL077-')))
     throw Error('QUAL077_SYNTHETIC_SESSION_SCOPE_REQUIRED');
+  const canonical=hosted?hostedActorForClaims(env,claims):undefined;
   const operator: VerifiedRequestOperator = Object.freeze({ subject, sessionId, expiresAt: claims.exp,
+    ...(canonical?{canonicalEmployeeId:canonical.employeeId,canonicalPersonId:canonical.personId,
+     hostedOperatorContext:claims.operatorBinding as string,hostedStoresEnabled:hostedOperatorMode(env)==='ROLES_RECEIVE'}:{}),
     scope: Object.freeze({ legalEntityId, siteId, warehouseIds: Object.freeze(warehouseIds) }) });
   verified.add(operator);
   return operator;

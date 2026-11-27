@@ -3,6 +3,7 @@ import {ROLE_CATALOG,RoleError,deny,exactKeys,identifier,object,scopeFrom,parseC
  requireScope,sameScope,validateAssignment,assignmentStatus,rolesAt,permissionsAt,type BusinessPermission,type Assignment,type AuditEvent,type Employee,
  type Permission,type Principal,type RoleId,type Scope} from './role-assignment.ts';
 export type SessionIdentity=Readonly<{subject:string;sessionId:string;expiresAt:number;
+ canonicalEmployeeId?:string;canonicalPersonId?:string;hostedOperatorContext?:string;hostedStoresEnabled?:boolean;
  scope:Readonly<{legalEntityId:string;siteId:string;warehouseIds:readonly string[]}>}>;
 export interface RoleTransaction {
  principal(session:SessionIdentity):Promise<Principal>;
@@ -56,6 +57,11 @@ export async function requireCurrentBusinessPermission(
  });
 }
 
+// Reauthentication changes only the session ID. Ownership must follow the
+// original verified subject AND its original canonical employee/person.
+function ownsRoleEvent(event:AuditEvent,actor:Principal):boolean{
+ return event.actorSubject===actor.subject&&event.actorEmployeeId===actor.employeeId&&event.actorPersonId===actor.personId;
+}
 export class RoleService {
  constructor(store:RoleStore,session:SessionIdentity,clock:()=>string=()=>new Date().toISOString()){
   this.store=store;this.session=session;this.clock=clock;
@@ -70,6 +76,28 @@ export class RoleService {
  }
  async execute(raw:unknown):Promise<unknown>{
   const p=object(raw);
+  if(p.action==='OPERATOR_CONTEXT'){
+   exactKeys(p,['action']);
+   if(!this.session.hostedOperatorContext||!this.session.canonicalEmployeeId||!this.session.canonicalPersonId)
+    deny('HOSTED_OPERATOR_CONTEXT_DENIED');
+   return this.store.read(async tx=>{
+    const actor=await tx.principal(this.session),now=this.clock();
+    const capabilities=[];
+    for(const scope of await tx.scopes(actor)){
+     const employee=await tx.employee(scope,actor.employeeId),assignment=await tx.assignment(scope,actor.employeeId);
+     if(!employee.active||employee.personId!==actor.personId||assignment.employeeId!==actor.employeeId||
+      !sameScope(assignment.scope,scope))deny('ROLE_ACTOR_OR_SCOPE_DENIED');
+     validateAssignment(assignment);requireScope(actor,scope,now);
+     const permissions=permissionsAt(assignment,now);
+     const rolesRead=permissions.includes('roles.read'),stockRead=this.session.hostedStoresEnabled===true&&permissions.includes('stock.read'),
+      receive=this.session.hostedStoresEnabled===true&&permissions.includes('stores.receive');
+     if(rolesRead||stockRead||receive)capabilities.push({scope,rolesRead,stockRead,receive});
+    }
+    if(!capabilities.length)deny('HOSTED_OPERATOR_CONTEXT_DENIED');
+    return {state:'OPERATOR_CONTEXT',contextId:this.session.hostedOperatorContext,
+     expiresAt:this.session.expiresAt,capabilities};
+   });
+  }
   if(p.action==='BOOTSTRAP'){
    exactKeys(p,['action']);
    return this.store.read(async tx=>{
@@ -79,7 +107,8 @@ export class RoleService {
      catch(e){if(!(e instanceof RoleError))throw e;}
     }
     if(!scopes.length)deny('ROLE_MANAGEMENT_DENIED');
-    return {state:'CONNECTED',catalog:ROLE_CATALOG,scopes,actorEmployeeId:actor.employeeId};
+    return {state:'CONNECTED',catalog:ROLE_CATALOG,scopes,actorEmployeeId:actor.employeeId,
+     ...(this.session.hostedOperatorContext?{contextId:this.session.hostedOperatorContext,expiresAt:this.session.expiresAt}:{})};
    });
   }
   if(p.action==='SEARCH'){
@@ -121,7 +150,7 @@ export class RoleService {
     const actor=await this.authorize(tx,change.scope,'roles.manage');
     const existing=await tx.event(change.requestId);
     if(existing){
-     if(existing.actorSubject!==actor.subject||eventDigest(existing.command)!==eventDigest(change))deny('ROLE_REQUEST_ID_REUSED');
+     if(!ownsRoleEvent(existing,actor)||eventDigest(existing.command)!==eventDigest(change))deny('ROLE_REQUEST_ID_REUSED');
      return eventDigest(existing);
     }
     const event=planChange(change,actor,await tx.employee(change.scope,change.employeeId),
@@ -139,7 +168,7 @@ export class RoleService {
  private async readback(scope:Scope,requestId:string,expectedDigest:string|null):Promise<unknown>{
   try{return await this.store.read(async tx=>{
    const actor=await this.authorize(tx,scope,'roles.read'),event=await tx.event(requestId);
-   if(!event||event.actorSubject!==actor.subject||!sameScope(event.after.scope,scope)||
+   if(!event||!ownsRoleEvent(event,actor)||!sameScope(event.after.scope,scope)||
     (expectedDigest!==null&&eventDigest(event)!==expectedDigest))deny('ROLE_READBACK_MISMATCH');
    const assignment=await tx.assignment(scope,event.after.employeeId);validateAssignment(assignment);
    if(assignment.revision<event.after.revision||!sameScope(assignment.scope,scope)||
@@ -179,7 +208,14 @@ export async function handleRoleApi(request:Request,deps:RoleApiDependencies):Pr
    if(size>16384){await reader.cancel();return reply(413,'ROLE_REQUEST_TOO_LARGE');}chunks.push(value);}}
   finally{reader.releaseLock();}
   let raw:unknown;try{raw=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{return reply(400,'ROLE_JSON_INVALID');}
+  if(session.hostedOperatorContext){
+   const action=raw&&typeof raw==='object'&&!Array.isArray(raw)?(raw as Record<string,unknown>).action:undefined;
+   const supplied=request.headers.get('x-hft-operator-context');
+   if(supplied!==session.hostedOperatorContext&&!(supplied===null&&(action==='BOOTSTRAP'||action==='OPERATOR_CONTEXT')))
+    return reply(401,'HOSTED_OPERATOR_CONTEXT_CHANGED');
+  }
   const result=await new RoleService(deps.store(),session).execute(raw);
+  if(session.hostedOperatorContext&&session.expiresAt<=Date.now()/1000)return reply(401,'HOSTED_OPERATOR_SESSION_REQUIRED');
   return Response.json(result,{status:(result as {state:string}).state==='UNCONFIRMED'?409:200,headers});
  }catch(e){
   if(e instanceof RoleError){

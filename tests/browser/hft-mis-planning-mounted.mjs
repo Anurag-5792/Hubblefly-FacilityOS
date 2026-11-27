@@ -1,0 +1,187 @@
+/** Actual mounted Next/Chromium UI regression, using ONLY synthetic intercepted responses.
+ * No real credentials, database, actor enrollment, or production access.
+ */
+import assert from 'node:assert/strict';
+import {spawn,execFileSync} from 'node:child_process';
+import {mkdtemp,readFile,rm,mkdir,writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import {setTimeout as sleep} from 'node:timers/promises';
+import {fileURLToPath} from 'node:url';
+const ROOT=resolve(fileURLToPath(new URL('../..',import.meta.url))),PORT=31169,URL_ROOT='http://127.0.0.1:'+PORT;
+let server,browser,ws,tmp,sequence=0;
+const pending=new Map();
+async function wait(check,label,limit=25000){
+ const end=Date.now()+limit;
+ while(Date.now()<end){try{if(await check())return;}catch{/* bounded polling */}await sleep(100);}
+ throw Error('MIS_PLANNING_BROWSER_TIMEOUT_'+label);
+}
+function chrome(){
+ for(const binary of ['google-chrome','google-chrome-stable','chromium','chromium-browser']){
+  try{return execFileSync('which',[binary],{encoding:'utf8'}).trim();}catch{/* try next */}
+ }
+ throw Error('CHROMIUM_UNAVAILABLE');
+}
+function send(method,params={}){
+ const id=++sequence;return new Promise((resolve,reject)=>{pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
+}
+async function run(expression){
+ const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true,userGesture:true});
+ if(r.exceptionDetails)throw Error('BROWSER_JS:'+JSON.stringify(r.exceptionDetails));
+ return r.result?.value;
+}
+
+import {buildPlan} from '../../lib/hft/planning/build-plan.ts';
+import {calculateRequirements,parseRequirementsCatalog} from '../../lib/hft/planning/requirements.ts';
+const scope={legalEntityId:'FIXTURE-HFT',siteId:'FIXTURE-SITE',warehouseId:'FIXTURE-WH'};
+const at='2026-11-28T00:00:00.000Z';
+const line=itemCode=>({itemCode,productVersion:'V1',uom:'PCS',quantity:'1'});
+const bom=lines=>({revisionId:'FIXTURE-BOM',state:'APPROVED',complete:true,effectiveFrom:'2026-01-01T00:00:00.000Z',effectiveTo:null,lines});
+const model=(id,lines)=>({id,name:'Synthetic drone '+id,version:'V1',active:true,bom:bom(lines)});
+const item=(code,count,models)=>({...line(code),name:'Synthetic '+code,active:true,verified:true,applicableModels:models,usedEligibleModels:models,
+ newOnHand:count,usedOnHand:'0',newFree:count,usedFree:'0',held:'0',unknown:'0',reservations:[],assembly:null});
+const snapshot={scope,asOf:at,sourceEpoch:'FIXTURE-EPOCH',provenance:'SYNTHETIC BROWSER FIXTURE ONLY',authoritative:true,complete:true,
+ models:[model('A',[line('COMMON'),line('AA')]),model('B',[line('COMMON'),line('BB')])],
+ items:[item('COMMON','12',['A','B']),item('AA','10',['A']),item('BB','10',['B'])]};
+const common=[{itemCode:'COMMON',productVersion:'V1',uom:'PCS',name:'Synthetic COMMON'}];
+const catalog={state:'CATALOG',scope,asOf:at,sourceEpoch:snapshot.sourceEpoch,complete:true,models:snapshot.models.map(m=>({id:m.id,name:m.name,version:m.version,active:true,bomReady:true})),common};
+const request=(mode,order)=>({scope,mode,condition:'NEW_ONLY',priorities:order.map(modelId=>({modelId,cap:null})),protect:[],ignore:mode==='CORE'?[{itemCode:'COMMON',productVersion:'V1',uom:'PCS'}]:[]});
+const outcomes={FULL_AB:buildPlan(snapshot,request('FULL',['A','B'])),FULL_BA:buildPlan(snapshot,request('FULL',['B','A'])),CORE_BA:buildPlan(snapshot,request('CORE',['B','A']))};
+assert.equal(outcomes.FULL_AB.combinedTotal,12);assert.equal(outcomes.CORE_BA.combinedTotal,20);
+const mid='00000000-0000-4000-8000-000000000001',root='00000000-0000-4000-8000-000000000002',child='00000000-0000-4000-8000-000000000003';
+const names={companyName:'Synthetic company',siteName:'Synthetic site',warehouseName:'Synthetic warehouse'};
+const reqline=(itemCode,quantityMicro,childRevisionId=null)=>({itemCode,productVersion:'V1',uom:'PCS',quantityMicro,childRevisionId,verified:true});
+const approved={state:'REQUIREMENTS_SOURCE',scope,scopeName:names,asOf:at,stockAdmitted:false,sourceEpoch:'a'.repeat(64),rootRevisionId:root,
+ models:[{id:mid,name:'Synthetic approved drone',variant:'Fixture V1',revisionId:root,revision:1,evidenceSha256:'b'.repeat(64),effectiveFrom:'2026-01-01T00:00:00Z',effectiveTo:null}],
+ nodes:[{revisionId:root,bomId:'00000000-0000-4000-8000-000000000004',kind:'DRONE',itemCode:null,versionCode:null,evidenceSha256:'b'.repeat(64),verified:true,lines:[reqline('SFG-A','2000000',child),reqline('RAW','1000000')]},
+ {revisionId:child,bomId:'00000000-0000-4000-8000-000000000005',kind:'SFG',itemCode:'SFG-A',versionCode:'V1',evidenceSha256:'c'.repeat(64),verified:true,lines:[reqline('RAW','2000000')]}]};
+const overview=parseRequirementsCatalog({...approved,state:'CATALOG',rootRevisionId:null,nodes:null},scope);
+const reqResults={1:calculateRequirements(approved,scope,mid,1),3:calculateRequirements(approved,scope,mid,3)};
+assert.equal(reqResults[3].grossLeaf[0].required,'15');
+const mock=`(()=>{const catalog=${JSON.stringify(catalog)},outcomes=${JSON.stringify(outcomes)},overview=${JSON.stringify(overview)},reqResults=${JSON.stringify(reqResults)};
+ const orig=window.fetch.bind(window);window.__misCalls=[];window.__deny=false;window.__reqEnabled=false;window.__reqDeny=false;
+ window.fetch=async(input,options={})=>{
+ const path=typeof input==="string"?input:new URL(input.url).pathname;if(path!=="/api/hft/mis")return orig(input,options);
+ const p=JSON.parse(options.body);window.__misCalls.push(p);
+ if(p.intent==="CONTEXT"&&window.__reqEnabled)return new Response(JSON.stringify({state:"MIS_CONTEXT",contextId:"c".repeat(64),expiresAt:Math.floor(Date.now()/1000)+600,stockAdmitted:false,scopes:[{scope:overview.scope,scopeName:overview.scopeName}]}),{status:200});
+ if(p.intent==="OVERVIEW"||p.intent==="REQUIREMENTS"){
+  if(window.__reqDeny||!window.__reqEnabled||options.headers["x-hft-operator-context"]!=="c".repeat(64)||JSON.stringify(p.scope)!==JSON.stringify(overview.scope))return new Response(JSON.stringify({state:"UNAVAILABLE"}),{status:403});
+  const d=p.intent==="OVERVIEW"?overview:reqResults[p.units];return new Response(JSON.stringify(d??{state:"UNAVAILABLE"}),{status:d?200:422});
+ }
+ if(window.__deny||JSON.stringify(p.scope)!==JSON.stringify(catalog.scope))return new Response(JSON.stringify({state:"UNAVAILABLE"}),{status:403});
+ if(p.intent==="CATALOG")return new Response(JSON.stringify(catalog),{status:200});
+ if(p.intent==="PLAN"){const k=p.scenario.mode+"_"+p.scenario.priorities.map(x=>x.modelId).join("");const d=outcomes[k];return new Response(JSON.stringify(d??{state:"UNAVAILABLE"}),{status:d?200:422});}
+ return new Response(JSON.stringify({state:"UNAVAILABLE"}),{status:422});
+ };})()`;
+
+const captureDir=process.env.HFT_MIS_CAPTURE_DIR;
+const captures=[];
+async function viewport(width,height){await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});}
+async function has(t){return run('document.body.innerText.includes('+JSON.stringify(t)+')');}
+async function click(text){
+ await wait(()=>run('Boolean([...document.querySelectorAll("button")].find(x=>x.textContent.trim()==='+JSON.stringify(text)+'&&!x.disabled))'),'BUTTON_'+text);
+ await run('[...document.querySelectorAll("button")].find(x=>x.textContent.trim()==='+JSON.stringify(text)+'&&!x.disabled).click()');
+}
+async function field(index,value){
+ await run('(()=>{const n=document.querySelectorAll("form input")['+index+'];Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(n,'+JSON.stringify(value)+');n.dispatchEvent(new Event("input",{bubbles:true}));n.dispatchEvent(new Event("change",{bubbles:true}));})()');await sleep(100);
+}
+async function capture(name,width,height){
+ if(!captureDir)throw Error('MIS_CAPTURE_DIR_REQUIRED');
+ await viewport(width,height);await run('window.scrollTo(0,0)');await sleep(600);
+ await run('(()=>{const e=document.createElement("div");e.id="test-watermark";e.textContent="SYNTHETIC TEST DATA · CI BROWSER CAPTURE";Object.assign(e.style,{padding:"10px",background:"#193632",color:"white",textAlign:"center"});document.body.append(e);const p=document.querySelector("nextjs-portal");if(p)p.style.display="none";})()');
+ assert.ok(await run('document.documentElement.scrollWidth<=innerWidth+2'),'MOBILE_HORIZONTAL_OVERFLOW');
+ assert.equal(await run('Boolean(document.getElementById("test-watermark"))'),true,'CAPTURE_WATERMARK_MISSING');
+ const metrics=await send('Page.getLayoutMetrics');const h=Math.min(4000,Math.max(height,Math.ceil(metrics.cssContentSize.height)));
+ const result=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width,height:h,scale:1}});
+ const bytes=Buffer.from(result.data,'base64');await writeFile(join(captureDir,name+'.png'),bytes,{flag:'wx'});
+ captures.push({file:name+'.png',viewport:{width,height},sha256:createHash('sha256').update(bytes).digest('hex')});await run('document.getElementById("test-watermark")?.remove()');
+}
+async function workflow(){
+ await mkdir(captureDir,{recursive:true});await viewport(1440,900);await send('Page.navigate',{url:URL_ROOT+'/mis'});
+ await wait(()=>has('No admitted management source.'),'NO_MANAGEMENT_SOURCE');
+ await click('Plan My Builds');await wait(()=>has('Verified model and effective BOM catalog unavailable.'),'NO_SOURCE');
+ await capture('01-desktop-no-source',1440,900);await capture('02-mobile-no-source',390,844);await viewport(1440,900);
+ for(const [i,value] of Object.values(scope).entries())await field(i,value);
+ await click('Load source');await wait(()=>has('Synthetic drone A'),'CATALOG');
+ await run('[...document.querySelectorAll("label")].find(l=>l.innerText.includes("Synthetic drone A")&&l.querySelector("input[type=checkbox]")).querySelector("input").click()');
+ await run('[...document.querySelectorAll("label")].find(l=>l.innerText.includes("Synthetic drone B")&&l.querySelector("input[type=checkbox]")).querySelector("input").click()');
+ await click('Show Build Readiness');await wait(()=>has('Full material-supported build plan'),'FULL_RESULT');
+ await wait(()=>run('[...document.querySelectorAll("strong")].some(e=>e.textContent==="12")'),'FULL_TOTAL');
+ await capture('03-desktop-full-build',1440,900);await capture('04-mobile-full-build',390,844);await viewport(1440,900);
+ await run('document.querySelector("button[aria-label=\\"Move B up\\"]").click()');await click('Show Build Readiness');
+ await wait(()=>run('window.__misCalls.at(-1).scenario.priorities[0].modelId==="B"'),'PRIORITY_REVERSAL');await wait(()=>has('Full material-supported build plan'),'REVERSED_RESULT');
+ await run('[...document.querySelectorAll("button")].find(b=>b.textContent.includes("Core Build Potential")).click()');
+ await wait(()=>has('Ignored shared requirements'),'CORE_OPTIONS');
+ await run('[...document.querySelectorAll("label")].find(l=>l.innerText.includes("Synthetic COMMON")&&l.querySelector("input[type=checkbox]")).querySelector("input").click()');
+ await click('Show Build Readiness');await wait(()=>has('Conditional core build potential'),'CORE_RESULT');await wait(()=>has('Full plan: 12 · Conditional core: 20'),'COMPARISON');
+ await capture('05-desktop-core-build',1440,900);await capture('06-mobile-core-build',390,844);await viewport(1440,900);
+ await run('window.__deny=true');await click('Show Build Readiness');await wait(()=>has('Source or authorization could not be verified.'),'DENIAL');
+ assert.equal(await has('Synthetic drone A'),false);
+ await run('window.__reqEnabled=true');await click('Management overview');
+ await wait(()=>has('Synthetic approved drone'),'APPROVED_MODEL');
+ await capture('07-desktop-management',1440,900);await capture('08-mobile-management',390,844);await viewport(1440,900);
+ await click('View requirements');await wait(()=>has('Calculated for 1 unit(s).'),'APPROVED_REQUIREMENTS');
+ await field(0,'3');await click('Calculate requirements');await wait(()=>has('Calculated for 3 unit(s).'),'REQUIREMENTS_RECALCULATE');
+ await click('Gross leaf requirements');await wait(()=>run('[...document.querySelectorAll("tbody tr")].some(r=>r.innerText.includes("RAW")&&r.cells[2].innerText==="15"&&r.cells[3].innerText==="—"&&r.cells[4].innerText==="—")'),'GROSS_15_NO_STOCK');
+ await capture('09-desktop-requirements',1440,900);await capture('10-mobile-requirements',390,844);await viewport(1440,900);
+ const beforeToggle=await run('window.__misCalls.length');
+ const beforeWidth=await run('document.querySelector("main").getBoundingClientRect().width');
+ await click('Hide Sidebar');await wait(()=>run('document.getElementById("mis-sidebar").hidden'),'MIS_SIDEBAR_COLLAPSED');
+ assert.ok(await run('document.querySelector("main").getBoundingClientRect().width')>beforeWidth);
+ assert.equal(await run('window.__misCalls.length'),beforeToggle);assert.ok(await has('Calculated for 3 unit(s).'));
+ await capture('11-desktop-collapsed-requirements',1440,900);await capture('12-mobile-collapsed-requirements',390,844);
+ await click('Show Sidebar');await wait(()=>run('!document.getElementById("mis-sidebar").hidden'),'MIS_SIDEBAR_RESTORED');
+ assert.equal(await run('window.__misCalls.length'),beforeToggle);
+ await viewport(1440,900);
+ await run('[...document.querySelectorAll("button")].find(b=>b.textContent.includes("Procurement review")&&b.querySelector("strong")).click()');
+ await wait(()=>has('Net purchase quantity'),'PROCUREMENT_REVIEW');
+ assert.ok(await has('Not assessed'));assert.ok(await run('[...document.querySelectorAll("tbody tr")].every(r=>r.cells[3].innerText==="—"&&r.cells[4].innerText==="—"&&r.cells[6].innerText==="Not assessed")'));
+ await capture('13-desktop-procurement-review',1440,900);
+ // Inspect bytes produced by the real download interaction, without leaving
+ // an uncontrolled file in Chromium's default download directory.
+ await run('(()=>{const orig=URL.createObjectURL.bind(URL),click=HTMLAnchorElement.prototype.click;window.__report=null;window.__downloads=0;URL.createObjectURL=b=>{b.text().then(x=>window.__report=x);return orig(b)};HTMLAnchorElement.prototype.click=function(){if(this.download.endsWith(".csv")){window.__downloads++;window.__reportName=this.download;return;}return click.call(this)}})()');
+ const beforeExport=await run('window.__misCalls.length');
+ await click('Export CSV report');await wait(()=>run('window.__downloads===1&&typeof window.__report==="string"'),'ACTUAL_REPORT_BYTES');
+ assert.equal(await run('window.__misCalls.length'),beforeExport+1);
+ const report=await run('window.__report');
+ assert.ok(report.includes('GROSS_LEAF')&&report.includes('approval_evidence_sha256')&&report.includes('NOT_ASSESSED')&&report.includes('"15"'));
+ assert.equal(await run('window.__reportName'),'HFT-OS-BOM-requirements-r1-3-units.csv');
+ await writeFile(join(captureDir,'synthetic-requirements-report.csv'),report,{flag:'wx'});
+ await run('window.__reqDeny=true');await click('Export CSV report');await wait(()=>has('Report source or management authorization changed.'),'REPORT_ACCESS_LOSS');
+ assert.equal(await run('window.__downloads'),1);assert.equal(await has('Synthetic approved drone'),false);
+ await run('window.__reqDeny=false');await click('Refresh source');await wait(()=>has('Synthetic approved drone'),'REPORT_SOURCE_RELOAD');
+ await click('View requirements');await wait(()=>has('Calculated for 1 unit(s).'),'REQUIREMENTS_REOPEN');
+ await run('window.__reqDeny=true');await click('Calculate requirements');await wait(()=>has('Management access, BOM revision or source verification changed.'),'REQ_DENIAL');
+ assert.equal(await has('Synthetic approved drone'),false);
+ await writeFile(join(captureDir,'capture-metadata.json'),JSON.stringify({synthetic:true,source:process.env.GITHUB_SHA,images:captures},null,2)+'\n',{flag:'wx'});
+ console.log('MIS_PLANNING_MOUNTED=PASS; source unavailable, priority controls, full/core, approved BOM drilldown, gross demand, unknown stock, procurement review, fresh CSV export/denial, sidebar continuity, denial clearing, desktop/mobile synthetic captures');
+}
+
+try{
+ tmp=await mkdtemp(join(tmpdir(),'hft-mis-ui-'));
+ let tail='';
+ server=spawn(process.execPath,['node_modules/next/dist/bin/next','dev','-p',String(PORT)],{cwd:ROOT,detached:true,stdio:['ignore','pipe','pipe'],
+  env:{...process.env,NODE_ENV:'development',HFT_ENVIRONMENT:'test',
+   HFT_AUTH_SOURCE:'verified',HFT_OPERATIONS_SOURCE:'database',
+   HFT_LIVE_POSTING_ENABLED:'false',NEXT_TELEMETRY_DISABLED:'1',HFT_ENABLE_PREVIEW_NEON_DISCOVERY:'false'}});
+ for(const stream of [server.stdout,server.stderr])stream.on('data',v=>{tail=(tail+String(v)).slice(-3000);});
+ try{await wait(async()=>(await fetch(URL_ROOT+'/mis')).status===200,'NEXT_DEV',75000);}
+ catch(e){throw Error(String(e)+'; '+tail);}
+ browser=spawn(chrome(),['--headless=new','--no-sandbox','--disable-dev-shm-usage','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-allow-origins=*','--remote-debugging-port=0','--user-data-dir='+join(tmp,'chrome'),'about:blank'],{detached:true,stdio:'ignore'});
+ const portFile=join(tmp,'chrome','DevToolsActivePort');
+ await wait(async()=>Boolean((await readFile(portFile,'utf8')).trim()),'CHROMIUM_START',30000);
+ const port=Number((await readFile(portFile,'utf8')).split('\n')[0]);
+ const tab=(await (await fetch('http://127.0.0.1:'+port+'/json/list')).json()).find(x=>x.type==='page');
+ if(!tab)throw Error('NO_PAGE');
+ ws=new WebSocket(tab.webSocketDebuggerUrl);
+ await new Promise((resolve,reject)=>{ws.addEventListener('open',resolve,{once:true});ws.addEventListener('error',reject,{once:true});});
+ ws.addEventListener('message',evt=>{const m=JSON.parse(String(evt.data));const p=pending.get(m.id);if(!p)return;pending.delete(m.id);if(m.error)p.reject(Error(JSON.stringify(m.error)));else p.resolve(m.result);});
+ await send('Page.enable');await send('Runtime.enable');await send('Page.addScriptToEvaluateOnNewDocument',{source:mock});
+ await workflow();
+}catch(error){console.error('MIS_PLANNING_MOUNTED=FAIL',error);process.exitCode=1;}
+finally{
+ if(ws)ws.close();
+ for(const child of [browser,server])if(child?.pid){try{process.kill(-child.pid,'SIGTERM');}catch{/* already stopped */}}
+ await sleep(350);if(tmp)await rm(tmp,{recursive:true,force:true,maxRetries:12,retryDelay:250});
+}

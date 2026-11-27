@@ -3,6 +3,7 @@ import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
 import {LIVE_KINDS,LIVE_FIELDS,LIVE_R1_VERSION,validateLiveRequest,validatedScope,
  type LiveKind,type LiveRecord,type LiveScope} from '../../../lib/hft/live/live-contract.ts';
 import s from './workspace.module.css';
+import {workspaceView,workspaceViewUrl} from '../../../lib/hft/ui-reuse/workspace-view-state.ts';
 import {meta,Icon,MasterNavigation,MasterDirectoryTable,FieldSection,CorporateBrand,DirectorySummary,summaryMatches,type SummaryFilter} from './workspace-components.tsx';
 
 const labels:Record<string,string>={fullName:'Full name',department:'Department',designation:'Designation',
@@ -119,6 +120,8 @@ function definitiveDenial(error:unknown){
 export default function LiveMastersPage(){
  const [kind,setKind]=useState<LiveKind>('EMPLOYEE'),[warehouse,setWarehouse]=useState('');
  const [sidebarVisible,setSidebarVisible]=useState(true);
+ const [viewReady,setViewReady]=useState(false);
+ useEffect(()=>{setKind(workspaceView(window.location.href,'view',LIVE_KINDS,'EMPLOYEE'));setViewReady(true);},[]);
  const [session,setSession]=useState<Session|null>(null),sessionRef=useRef<Session|null>(null),[auth,setAuth]=useState<'checking'|'signed-out'|'ready'|'unavailable'>('checking');
  const [records,setRecords]=useState<LiveRecord[]>([]),[loadedKey,setLoadedKey]=useState(''),[listState,setListState]=useState<'idle'|'loading'|'ready'|'error'>('idle');
  const [filter,setFilter]=useState(''),[serverSearch,setServerSearch]=useState(''),[department,setDepartment]=useState('');
@@ -163,7 +166,7 @@ export default function LiveMastersPage(){
   return()=>window.clearTimeout(timer);
  },[session,dropSession]);
  useEffect(()=>{
-  if(auth!=='ready'||!session||!entity||!site||!warehouse)return;
+  if(!viewReady||auth!=='ready'||!session||!entity||!site||!warehouse)return;
   const controller=new AbortController(),requested={legalEntityId:entity,siteId:site,warehouseId:warehouse};
   setListState('loading');setRecords([]);setLoadedKey([kind,entity,site,warehouse,serverSearch].join('|'));
   void read(session,kind,requested,'LIST','',serverSearch,controller.signal).then(value=>{
@@ -177,11 +180,11 @@ export default function LiveMastersPage(){
    else setNotice({tone:'error',text:friendly(error)});
   });
   return()=>controller.abort();
- },[auth,session,entity,site,warehouse,kind,serverSearch,refresh,dropSession]);
+ },[viewReady,auth,session,entity,site,warehouse,kind,serverSearch,refresh,dropSession]);
  function begin(){if(busyRef.current)return false;busyRef.current=true;setBusy(true);return true;}
  function end(){busyRef.current=false;setBusy(false);}
  function resetSelection(){setEditor(null);setAudit([]);setFilter('');setServerSearch('');setDepartment('');setStatusFilter('');setTrackingFilter('');setSummaryFilter('all');setListReceived('');setRecords([]);setLoadedKey('');setListState('loading');setNotice(null);}
- function changeKind(next:LiveKind){if(busyRef.current||pending||next===kind)return;resetSelection();setKind(next);}
+ function changeKind(next:LiveKind){if(busyRef.current||pending||next===kind)return;window.history.replaceState(window.history.state,'',workspaceViewUrl(window.location.href,'view',next,LIVE_KINDS));resetSelection();setKind(next);}
  function changeWarehouse(next:string){if(busyRef.current||pending||!session?.scope.warehouseIds.includes(next)||next===warehouse)return;resetSelection();setWarehouse(next);}
  function startNew(){
   if(editor||locked||!session||!isCurrent(session)||!permitted(session,scope)||currentListState!=='ready')return;
