@@ -4,7 +4,7 @@ on:
     branches:
       - engineering/hft-r1-stores-foundation
       - engineering/hft-r1-neon-proxy-tls-qualification-010
-      - engineering/hft-r1-masters-professional-ui-085
+      - engineering/hft-r1-branding-summary-095
   pull_request:
     branches:
       - main
@@ -34,16 +34,16 @@ jobs:
       - name: Live Masters mounted workspace regression (CI-local synthetic records)
         run: node tests/browser/hft-live-masters-mounted.mjs
       - name: Masters visual evidence (CI-local synthetic only)
-        if: github.ref == 'refs/heads/engineering/hft-r1-masters-professional-ui-085'
+        if: github.ref == 'refs/heads/engineering/hft-r1-branding-summary-095'
         env:
-          HFT_UI_CAPTURE_DIR: ${{ runner.temp }}/hf16-085-visual
+          HFT_UI_CAPTURE_DIR: ${{ runner.temp }}/hf16-095-visual
         run: node tests/browser/hft-live-masters-mounted.mjs --visual
       - name: Upload rendered visual evidence
-        if: always() && github.ref == 'refs/heads/engineering/hft-r1-masters-professional-ui-085'
+        if: always() && github.ref == 'refs/heads/engineering/hft-r1-branding-summary-095'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: hf16-085-visual
-          path: ${{ runner.temp }}/hf16-085-visual/
+          name: hf16-095-visual
+          path: ${{ runner.temp }}/hf16-095-visual/
           if-no-files-found: error
           retention-days: 14
       - name: Production dependency audit (moderate or above)

@@ -266,6 +266,7 @@ async function visual(){
  await viewport(1440,900);
  await send('Page.navigate',{url:URL_ROOT+'/masters/live'});
  await wait(()=>has('Corporate Google sign-in'),'VISUAL_SIGNIN');
+ await wait(()=>run('[...document.querySelectorAll("img[alt=\'Hubblefly corporate logo\']")].some(i=>i.complete&&i.naturalWidth>0)'),'ORIGINAL_LOGO_LOADED');
  await capture('01-desktop-sign-in',1440,900);
  await capture('02-mobile-sign-in',390,844);
  await viewport(1440,900);
@@ -296,6 +297,10 @@ async function visual(){
  assert.equal(await run(`[...document.querySelectorAll('nav[aria-label="Master data"] button')].length===6&&[...document.querySelectorAll('nav[aria-label="Master data"] button')].every(b=>{const r=b.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth})`),true,'MOBILE_ALL_MODULES_VISIBLE');
  assert.equal(await run(`[...document.querySelectorAll('tbody tr')].length===7&&[...document.querySelectorAll('tbody tr button')].every(b=>{const r=b.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.width>0&&r.height>=36})`),true,'MOBILE_ROW_ACTIONS_VISIBLE');
  await viewport(1440,900);
+ await run(`document.querySelector('button[aria-label="Summary filter: Retired"]').click()`);
+ await wait(()=>has('No matching records'),'SUMMARY_RETIRED_FILTER');
+ await run(`document.querySelector('button[aria-label="Summary filter: Total employees"]').click()`);
+ await wait(()=>run('document.querySelectorAll("tbody tr").length===7'),'SUMMARY_ALL_FILTER');
  await run(`(()=>{const n=document.querySelector('select[aria-label="Filter by department"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(n,'Stores');n.dispatchEvent(new Event('change',{bubbles:true}));})()`);
  await wait(()=>has('Synthetic Asha Rao'),'VISUAL_FILTER');
  await wait(()=>run('document.querySelectorAll("tbody tr").length===2'),'VISUAL_FILTER_COUNT');
