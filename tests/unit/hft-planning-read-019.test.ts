@@ -13,8 +13,8 @@ const request=new Request('https://fixture.invalid/api/hft/mis',{method:'POST'})
 const input={intent:'CATALOG',scope,scenario:null};
 test('management permission is independent of stock.read, revocation denies before returning data',async()=>{
  let allowed=true,reads=0;
- const tx={principal:async()=>actor,scopes:async()=>[scope],employee:async()=>({employeeId:actor.employeeId,personId:actor.personId,active:true,fullName:'Synthetic',version:1}),
-  assignment:async():Promise<Assignment>=>({scope,employeeId:actor.employeeId,revision:1,revokedFrom:null,periods:[{from:'2026-01-01T00:00:00.000Z',to:null,roles:allowed?['VIEWER']:[]} ]})} as RoleTransaction;
+ const tx:RoleTransaction={principal:async()=>actor,scopes:async()=>[scope],employee:async()=>({employeeId:actor.employeeId,personId:actor.personId,active:true,fullName:'Synthetic',version:1}),
+  assignment:async():Promise<Assignment>=>({scope,employeeId:actor.employeeId,revision:1,revokedFrom:null,periods:[{from:'2026-01-01T00:00:00.000Z',to:null,roles:allowed?['VIEWER']:[]} ]}),search:async()=>{throw Error('UNEXPECTED_SEARCH');},owners:async()=>{throw Error('UNEXPECTED_OWNERS');},event:async()=>{throw Error('UNEXPECTED_EVENT');},history:async()=>{throw Error('UNEXPECTED_HISTORY');},save:async()=>{throw Error('WRITE_FORBIDDEN');}};
  const roles:RoleStore={read:async work=>work(tx),write:async()=>{throw Error('WRITE_FORBIDDEN');}};
  const deps:PlanningDeps={authenticate:async()=>session,roles,requireManagementRead:async()=>{},source:{read:async()=>{reads++;return snapshot;}}};
  await assert.rejects(executePlanningRead(request,input,{...deps,requireManagementRead:async()=>{throw Error('MANAGEMENT_DENIED');}}),/MANAGEMENT_DENIED/);assert.equal(reads,0);
