@@ -115,6 +115,21 @@ async function workflow(){
  await run('sessionStorage.setItem("hft.live.fixture.login","yes")');
  await send('Page.reload');
  await wait(()=>has('No employees recorded'),'EMPTY_DIRECTORY');
+ // New mounted cross-workspace regression: live module navigation and URL-only
+ // tab state are preserved without transferring any business authority.
+ await click('Items');await wait(()=>has('No items recorded'),'INTEGRATED_ITEM_VIEW');
+ assert.equal(await run('new URL(location.href).searchParams.get("view")'),'ITEM');
+ await send('Page.reload');await wait(()=>has('No items recorded'),'INTEGRATED_ITEM_RELOAD');
+ assert.equal(await run('document.querySelector("input[aria-label=Company]").value'),'FIXTURE-HFT');
+ assert.equal(await run('window.__liveCalls.filter(p=>p.intent==="LIST").every(p=>p.kind==="ITEM"&&p.scope.warehouseId==="FIXTURE-WH1")'),true);
+ await click('Employees');await wait(()=>has('No employees recorded'),'INTEGRATED_EMPLOYEE_VIEW');
+ await run('document.querySelector("nav[aria-label=\\\"Application navigation\\\"] a").click()');
+ await wait(()=>has('HFT-OS workspace'),'INTEGRATED_DASHBOARD');
+ assert.equal(await run('Boolean(document.querySelector("nav[aria-label=\\\"Application modules\\\"] a[href=\\\"/masters/live\\\"]"))'),true);
+ assert.equal(await run('Boolean(document.querySelector("nav[aria-label=\\\"Application modules\\\"] a[href=\\\"/stores/intake\\\"]"))'),false);
+ assert.equal(await run('Boolean(document.querySelector("nav[aria-label=\\\"Application modules\\\"] a[href=\\\"/stores/operations\\\"]"))'),false);
+ await run('document.querySelector("nav[aria-label=\\\"Application modules\\\"] a[href=\\\"/masters/live\\\"]").click()');
+ await wait(()=>has('No employees recorded'),'INTEGRATED_RETURN_TO_MASTERS');
  assert.equal(await run('document.querySelector("input[aria-label=Company]").value'),'FIXTURE-HFT');
  assert.equal(await run('document.querySelector("input[aria-label=Company]").readOnly'),true);
  assert.equal(await run('document.querySelector("input[aria-label=Site]").readOnly'),true);
@@ -241,7 +256,7 @@ async function workflow(){
  await viewport(390,844);await sleep(300);
  assert.ok(await run('document.documentElement.scrollWidth<=window.innerWidth+2'),'MOBILE_HORIZONTAL_OVERFLOW');
  assert.ok(await run('document.querySelector("input[aria-label=Company]").getBoundingClientRect().height>=36'),'INPUT_STYLING');
- console.log('LIVE_MASTERS_MOUNTED=PASS; synthetic signed-out/context/scope/create/edit/history/actor isolation/re-login/legacy/storage failures/mobile');
+ console.log('LIVE_MASTERS_MOUNTED=PASS; synthetic signed-out/context/scope/create/edit/history/actor isolation/re-login/legacy/storage failures/profile-aware dashboard and URL reload/mobile');
 }
 // Separate capture mode; ordinary two-actor regression remains unchanged.
 const captures=[];
