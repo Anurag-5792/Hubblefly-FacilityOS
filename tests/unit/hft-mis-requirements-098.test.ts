@@ -21,7 +21,7 @@ test('HF098 gross explosion is exact and not net stock demand',()=>{
 test('HF098 scope, evidence, quantities, effective interval and graph fail closed',()=>{
  for(const n of [0,-1,1.1,100001])assert.throws(()=>calculateRequirements(fixture(),scope,id(1),n));
  assert.throws(()=>calculateRequirements(fixture(),{...scope,warehouseId:'OTHER'},id(1),1));
- for(const edit of [(f:ReturnType<typeof fixture>)=>{f.stockAdmitted=true},f=>{f.nodes.pop()},f=>{f.nodes[1].verified=false},f=>{f.nodes[1].versionCode='V2'},f=>{f.models[0].effectiveTo='2026-02-01T00:00:00Z'},f=>{f.nodes[1].bomId=f.nodes[0].bomId},f=>{f.nodes[0].lines.push(f.nodes[0].lines[0])},f=>{f.nodes[1].lines[0].quantityMicro='9223372036854775808'}]){
+ for(const edit of [(f:ReturnType<typeof fixture>)=>{f.stockAdmitted=true},(f:ReturnType<typeof fixture>)=>{f.nodes.pop()},(f:ReturnType<typeof fixture>)=>{f.nodes[1].verified=false},(f:ReturnType<typeof fixture>)=>{f.nodes[1].versionCode='V2'},(f:ReturnType<typeof fixture>)=>{f.models[0].effectiveTo='2026-02-01T00:00:00Z'},(f:ReturnType<typeof fixture>)=>{f.nodes[1].bomId=f.nodes[0].bomId},(f:ReturnType<typeof fixture>)=>{f.nodes[0].lines.push(f.nodes[0].lines[0])},(f:ReturnType<typeof fixture>)=>{f.nodes[1].lines[0].quantityMicro='9223372036854775808'}]){
   const f=fixture();edit(f);assert.throws(()=>calculateRequirements(f,scope,id(1),1));
  }
  assert.equal(misRequirementsConfigured({}),false);
