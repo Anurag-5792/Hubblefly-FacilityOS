@@ -49,7 +49,8 @@ function RequirementsOverview(){
   }catch{if(current(n,signal))clear('No admitted management source. Approved BOMs, stock and readiness are unavailable.');}
   finally{if(n===epoch.current)setBusy(false);}
  }
- useEffect(()=>{void load();return()=>{epoch.current++;abort.current?.abort();ctxRef.current=null;}; // initial mount only
+ function cancelPending(){epoch.current++;abort.current?.abort();ctxRef.current=null;}
+ useEffect(()=>{void load();return cancelPending; // initial mount only
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[]);
  useEffect(()=>{
