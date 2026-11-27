@@ -223,11 +223,13 @@ export default function LiveMastersPage(){
     record.revision!==editor.revision+1||result.historyRevision!==record.revision||record.deleted||
     LIVE_FIELDS[kind].some(f=>record.values[f]!==payload.values[f]))throw Error('UNCONFIRMED_SAVE');
    clearPending(session,tracked);marker=null;
-   setEditor({...editor,recordId:record.recordId,revision:record.revision,values:{...record.values},action:'UPDATE',reason:''});
+   const closeAfterSave=editor.action==='UPDATE';
+   if(closeAfterSave){setEditor(null);setAudit([]);}
+   else setEditor({...editor,recordId:record.recordId,revision:record.revision,values:{...record.values},action:'UPDATE',reason:''});
    setFilter('');setServerSearch('');setDepartment('');setRefresh(v=>v+1);
    setNotice({tone:'success',text:'Record saved and verified. You can reopen it after signing in again.'});
    try{const history=parseHistory(await read(session,kind,scope,'HISTORY',record.recordId));
-    if(isCurrent(session))setAudit(history);}
+    if(isCurrent(session)&&!closeAfterSave)setAudit(history);}
    catch(error){if(isCurrent(session)){
     if(error instanceof ApiError&&error.status===401){dropSession();setNotice({tone:'neutral',text:friendly(error)});}
     else{setAudit([]);setNotice({tone:'success',text:'Record saved and verified. Reopen it to load the change history.'});}

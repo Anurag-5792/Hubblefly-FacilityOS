@@ -133,9 +133,11 @@ async function workflow(){
  await click('Open');await wait(()=>has('Edit employee'),'EDIT_FORM');
  await field('Designation','Supervisor');await field('Reason for updating this record','Synthetic change verification');
  await click('Save changes');await wait(()=>has('Record saved and verified'),'EDIT');
+ await wait(()=>run('document.querySelector("form")===null'),'EDIT_WINDOW_CLOSED');
  await wait(()=>has('Supervisor'),'EDIT_READBACK');
  const update=await run('window.__liveCalls.find(p=>p.intent==="SAVE")');
  assert.equal(update.action,'UPDATE');assert.equal(update.expectedRevision,1);
+ await click('Open');await wait(()=>has('Edit employee'),'REOPEN_AFTER_EDIT');
  await wait(()=>has('Audit details · revision 2'),'AUDIT');
  await run('(()=>{const n=[...document.querySelectorAll("label")].find(x=>x.firstChild?.textContent==="Warehouse").querySelector("select");Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,"value").set.call(n,"FIXTURE-WH2");n.dispatchEvent(new Event("change",{bubbles:true}));})()');
  await wait(()=>has('No employees recorded'),'SCOPE_SWITCH');
@@ -309,6 +311,10 @@ async function visual(){
  await field('Designation','Supervisor');await field('Reason for updating this record','Synthetic visual edit');
  await capture('09-desktop-edit',1440,900);await capture('10-mobile-edit',390,844);
  await viewport(1440,900);await click('Save changes');await wait(()=>has('Record saved and verified'),'VISUAL_EDIT_SAVE');
+ await wait(()=>run('document.querySelector("form")===null'),'VISUAL_EDIT_WINDOW_CLOSED');
+ await wait(()=>has('Supervisor'),'VISUAL_EDIT_READBACK');
+ await wait(()=>run(`Boolean([...document.querySelectorAll('tr')].find(r=>r.textContent.includes('FIXTURE-EMP-01'))?.querySelector('button:not(:disabled)'))`),'VISUAL_REOPEN_READY');
+ await run(`(()=>{const tr=[...document.querySelectorAll('tr')].find(r=>r.textContent.includes('FIXTURE-EMP-01'));const b=tr?.querySelector('button');if(!b||b.disabled)throw Error('MISSING_OPEN');b.click();})()`);
  await wait(()=>has('Audit details · revision 2'),'VISUAL_HISTORY');
  await capture('11-desktop-history',1440,900);
  await capture('12-mobile-history',390,844);
