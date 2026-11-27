@@ -1,0 +1,28 @@
+name: HF094 V2 owner-controlled installer verification
+on:
+  push:
+    branches:
+      - engineering/hft-r1-roles-only-installer-094-v2
+permissions:
+  contents: read
+jobs:
+  owner-v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact owner V2 source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify immutable V1 and owner V2 guards
+        run: |
+          git diff --exit-code 5739772d850cbaba5cd8e5256d56430ce78d80df HEAD -- app lib db tools/hft_roles_only_install_094.py review-candidates/hf094-roles-only
+          python3 tools/hft_roles_only_install_094_v2.py --inspect
+          python3 -m unittest discover -s tests -p test_hf094_owner_installer_v2.py -v
+      - name: Execute disposable PostgreSQL ACL and rollback campaign
+        run: python3 tests/postgres/hf094_roles_only_fixture.py
+      - name: Execute isolated encrypted recovery fixture
+        run: python3 tests/test_hf094_owner_installer_v2.py --restore
+      - name: Execute V2 guarded assembly and terminal receipt campaign
+        run: python3 tests/postgres/hf094_v2_guarded_assembly.py
