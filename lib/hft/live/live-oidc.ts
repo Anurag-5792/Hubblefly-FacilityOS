@@ -7,6 +7,7 @@ import {createCipheriv,createDecipheriv,createHash,createPrivateKey,
  from 'node:crypto';
 import {assertLiveProfile,type LiveEnv} from './live-profile.ts';
 import {identityProofModeAdmitted} from './live-identity-mode.ts';
+import {clearIntakeCookie,issueIntakeCookie} from '../intake/intake-session.ts';
 const identifier=/^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/;
 const b64=(bytes:Buffer|string)=>Buffer.from(bytes).toString('base64url');
 function sha(x:string){return createHash('sha256').update(x,'utf8').digest();}
@@ -122,7 +123,7 @@ export function flowCookie(flow:Flow,key:Buffer):string{
 }
 export const clearAuthCookies=[
  sessionCookie+'=; '+common+'; Max-Age=0',
- authCookie+'=; '+common+'; Max-Age=0'
+ authCookie+'=; '+common+'; Max-Age=0',clearIntakeCookie
 ];
 export const clearIdentityProofCookie=identityProofCookie+'=; '+common+'; Max-Age=0';
 export function cookieValue(raw:string|null,name:string):string|undefined{
@@ -257,7 +258,7 @@ export async function completeIdentityProof(config:OidcConfig,env:LiveEnv,
   enrolled:false,applicationSession:false,databaseAccess:false};
 }
 export async function completeLogin(config:OidcConfig,env:LiveEnv,
- flow:Flow,code:string):Promise<string>{
+ flow:Flow,code:string,onIntakeCookie?:(cookie:string)=>void):Promise<string>{
  if(flow.identityProofOnly||config.proofBinding)throw Error('LIVE_R1_IDENTITY_PROOF_CANNOT_CREATE_SESSION');
  assertLiveProfile(env);
  const identity=await verifyGoogleIdentity(config,env,flow,code);
@@ -274,5 +275,6 @@ export async function completeLogin(config:OidcConfig,env:LiveEnv,
  const encoded=top+'.'+body;
  const signature=sign(null,Buffer.from(encoded,'ascii'),
   createPrivateKey(config.privatePem)).toString('base64url');
+ if(onIntakeCookie)onIntakeCookie(issueIntakeCookie(env,config,identity,session.jti,now));
  return sessionCookie+'='+encoded+'.'+signature+'; '+common+'; Max-Age=600';
 }

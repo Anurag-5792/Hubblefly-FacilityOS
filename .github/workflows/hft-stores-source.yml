@@ -4,6 +4,7 @@ on:
     branches:
       - engineering/hft-r1-stores-foundation
       - engineering/hft-r1-neon-proxy-tls-qualification-010
+      - engineering/hft-r1-inventory-intake-088
   pull_request:
     branches:
       - main
@@ -32,6 +33,8 @@ jobs:
         run: node tests/browser/hft-c050-mounted.mjs
       - name: Live Masters mounted workspace regression (CI-local synthetic records)
         run: node tests/browser/hft-live-masters-mounted.mjs
+      - name: Inventory security mounted regression (CI-local synthetic records)
+        run: node tests/browser/hft-intake-security-091-mounted.mjs
       - name: Production dependency audit (moderate or above)
         run: npm audit --omit=dev --audit-level=moderate
       - name: Full dependency tree advisory scan (high or above)

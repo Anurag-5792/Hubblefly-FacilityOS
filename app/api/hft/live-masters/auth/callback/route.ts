@@ -30,10 +30,12 @@ export async function GET(request:Request):Promise<Response>{
    headers.set('Content-Security-Policy',"default-src 'none'; frame-ancestors 'none'");
    return Response.json(receipt,{status:200,headers});
   }
-  const cookie=await completeLogin(config,process.env,flow,code);
+  let intakeCookie=clearAuthCookies[2];
+  const cookie=await completeLogin(config,process.env,flow,code,value=>{intakeCookie=value;});
   headers.append('Set-Cookie',clearAuthCookies[1]);
   headers.append('Set-Cookie',cookie);
-  headers.set('Location',base+'/masters/live');
+  headers.append('Set-Cookie',intakeCookie);
+  headers.set('Location',base+(intakeCookie===clearAuthCookies[2]?'/masters/live':'/stores/intake'));
   return new Response(null,{status:302,headers});
  }catch{
   for(const cookie of clearAuthCookies)headers.append('Set-Cookie',cookie);
