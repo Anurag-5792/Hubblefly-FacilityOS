@@ -1,0 +1,28 @@
+{
+  "schema": "HF094_OWNER_ONLY_POLICY_V2_REVIEW_CANDIDATE",
+  "ownerFingerprint": "7C2FED6F5C4288AB5BA2662BC26C479D6885C73C",
+  "validityCeiling": "2026-12-26T18:29:59Z",
+  "sourceContract": "HF094_OWNER_ONLY_INSTALL_ORDER_V2",
+  "action": "HF094_RETAINED_ROLES_ONLY_CANONICAL_0001_0006_AND_ROLE_SQL",
+  "state": "NOT_ADMITTED",
+  "preservedV1": "5739772d850cbaba5cd8e5256d56430ce78d80df",
+  "machineEvidence": [
+    "authenticated exact GitHub CI",
+    "current signed-pinned STOP reference",
+    "Neon provider readback",
+    "actual verify-full/channel-binding wire proof",
+    "encrypted original from approved private Drive",
+    "actual isolated PostgreSQL restore and exact fresh catalog equivalence",
+    "write-once prepared/result evidence and offsite readback"
+  ],
+  "excluded": [
+    "production",
+    "stock writer/posting",
+    "identity or owner bootstrap",
+    "new login",
+    "new resources",
+    "role expansion",
+    "merge"
+  ],
+  "note": "Candidate schema must be reconciled with original HF11 unsigned order before owner signing. No human technical reviewer/witness requirement. No caller PASS flags."
+}
