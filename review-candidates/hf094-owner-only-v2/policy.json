@@ -1,20 +1,18 @@
 {
-  "schema": "HF094_OWNER_ONLY_POLICY_V2_REVIEW_CANDIDATE",
-  "ownerFingerprint": "7C2FED6F5C4288AB5BA2662BC26C479D6885C73C",
-  "validityCeiling": "2026-12-26T18:29:59Z",
-  "sourceContract": "HF094_OWNER_ONLY_INSTALL_ORDER_V2",
-  "action": "HF094_RETAINED_ROLES_ONLY_CANONICAL_0001_0006_AND_ROLE_SQL",
+  "schema": "HF094_OWNER_ONLY_POLICY_V2_CORRECTED_CANDIDATE",
   "state": "NOT_ADMITTED",
-  "preservedV1": "5739772d850cbaba5cd8e5256d56430ce78d80df",
-  "machineEvidence": [
-    "authenticated exact GitHub CI",
-    "current signed-pinned STOP reference",
-    "Neon provider readback",
-    "actual verify-full/channel-binding wire proof",
-    "encrypted original from approved private Drive",
-    "actual isolated PostgreSQL restore and exact fresh catalog equivalence",
-    "write-once prepared/result evidence and offsite readback"
-  ],
+  "original_hf11_zip_sha256": "bd0fdbfc9e158dbafc2d3c0ae847493952e4429e82f3828f02ae5a39d05ca8eb",
+  "original_normalized_scope_sha256": "89e12950ceddd7d01eaa722fb9f92bf395b378fe68e657b9a7ca8db06d1f68ff",
+  "owner_fingerprint": "7C2FED6F5C4288AB5BA2662BC26C479D6885C73C",
+  "validity_ceiling": "2026-12-26T18:29:59Z",
+  "original_schema": "HF11_HFT_R1_OWNER_ONLY_STANDING_HF094_V2",
+  "technical_binding": "single_initial_hf094_order.final_v2_successor.versioned_contract_sha256",
+  "custody": "existing admitted S3 COMPLIANCE Object Lock + version history + mandatory conditional creates; no local or Drive fallback",
+  "host": "existing admitted EC2 instance with pinned provider identity, root-owned manifest and rootless isolated restore; no provisioner",
+  "action": "HF094_RETAINED_ROLES_ONLY_CANONICAL_0001_0006_AND_ROLE_SQL",
+  "no_second_human_signer": true,
+  "sql_unchanged": true,
+  "resource_enrollment": "NOT_VERIFIED",
   "excluded": [
     "production",
     "stock writer/posting",
@@ -23,6 +21,5 @@
     "new resources",
     "role expansion",
     "merge"
-  ],
-  "note": "Candidate schema must be reconciled with original HF11 unsigned order before owner signing. No human technical reviewer/witness requirement. No caller PASS flags."
+  ]
 }

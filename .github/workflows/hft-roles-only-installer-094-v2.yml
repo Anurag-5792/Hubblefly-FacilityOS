@@ -24,3 +24,5 @@ jobs:
         run: python3 tests/postgres/hf094_roles_only_fixture.py
       - name: Execute isolated encrypted recovery fixture
         run: python3 tests/test_hf094_owner_installer_v2.py --restore
+      - name: Execute V2 guarded assembly and terminal receipt campaign
+        run: python3 tests/postgres/hf094_v2_guarded_assembly.py
