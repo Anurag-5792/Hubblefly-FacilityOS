@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
-import {useState,type FormEvent} from 'react';
+import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
+import {parseOperatorContext,operatorPending,operatorOtherPending,writeOperatorPending,clearOperatorPending,type OperatorContext,type PendingOperatorRequest} from '../../../lib/hft/roles/hosted-operator-client.ts';
 import styles from './operations.module.css';
 
 type Kind='IN'|'OUT'|'COUNT'|'TRANSFER'|'RETURN';
@@ -67,69 +68,80 @@ type Reply={state?:string;code?:string;requestId?:string;stockChanged?:boolean;d
  automaticRetryAllowed?:boolean};
 export default function StoresOperationsPage(){
  const [kind,setKind]=useState<Kind>('IN');
+ const [context,setContext]=useState<OperatorContext|null>(null),[pending,setPending]=useState<PendingOperatorRequest|null>(null),[trackingBlocked,setTrackingBlocked]=useState(false);
+ const accessEpoch=useRef(0),activeContext=useRef(''),posting=useRef(false);
  const [form,setForm]=useState<FormData>(initial);
  const [busy,setBusy]=useState(false);
- const [intent,setIntent]=useState<'PREPARE'|'POST'>('PREPARE');
  const [last,setLast]=useState<Reply|null>(null);
  const [readIntent,setReadIntent]=useState<'BALANCES'|'MOVEMENTS'|'CUSTODY'>('BALANCES');
  const [readBusy,setReadBusy]=useState(false);
  const [readResult,setReadResult]=useState<StockReadReply|null>(null);
  const [readError,setReadError]=useState('No authoritative database read performed.');
  const [feedback,setFeedback]=useState('No validated request. No stock or count data have been saved.');
+ const selected=context?.capabilities.find(c=>c.scope.legalEntityId===form.legalEntityId&&c.scope.siteId===form.siteId&&c.scope.warehouseId===form.warehouseId);
+ const clearAccess=useCallback(()=>{accessEpoch.current++;activeContext.current='';setContext(null);setPending(null);setTrackingBlocked(false);setForm({...initial});setLast(null);setReadResult(null);setReadError('No authenticated read available.');setBusy(false);setReadBusy(false);},[]);
+ useEffect(()=>{
+  const ctl=new AbortController(),epoch=++accessEpoch.current;
+  void fetch('/api/hft/settings/roles',{method:'POST',credentials:'same-origin',cache:'no-store',
+   headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'OPERATOR_CONTEXT'}),signal:ctl.signal})
+   .then(async r=>{if(!r.ok)throw Error('OPERATOR_ACCESS_REQUIRED');return parseOperatorContext(await r.json());})
+   .then(c=>{if(ctl.signal.aborted||epoch!==accessEpoch.current)return;
+    const first=c.capabilities.find(x=>x.stockRead||x.receive);if(!first)throw Error('OPERATOR_STORES_DENIED');
+    activeContext.current=c.contextId;setContext(c);setForm({...initial,...first.scope});
+    try{setPending(operatorPending(sessionStorage,'receive',c.contextId));setTrackingBlocked(operatorOtherPending(sessionStorage,'receive',c.contextId));}catch{setTrackingBlocked(true);}
+    setFeedback('Signed canonical Stores access verified. Use only admitted invoice, GRN, QC and location references.');
+   }).catch(()=>{if(!ctl.signal.aborted&&epoch===accessEpoch.current)setFeedback('Sign in with an admitted Stores account. No ledger data loaded.');});
+  return()=>{ctl.abort();clearAccess();};
+ },[clearAccess]);
+ useEffect(()=>{if(!context)return;const timer=setTimeout(()=>{clearAccess();setFeedback('Session expired. Original request evidence retained.');},Math.max(0,context.expiresAt*1000-Date.now()));return()=>clearTimeout(timer);},[context,clearAccess]);
+ async function signOut(){clearAccess();try{const r=await fetch('/api/hft/live-masters/signout',{method:'POST',credentials:'same-origin',cache:'no-store'});if(!r.ok||(await r.json()).state!=='SIGNED_OUT')throw Error('SIGNOUT_UNCONFIRMED');setFeedback('Signed out. Original request evidence retained.');}catch{setFeedback('Sign-out could not be confirmed. Close this tab or sign in again.');}}
  function update<K extends keyof FormData>(key:K,value:FormData[K]){
-  setForm(current=>({...current,[key]:value}));setLast(null);
+  if(busy||readBusy)return;setForm(current=>({...current,[key]:value}));setLast(null);
  }
  function switchKind(next:Kind){setKind(next);setLast(null);
   setFeedback('Mode changed. No pending data have been saved or posted.');}
  async function submit(event:FormEvent<HTMLFormElement>){
-  event.preventDefault();setBusy(true);setLast(null);
-  setFeedback(intent==='POST'?'Requesting protected database posting; no success until durable proof is returned.':
-   'Verifying signed session and structural request. No stock posting occurs.');
-  const common={contractVersion:kind==='RETURN'?'HFT-R1-OPS-A2-RETURN-PREPARE-V1':'HFT-R1-STORES-P0-PREPARE-V1',requestId:crypto.randomUUID(),
+  event.preventDefault();if(!context||!selected?.receive||kind!=='IN'||pending||trackingBlocked||posting.current||context.expiresAt<=Date.now()/1000)return;
+  const epoch=accessEpoch.current,ctx=context.contextId;posting.current=true;setBusy(true);setLast(null);
+  setFeedback('Requesting protected database posting; no success until durable proof is returned.');
+  const common={contractVersion:'HFT-R1-STORES-P0-PREPARE-V1',requestId:crypto.randomUUID(),
    kind,legalEntityId:form.legalEntityId.trim(),siteId:form.siteId.trim(),
    warehouseId:form.warehouseId.trim(),itemCode:form.itemCode.trim(),
    productVersion:form.productVersion.trim(),controlType:form.controlType,
    quantity:form.quantity.trim(),uom:form.uom.trim(),serialNo:form.serialNo.trim(),
    batchNo:form.batchNo.trim()};
   const additional=Object.fromEntries(fields[kind].map(key=>[key,form[key].trim()]));
+  const original={requestId:common.requestId,scope:{legalEntityId:common.legalEntityId,siteId:common.siteId,warehouseId:common.warehouseId}};
+  try{writeOperatorPending(sessionStorage,'receive',ctx,original);setPending(original);}
+  catch{setTrackingBlocked(true);setFeedback('Request tracking unavailable or an original receipt remains held. No receipt submitted.');posting.current=false;setBusy(false);return;}
   try{
-   const res=await fetch(intent==='POST'&&kind==='IN'?
-    '/api/hft/stores/receive':
-    kind==='RETURN'?'/api/hft/stores/return-prepare':
-    intent==='POST'?'/api/hft/stores/submit':'/api/hft/stores/prepare',{
+   const res=await fetch('/api/hft/stores/receive',{
     method:'POST',credentials:'same-origin',
-    cache:'no-store',headers:{'Content-Type':'application/json'},
+    cache:'no-store',headers:{'Content-Type':'application/json','X-HFT-Operator-Context':ctx},
     body:JSON.stringify({...common,...additional})});
+   if(epoch!==accessEpoch.current||ctx!==activeContext.current)return;
+   if(res.status===401||res.status===403){clearAccess();setFeedback('Access ended. Original receipt reference retained; do not retry.');return;}
    const output=await res.json() as Reply;
-   if(!res.ok)throw new Error(output.code||'SOURCE_UNAVAILABLE');
-   if(intent==='POST'){
-    const postKind=kind==='IN'||kind==='OUT';
-    const actual=postKind&&output.state==='POSTED_VERIFIED'&&
-     output.durable===true&&output.stockChanged===true&&
-     output.requestId===common.requestId;
-    const observed=kind==='COUNT'&&output.state==='COUNT_OBSERVATION_COMMITTED'&&
-     output.durable===true&&output.stockChanged===false&&
-     output.requestId===common.requestId;
-    if(!actual&&!observed)throw new Error('PROTECTED_DATABASE_PROOF_REQUIRED');
-    setLast(output);
-    setFeedback(actual?
-     ('RECEIVE committed and independently reread: BIN '+form.leafLocationId+
-      ', quantity '+String(output.binBalance??'unavailable')+
-      ', verified movements '+String(output.movementCount??'unavailable')+
-      '. Reopen the authoritative readback for independent confirmation.'):
-     'Physical count observation committed. No stock adjustment was made.');
-   }else{
-    if(output.state!=='VALIDATED_NOT_POSTED'||output.stockChanged!==false||
-       output.durable!==false||output.locationVerified!==false||
-       output.businessAuthorityVerified!==false)
-      throw new Error('UNQUALIFIED_RESPONSE_REJECTED');
-    setLast(output);
-    setFeedback('Structure checked only. NOT SAVED. NOT POSTED.');
+   if(epoch!==accessEpoch.current||ctx!==activeContext.current)return;
+   if(!res.ok){
+    if(res.status===422&&['OPS_A2_OPERATOR_RECEIVE_BODY_INVALID','OPS_A2_RECEIVE_SCOPE_OR_ORIGINAL_QC_REQUIRED'].includes(output.code||'')){
+     clearOperatorPending(sessionStorage,'receive',ctx,original);setPending(null);setFeedback('Receipt validation rejected before posting. Correct the fields.');return;
+    }
+    throw Error(output.code||'SOURCE_UNAVAILABLE');
    }
-  }catch(err){setFeedback(err instanceof Error?err.message:'VALIDATION_UNAVAILABLE');}
-  finally{setBusy(false);}
+   if(output.state!=='POSTED_VERIFIED'||output.durable!==true||output.stockChanged!==true||
+    output.requestId!==common.requestId||output.movementCount!==2)
+    throw Error('PROTECTED_DATABASE_PROOF_REQUIRED');
+   clearOperatorPending(sessionStorage,'receive',ctx,original);setPending(null);setLast(output);
+   setFeedback('RECEIVE committed and independently reread: BIN '+form.leafLocationId+
+    ', quantity '+String(output.binBalance??'unavailable')+', verified movements '+String(output.movementCount)+
+    '. Reopen the authoritative readback for independent confirmation.');
+  }catch{if(epoch===accessEpoch.current&&ctx===activeContext.current)setFeedback('Receipt outcome unconfirmed. Keep the original request reference for authorized reconciliation; do not retry.');}
+  finally{posting.current=false;if(epoch===accessEpoch.current)setBusy(false);}
  }
  async function loadAuthoritativeRead(){
+  if(!context||!selected?.stockRead||readBusy||context.expiresAt<=Date.now()/1000)return;
+  const epoch=accessEpoch.current,ctx=context.contextId;
   setReadBusy(true);setReadResult(null);setReadError('Requesting scoped PostgreSQL readback.');
   try{
    const request={contractVersion:'HFT-R1-P0-READ-V1',intent:readIntent,
@@ -141,16 +153,19 @@ export default function StoresOperationsPage(){
     cursor:'',limit:25};
    const res=await fetch('/api/hft/stores/read',{method:'POST',
     credentials:'same-origin',cache:'no-store',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});
+    headers:{'Content-Type':'application/json','X-HFT-Operator-Context':ctx},body:JSON.stringify(request)});
+   if(epoch!==accessEpoch.current||ctx!==activeContext.current)return;
+   if(res.status===401||res.status===403){clearAccess();setFeedback('Access ended. Sign in again.');return;}
    const answer=await res.json() as StockReadReply;
+   if(epoch!==accessEpoch.current||ctx!==activeContext.current)return;
    if(!res.ok)throw new Error(answer.code||'READBACK_UNAVAILABLE');
    if(answer.state!=='AUTHORITATIVE_READ'||answer.durable!==true||
      answer.synthetic!==false||answer.intent!==readIntent||!Array.isArray(answer.rows)||
      answer.rows.length>25)
     throw new Error('AUTHORITATIVE_READBACK_NOT_VERIFIED');
    setReadResult(answer);setReadError('');
-  }catch(error){setReadError(error instanceof Error?error.message:'READBACK_UNAVAILABLE');}
-  finally{setReadBusy(false);}
+  }catch(error){if(epoch===accessEpoch.current)setReadError(error instanceof Error?error.message:'READBACK_UNAVAILABLE');}
+  finally{if(epoch===accessEpoch.current)setReadBusy(false);}
  }
  const field=(key:keyof FormData)=>{
   if(key==='qcState')return <label key={key}>{names[key]}<select value={form.qcState} onChange={e=>update('qcState',e.target.value as FormData['qcState'])}>
@@ -170,21 +185,23 @@ export default function StoresOperationsPage(){
   <header className="masters-head"><div>
    <Link href="/stores" className="mis-link">Stores / Operations</Link>
    <p className="eyebrow">Hubblefly FacilityOS · Stores control</p>
-   <h1>Stores receiving, issuing, returning and counting</h1>
+   <h1>Stores receiving and stock lookup</h1>
    <p>Actual warehouse, rack, level, position, stack slot and bin are verified only by the qualified location registry.</p>
-  </div><Link className="masters-back" href="/stores/masters">Masters</Link></header>
+  </div><div><Link className="masters-back" href="/settings/users-roles">Users &amp; Roles</Link>{context?<button type="button" onClick={()=>void signOut()}>Sign out</button>:<a className="primary-button" href="/api/hft/live-masters/auth/start?return=stores">Corporate Google sign-in</a>}</div></header>
   <section className={styles.warning} role="status">
    <strong>Protected database posting requires independently qualified SQL and genuine human approvals.</strong>
    <p>Validation never changes stock. Protected submission uses signed server identity and fails closed until qualified PostgreSQL authority is installed; it cannot create its own approval or Hold clearance. Do not treat a rejected request as a receipt or issue record.</p>
   </section>
   <nav className={styles.tabs} aria-label="Stores operation">
-   {(['IN','OUT','COUNT','TRANSFER','RETURN'] as const).map(x=><button type="button" key={x}
+   {(['IN','OUT','COUNT','TRANSFER','RETURN'] as const).map(x=><button type="button" key={x} disabled={x!=='IN'||busy||!!pending}
     aria-pressed={kind===x} onClick={()=>switchKind(x)} className={kind===x?styles.selected:undefined}>
      {captions[x].title}</button>)}
   </nav>
   <form onSubmit={e=>void submit(e)} className={styles.form}>
    <section className="panel"><h2>Authority scope</h2><div className={styles.fields}>
-    {(['legalEntityId','siteId','warehouseId'] as const).map(field)}
+    <label>Assigned warehouse<select disabled={!context||busy||readBusy||!!pending} value={form.warehouseId} onChange={e=>{const next=context?.capabilities.find(x=>x.scope.warehouseId===e.target.value&&(x.receive||x.stockRead));if(next){setForm({...initial,...next.scope});setLast(null);setReadResult(null);}}}>
+     {!context&&<option value="">Sign in to see assigned scope</option>}{context?.capabilities.filter(x=>x.stockRead||x.receive).map(x=><option key={x.scope.warehouseId} value={x.scope.warehouseId}>{x.scope.warehouseId}</option>)}</select></label>
+    <label>Company<input readOnly value={form.legalEntityId}/></label><label>Site<input readOnly value={form.siteId}/></label>
    </div><p className={styles.caption}>Selecting a scope does not grant access; HFT signed identity must match it.</p></section>
    <section className="panel"><h2>Item identity</h2><div className={styles.fields}>
     {(['itemCode','productVersion','uom','quantity'] as const).map(field)}
@@ -197,17 +214,13 @@ export default function StoresOperationsPage(){
     <div className={styles.fields}>{fields[kind].map(field)}</div>
     <p className={styles.caption}>A leaf-bin ID is not proof of its rack-to-bin hierarchy. Counts cannot alter stock; transfers require protected authorization. Work-order-only issues require additional backend qualification.</p>
    </section>
-   <label>Submission intent
-    <select value={intent} onChange={e=>{setIntent(e.target.value as 'PREPARE'|'POST');setLast(null);}}>
-     <option value="PREPARE">Validate only — no persistence</option>
-     <option value="POST">Request protected database transaction</option>
-    </select>
-   </label>
-   <button className="primary-button" type="submit" disabled={busy||intent==='POST'&&(kind==='TRANSFER'||kind==='RETURN')}>
-    {busy?'Checking…':intent==='POST'?'Request protected transaction':'Validate only — do not post'}
+   <p className={styles.caption}>Only qualified RECEIVE is available in this hosted mode. Other transaction types remain held.</p>
+   <button className="primary-button" type="submit" disabled={busy||!selected?.receive||!!pending||trackingBlocked||kind!=='IN'}>
+    {busy?'Checking…':'Request protected RECEIVE'}
    </button>
-   {intent==='POST'&&(kind==='TRANSFER'||kind==='RETURN')?<p role="alert">Transfer and RETURN posting remain blocked until the independently qualified protected writer and source authority are installed.</p>:null}
   </form>
+  {pending&&<p role="alert">Original receipt request: <code>{pending.requestId}</code>. No further receipt may be submitted until authorized reconciliation.</p>}
+  {trackingBlocked&&<p role="alert">Prior or unavailable request tracking prevents receipt submission. Contact the authorized administrator.</p>}
   <section aria-live="polite" className={styles.result}>
    <h2>Result</h2><p>{feedback}</p>
    {last?<p>Request type: {last.state} · Quantity: {last.quantity??form.quantity} ·
@@ -223,7 +236,7 @@ export default function StoresOperationsPage(){
    <label>Read type <select value={readIntent} onChange={e=>{
     setReadIntent(e.target.value as typeof readIntent);setReadResult(null);
    }}><option>BALANCES</option><option>MOVEMENTS</option><option>CUSTODY</option></select></label>
-   <button type="button" disabled={readBusy} onClick={()=>void loadAuthoritativeRead()}>
+   <button type="button" disabled={readBusy||!selected?.stockRead} onClick={()=>void loadAuthoritativeRead()}>
     {readBusy?'Reading…':'Read protected PostgreSQL records'}
    </button>
    <p role="status" aria-live="polite">{readError}</p>

@@ -116,7 +116,7 @@ async function main(){
   const wire=(c:unknown)=>c as PgQueryClient;
   await assertOnlinePgBackendTls(wire(ex));
   const identity=await ex.query(`SELECT pg_backend_pid() AS pid,current_database() AS db,session_user AS login,current_user AS role,
-   current_setting('server_version_num') AS version,inet_server_addr()::text AS address,inet_server_port() AS port,
+   current_setting('server_version_num') AS version,pg_catalog.host(inet_server_addr()) AS address,inet_server_port() AS port,
    (SELECT oid::text FROM pg_catalog.pg_database WHERE datname=current_database()) AS oid,
    (SELECT NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolbypassrls AND NOT rolreplication FROM pg_roles WHERE rolname=current_user) AS restricted,
    NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -124,7 +124,7 @@ async function main(){
   const id=identity.rows[0];assert.equal(id.db,admission.target.database);assert.equal(id.oid,admission.target.databaseOid);
   assert.equal(id.login,admission.logins.fixtureExecutor);assert.equal(id.role,id.login);assert.equal(id.restricted,true);assert.equal(id.nonowner,true);
   assert.equal(id.version,admission.target.pgVersion);assert.equal(id.port,Number(admission.target.backendPort));
-  const monitorIdentity=await mon.query('SELECT current_database() AS db,session_user AS login,inet_server_addr()::text AS address,inet_server_port() AS port');
+  const monitorIdentity=await mon.query('SELECT current_database() AS db,session_user AS login,pg_catalog.host(inet_server_addr()) AS address,inet_server_port() AS port');
   assert.deepEqual(monitorIdentity.rows[0],{db:id.db,login:id.login,address:id.address,port:id.port});
   const binding=await ex.query(QUAL077_BINDING_SQL,[QUAL077_BINDING_BODY]);
   assert.equal(binding.rows.length,1);assert.equal(binding.rows[0].immutable,true);assert.equal(binding.rows[0].singular,true);

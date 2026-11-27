@@ -2,11 +2,17 @@
  * Requires independently enrolled OIDC client and Ed25519 issuer secrets.
  * Never creates a fake user, approves a Master, or grants stock authority.
  */
-import {createCipheriv,createDecipheriv,createHash,createPrivateKey,
+import {createCipheriv,createDecipheriv,createHash,createHmac,createPrivateKey,
  createPublicKey,randomBytes,randomUUID,sign,timingSafeEqual,verify}
  from 'node:crypto';
 import {assertLiveProfile,type LiveEnv} from './live-profile.ts';
 import {identityProofModeAdmitted} from './live-identity-mode.ts';
+import {hostedOperatorAttempt,hostedOperatorMode} from '../roles/hosted-operator-profile.ts';
+import {operatorRoster,operatorBinding,assertCanonicalOperator} from '../roles/hosted-operator-identity.ts';
+import {assertRoleBackendProfile,openRoleBackendPool,assertRoleConnection} from '../roles/role-backend.ts';
+import {PostgresRoleStore} from '../roles/role-postgres.ts';
+import {assertRetainedStoresProfile} from '../stores/ops-a2-retained-profile.ts';
+import {assertOnlinePgTransport} from '../persistence/online-pg-transport.ts';
 const identifier=/^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/;
 const b64=(bytes:Buffer|string)=>Buffer.from(bytes).toString('base64url');
 function sha(x:string){return createHash('sha256').update(x,'utf8').digest();}
@@ -24,11 +30,15 @@ function url(value:string|undefined){
 }
 export type OidcConfig=Readonly<{issuer:string;authorize:string;token:string;
  jwks:string;clientId:string;clientSecret:string;stateKey:Buffer;
- privatePem:string;proofBinding?:Readonly<{email:string;origin:string;sourceCommit:string}>;
+ privatePem:string;hosted?:true;proofBinding?:Readonly<{email:string;origin:string;sourceCommit:string}>;
  actors:Readonly<Record<string,{subject:string;
  providerSubject:string;legalEntityId:string;siteId:string;warehouseIds:string[]}>>}>;
 export function oidcConfig(env:LiveEnv,identityProofOnly=false):OidcConfig{
- if(identityProofOnly){
+ const hosted=hostedOperatorAttempt(env);
+ if(hosted){
+  if(identityProofOnly)throw Error('HOSTED_OPERATOR_PROOF_MODE_DENIED');
+  assertHostedLoginRuntime(env);
+ }else if(identityProofOnly){
   if(!identityProofModeAdmitted(env))throw Error('LIVE_R1_IDENTITY_PROOF_NOT_ADMITTED');
  }else assertLiveProfile(env);
  const exactIssuer=url(env.HFT_LIVE_R1_OIDC_ISSUER);
@@ -39,7 +49,9 @@ export function oidcConfig(env:LiveEnv,identityProofOnly=false):OidcConfig{
  const jwks=url(env.HFT_LIVE_R1_OIDC_JWKS_URL).toString();
  const clientId=env.HFT_LIVE_R1_OIDC_CLIENT_ID||'';
  const clientSecret=env.HFT_LIVE_R1_OIDC_CLIENT_SECRET||'';
- const stateKey=Buffer.from(env.HFT_LIVE_R1_OIDC_STATE_KEY_BASE64||'','base64');
+ const baseStateKey=Buffer.from(env.HFT_LIVE_R1_OIDC_STATE_KEY_BASE64||'','base64');
+ if(hosted&&baseStateKey.length!==32)throw Error('HOSTED_OPERATOR_STATE_KEY_INVALID');
+ const stateKey=hosted?createHmac('sha256',baseStateKey).update('HFT-HOSTED-OPERATOR-OIDC-V1\0'+env.HFT_PUBLIC_ORIGIN).digest():baseStateKey;
  const privatePem=env.HFT_LIVE_R1_SESSION_ED25519_PRIVATE_KEY_PEM||'';
  let actors:Record<string,{subject:string;providerSubject:string;legalEntityId:string;
   siteId:string;warehouseIds:string[]}>={};
@@ -57,6 +69,11 @@ export function oidcConfig(env:LiveEnv,identityProofOnly=false):OidcConfig{
    jwks!=='https://www.googleapis.com/oauth2/v3/certs')
    throw Error('LIVE_R1_IDENTITY_GOOGLE_PROVIDER_REQUIRED');
   proofBinding={email,origin,sourceCommit};
+ }else if(hosted){
+  if(issuer!=='https://accounts.google.com'||authorize!=='https://accounts.google.com/o/oauth2/v2/auth'||
+   token!=='https://oauth2.googleapis.com/token'||jwks!=='https://www.googleapis.com/oauth2/v3/certs')
+   throw Error('HOSTED_OPERATOR_GOOGLE_PROVIDER_REQUIRED');
+  actors={...operatorRoster(env)};
  }else{
   try{
    actors=JSON.parse(env.HFT_LIVE_R1_OIDC_APPROVED_ACTORS_JSON||'') as typeof actors;
@@ -84,10 +101,10 @@ export function oidcConfig(env:LiveEnv,identityProofOnly=false):OidcConfig{
    throw Error('LIVE_R1_OIDC_SIGNER_KEY_MISMATCH');
  }catch{throw Error('LIVE_R1_OIDC_SIGNER_KEY_MISMATCH');}
  return {issuer,authorize,token,jwks,clientId,clientSecret,
-  stateKey,privatePem,actors,proofBinding};
+  stateKey,privatePem,actors,proofBinding,...(hosted?{hosted:true as const}:{})};
 }
 export type Flow=Readonly<{state:string;nonce:string;verifier:string;issuedAt:number;
- identityProofOnly?:true}>;
+ identityProofOnly?:true;operatorReturn?:'roles'|'stores'}>;
 const authCookie='__Host-hft_live_oauth';
 export const identityProofCookie='__Host-hft_live_identity_proof';
 const sessionCookie='__Host-hft_session';
@@ -111,6 +128,7 @@ export function decodeFlow(value:string|undefined,key:Buffer):Flow{
    .toString('utf8')) as Flow;
   if(!p||!p.state||!p.nonce||!p.verifier||
    (p.identityProofOnly!==undefined&&p.identityProofOnly!==true)||
+   (p.operatorReturn!==undefined&&p.operatorReturn!=='roles'&&p.operatorReturn!=='stores')||
    !Number.isSafeInteger(p.issuedAt)||Date.now()-p.issuedAt>300000||
    Date.now()<p.issuedAt-30000)
    throw Error('LIVE_R1_OIDC_STATE_EXPIRED');
@@ -131,14 +149,15 @@ export function cookieValue(raw:string|null,name:string):string|undefined{
  if(matches.length!==1)return undefined;
  return matches[0].slice(name.length+1);
 }
-export function startUrl(config:OidcConfig,origin:string,identityProofOnly=false):{
+export function startUrl(config:OidcConfig,origin:string,identityProofOnly=false,operatorReturn?:'roles'|'stores'):{
  location:string;cookie:string}{
  if(Boolean(config.proofBinding)!==identityProofOnly||
   (config.proofBinding&&config.proofBinding.origin!==origin))
   throw Error('LIVE_R1_IDENTITY_FLOW_MODE_MISMATCH');
+ if(Boolean(config.hosted)!==Boolean(operatorReturn)||config.hosted&&identityProofOnly)throw Error('HOSTED_OPERATOR_FLOW_MODE_DENIED');
  const flow={state:b64(randomBytes(32)),nonce:b64(randomBytes(32)),
   verifier:b64(randomBytes(32)),issuedAt:Date.now(),
-  ...(identityProofOnly?{identityProofOnly:true as const}:{})};
+  ...(identityProofOnly?{identityProofOnly:true as const}:{}),...(operatorReturn?{operatorReturn}:{})};
  const u=new URL(config.authorize);
  u.searchParams.set('response_type','code');
  u.searchParams.set('client_id',config.clientId);
@@ -256,18 +275,47 @@ export async function completeIdentityProof(config:OidcConfig,env:LiveEnv,
  return {state:'GOOGLE_IDENTITY_VERIFIED_NO_SESSION',payload,signature,
   enrolled:false,applicationSession:false,databaseAccess:false};
 }
+function assertHostedLoginRuntime(env:LiveEnv){
+ const mode=hostedOperatorMode(env);
+ assertRoleBackendProfile(env);
+ if(mode==='ROLES_RECEIVE'){assertRetainedStoresProfile(env);assertOnlinePgTransport(env,'P2_STORES');}
+}
 export async function completeLogin(config:OidcConfig,env:LiveEnv,
  flow:Flow,code:string):Promise<string>{
  if(flow.identityProofOnly||config.proofBinding)throw Error('LIVE_R1_IDENTITY_PROOF_CANNOT_CREATE_SESSION');
- assertLiveProfile(env);
+ const hosted=hostedOperatorAttempt(env);
+ if(Boolean(config.hosted)!==hosted||Boolean(flow.operatorReturn)!==hosted)
+  throw Error('HOSTED_OPERATOR_FLOW_MODE_DENIED');
+ if(hosted)assertHostedLoginRuntime(env);else assertLiveProfile(env);
  const identity=await verifyGoogleIdentity(config,env,flow,code);
  const actor=oneActor(config,{email:identity.email,email_verified:true,sub:identity.providerSubject});
  const now=Math.floor(Date.now()/1000);
+ const sessionId=randomUUID();
+ let binding:string|undefined;
+ if(hosted){
+  const a=operatorRoster(env)[identity.email];
+  if(!a||a.providerSubject!==identity.providerSubject||a.subject!==actor.subject||
+   a.legalEntityId!==actor.legalEntityId||a.siteId!==actor.siteId||
+   JSON.stringify(a.warehouseIds)!==JSON.stringify(actor.warehouseIds))
+   throw Error('HOSTED_OPERATOR_PROVIDER_BINDING_DENIED');
+  // Canonical active employee/person/scope verification. Never enroll or assign roles here.
+  const pool=openRoleBackendPool(env);
+  try{
+   const store=new PostgresRoleStore(pool,c=>assertRoleConnection(c,env));
+   await store.read(async tx=>{
+    const principal=await tx.principal({subject:a.subject,sessionId,expiresAt:now+600,
+     scope:{legalEntityId:a.legalEntityId,siteId:a.siteId,warehouseIds:a.warehouseIds},
+     canonicalEmployeeId:a.employeeId,canonicalPersonId:a.personId});
+    assertCanonicalOperator(a,principal,await tx.scopes(principal));
+   });
+  }finally{await pool.end();}
+  binding=operatorBinding(identity.email,a);
+ }
  const session={
   iss:env.HFT_SESSION_ISSUER,aud:env.HFT_SESSION_AUDIENCE,
-  sub:actor.subject,jti:randomUUID(),
+  sub:actor.subject,jti:sessionId,
   legalEntityId:actor.legalEntityId,siteId:actor.siteId,
-  warehouseIds:actor.warehouseIds,iat:now,exp:now+600
+  warehouseIds:actor.warehouseIds,iat:now,exp:now+600,...(binding?{operatorBinding:binding}:{})
  };
  const top=b64(JSON.stringify({alg:'EdDSA',typ:'JWT',kid:'hft-r1'}));
  const body=b64(JSON.stringify(session));

@@ -10,7 +10,7 @@ const forbidden=['PGUSER','PGPASSWORD','PGHOSTADDR','PGSERVICE','PGSERVICEFILE',
 export function isLiveProfile(env:LiveEnv){return env.HFT_LIVE_R1_PROFILE===LIVE_PROFILE;}
 export function assertLiveProfile(env:LiveEnv):void{
  const test=env.HFT_ENVIRONMENT==='production-qualification';
- if(env.HFT_LIVE_R1_IDENTITY_PROOF_MODE!==undefined||!isLiveProfile(env)||!['production','production-qualification'].includes(env.HFT_ENVIRONMENT??'')||
+ if(env.HFT_HOSTED_OPERATOR_PROFILE!==undefined||env.HFT_LIVE_R1_IDENTITY_PROOF_MODE!==undefined||!isLiveProfile(env)||!['production','production-qualification'].includes(env.HFT_ENVIRONMENT??'')||
   env.NODE_ENV!=='production'||env.HFT_LIVE_POSTING_ENABLED!=='false'||
   env.HFT_AUTH_SOURCE!=='verified'||env.HFT_OPERATIONS_SOURCE!=='database'||
   !['production','preview',undefined].includes(env.VERCEL_ENV)||

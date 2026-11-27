@@ -33,7 +33,10 @@ function pool():typeof stockPool{return {async end(){},async connect(){
  if(state.waitBefore){state.before.resolve();await state.resumeBefore.promise;state.waitBefore=false;}
  let begun=false,readOnly=false,held=false;
  const release=()=>{if(held){held=false;state.shared--;if(!state.shared)state.unlocked.resolve();}};
- return {async query<Row extends Record<string,unknown>>(sql:string,params?:readonly unknown[]){
+ return {connection:{stream:{encrypted:true,authorized:true,authorizationError:null,servername:'fixture.example.org',
+  remoteAddress:'192.0.2.1',remotePort:5432,getProtocol:()=> 'TLSv1.3',getCipher:()=>({name:'TLS_AES_256_GCM_SHA384'}),
+  getPeerCertificate:()=>({raw:Buffer.from('synthetic'),subjectaltname:'DNS:fixture.example.org'})}},
+  async query<Row extends Record<string,unknown>>(sql:string,params?:readonly unknown[]){
   let rows:Record<string,unknown>[]=[];
   if(sql.startsWith('BEGIN')){begun=true;readOnly=sql.includes('READ ONLY');state.events.push(readOnly?'begin-read-only':'begin-write');}
   else if(sql.includes('AS db_name'))rows=[{db_name:db,db_login:login,db_role:login,server_address:'127.0.0.1',server_port:5432}];
@@ -54,7 +57,7 @@ m('../../lib/hft/stores/ops-a2-retained-profile.ts',{isRetainedStoresProfile:()=
 m('../../lib/hft/roles/role-backend.ts',{assertRoleBackendProfile:()=>{},assertRoleConnection:async()=>({database:db,oid:'12345',address:'127.0.0.1',port:5432}),
  openRoleBackendPool:()=>({async end(){state.closedRolePools++;}})});
 m('../../lib/hft/roles/role-postgres.ts',{PostgresRoleStore:Store});
-m('../../lib/hft/persistence/online-pg-transport.ts',{isOnlinePgTransport:()=>true,assertOnlinePgTransport:()=>{},
+m('../../lib/hft/persistence/online-pg-transport.ts',{isOnlinePgTransport:()=>true,assertOnlinePgTransport:()=>({host:'fixture.example.org',port:5432}),
  assertOnlinePgBackendTls:async()=>{},assertOnlineBackendIdentity:()=>{}});
 m('../../lib/hft/persistence/online-db-qualification.ts',{assertOnlineRuntimeCatalog:async()=>{}});
 m('../../lib/hft/stores/p0-operations.ts',{validateP0Operation:()=>op});
