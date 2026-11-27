@@ -59,10 +59,10 @@ export function verifyIntakeCookie(raw:string|null,env:LiveEnv,sessionId:string,
  throw Error('INTAKE_SIGNATURE_INVALID');
  const h=part(pieces[0]),b=part(pieces[1]);
  if(Object.keys(h).length!==3||h.alg!=='EdDSA'||h.typ!=='JWT'||h.kid!=='hft-intake-v1'||
- Object.keys(b).length!==7||b.iss!==env.HFT_SESSION_ISSUER||b.aud!==INTAKE_PROFILE||b.sub!==g.grant||
+ Object.keys(b).length!==6||b.iss!==env.HFT_SESSION_ISSUER||b.aud!==INTAKE_PROFILE||b.sub!==g.grant||
  b.sid!==sessionId||!uuid.test(sessionId)||typeof b.iat!=='number'||typeof b.exp!=='number'||
  !Number.isSafeInteger(b.iat)||!Number.isSafeInteger(b.exp)||b.iat>now+30||b.exp<=now||
  b.exp<=b.iat||b.exp-b.iat>600||b.exp>g.until)
  throw Error('INTAKE_SESSION_INVALID');
- return g;
+ return {...g,expiresAt:b.exp};
 }

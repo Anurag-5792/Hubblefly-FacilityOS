@@ -18,7 +18,7 @@ const markerKey=(ctx:string)=>'hft.intake.pending.v1.'+ctx;
 function marker(ctx:string):Pending|null{
  const v=sessionStorage.getItem(markerKey(ctx));if(!v)return null;
  const p=obj(JSON.parse(v));
- if(typeof p.requestId!=='string'||!/^[a-f0-9-]{36}$/.test(p.requestId)||typeof p.itemId!=='string'||!Number.isSafeInteger(p.expectedRevision))throw Error('INVALID_MARKER');
+ if(typeof p.requestId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(p.requestId)||typeof p.itemId!=='string'||!/^(CM|OP)-[0-9]+$/.test(p.itemId)||!Number.isSafeInteger(p.expectedRevision)||Number(p.expectedRevision)<1)throw Error('INVALID_MARKER');
  return p as Pending;
 }
 function display(v:unknown){return v===null||v===undefined||v===''?'—':typeof v==='object'?JSON.stringify(v):String(v);}
@@ -26,27 +26,33 @@ async function call(payload:unknown,ctx?:string,signal?:AbortSignal){
  const response=await fetch('/api/hft/intake',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json',...(ctx?{'x-hft-intake-context':ctx}:{})},body:JSON.stringify(payload),signal});
  const result=obj(await response.json());
  if(!response.ok)throw new ApiError(response.status,String(result.code||'INTAKE_UNAVAILABLE'));
- if(result.state!=='INVENTORY_REVIEW_RESULT'||typeof result.contextId!=='string'||!/^[a-f0-9]{64}$/.test(result.contextId)||ctx&&ctx!==result.contextId)throw Error('INTAKE_CONTEXT_CHANGED');
- return {contextId:result.contextId,data:result.data};
+ if(result.state!=='INVENTORY_REVIEW_RESULT'||typeof result.contextId!=='string'||!/^[a-f0-9]{64}$/.test(result.contextId)||typeof result.expiresAt!=='number'||!Number.isSafeInteger(result.expiresAt)||result.expiresAt<=Date.now()/1000||(ctx&&ctx!==result.contextId))throw Error('INTAKE_CONTEXT_CHANGED');
+ return {contextId:result.contextId,expiresAt:result.expiresAt,data:result.data};
 }
 export default function IntakePage(){
  const [view,setView]=useState<IntakeView>('items'),[query,setQuery]=useState(''),[search,setSearch]=useState(''),[offset,setOffset]=useState(0);
  const [data,setData]=useState<PageData|null>(null),[state,setState]=useState<'loading'|'ready'|'signin'|'error'>('loading'),[ctx,setCtx]=useState('');
  const [pending,setPending]=useState<Pending|null>(null),[storage,setStorage]=useState(false),[busy,setBusy]=useState(false),[reload,setReload]=useState(0);
  const [edit,setEdit]=useState<Edit|null>(null),[notice,setNotice]=useState('');
- const epoch=useRef(0),busyRef=useRef(false);
+ const epoch=useRef(0),busyRef=useRef(false),activeContext=useRef('');
+ const [expiresAt,setExpiresAt]=useState(0);
  const pageSize=50;
  useEffect(()=>{
   const control=new AbortController(),version=++epoch.current;
-  setState('loading');setData(null);
+  setState('loading');setData(null);setPending(null);setEdit(null);setNotice('');setStorage(false);
   void call({intent:'READ',view,search,offset,limit:pageSize},undefined,control.signal).then(result=>{
    if(control.signal.aborted||epoch.current!==version)return;
    const p=parsePage(result.data);
-   setCtx(result.contextId);setData(p);setState('ready');
+   activeContext.current=result.contextId;setCtx(result.contextId);setExpiresAt(result.expiresAt);setData(p);setState('ready');
    try{setPending(marker(result.contextId));setStorage(true);}catch{setPending(null);setStorage(false);}
-  }).catch(error=>{if(!control.signal.aborted&&epoch.current===version){setCtx('');setData(null);setPending(null);setEdit(null);setStorage(false);setState(error instanceof ApiError&&(error.status===401||error.status===403)?'signin':'error');}});
+  }).catch(error=>{if(!control.signal.aborted&&epoch.current===version){activeContext.current='';setCtx('');setExpiresAt(0);setData(null);setPending(null);setEdit(null);setStorage(false);setState(error instanceof ApiError&&(error.status===401||error.status===403)?'signin':'error');}});
   return()=>control.abort();
  },[view,search,offset,reload]);
+ useEffect(()=>{
+  if(!expiresAt)return;
+  const timer=window.setTimeout(()=>{epoch.current++;activeContext.current='';setCtx('');setExpiresAt(0);setData(null);setPending(null);setEdit(null);setStorage(false);setNotice('');setState('signin');},Math.max(0,expiresAt*1000-Date.now()));
+  return()=>window.clearTimeout(timer);
+ },[expiresAt]);
  function selectView(v:IntakeView){if(busyRef.current||pending)return;setEdit(null);setView(v);setQuery('');setSearch('');setOffset(0);setNotice('');}
  function find(e:FormEvent){e.preventDefault();if(busyRef.current)return;setEdit(null);setOffset(0);setSearch(query.trim());setReload(x=>x+1);}
  function begin(){if(busyRef.current)return false;busyRef.current=true;setBusy(true);return true;}
@@ -62,10 +68,12 @@ export default function IntakePage(){
   }catch{setStorage(false);setNotice('Request tracking unavailable. No change submitted.');end();return;}
   try{
    const response=await call({intent:'RENAME',requestId:p.requestId,itemId:p.itemId,revision:p.expectedRevision,name,reason},ctx);
+   if(activeContext.current!==ctx)return;
    const r=obj(response.data);
    if(r.state!=='RECORDED'||r.requestId!==p.requestId||r.itemId!==p.itemId||r.revision!==p.expectedRevision+1||r.name!==name)throw Error('UNCONFIRMED');
    clearPending();setEdit(null);setNotice('Name saved and verified. The original source name is unchanged.');setReload(x=>x+1);
   }catch(err){
+   if(activeContext.current!==ctx)return;
    if(err instanceof ApiError&&err.code==='INTAKE_RENAME_REJECTED'){try{clearPending();setNotice('Change rejected. Refresh and check the current record.');}catch{setStorage(false);}}
    else{setNotice('Save outcome not confirmed. Check the original request before making another change.');}
   }finally{end();}
@@ -73,18 +81,19 @@ export default function IntakePage(){
  async function reconcile(){
   if(!pending||!ctx||!begin())return;
   try{const r=obj((await call({intent:'RECONCILE',requestId:pending.requestId},ctx)).data);
+   if(activeContext.current!==ctx)return;
    if(r.state==='RECORDED'&&r.requestId===pending.requestId&&r.itemId===pending.itemId&&r.revision===pending.expectedRevision+1){
     clearPending();setEdit(null);setNotice('The original change is recorded.');setReload(x=>x+1);
    }else setNotice('No committed result found. Request remains held for review; do not submit it again.');
-  }catch{setNotice('Reconciliation unavailable. Original request remains held.');}finally{end();}
+  }catch{if(activeContext.current===ctx)setNotice('Reconciliation unavailable. Original request remains held.');}finally{end();}
  }
  async function signOut(){
-  if(!begin())return;try{const r=await fetch('/api/hft/live-masters/signout',{method:'POST',credentials:'same-origin'});if(!r.ok)throw Error('SIGNOUT_FAILED');}catch{setNotice('Sign-out could not be confirmed. Close this page or try again.');}finally{epoch.current++;setData(null);setCtx('');setPending(null);setEdit(null);setStorage(false);setState('signin');end();}
+  if(!begin())return;try{const r=await fetch('/api/hft/live-masters/signout',{method:'POST',credentials:'same-origin'});if(!r.ok)throw Error('SIGNOUT_FAILED');}catch{setNotice('Sign-out could not be confirmed. Close this page or try again.');}finally{epoch.current++;activeContext.current='';setData(null);setCtx('');setExpiresAt(0);setPending(null);setEdit(null);setStorage(false);setState('signin');end();}
  }
  return <div className={s.shell}>
   <aside className={s.sidebar}><div className={s.brand}><div className={s.brandMark}>H</div><div><strong>HUBBLEFLY</strong><span>FacilityOS</span></div></div>
    <div className={s.sideCaption}>STORES · INVENTORY REVIEW</div>
-   {state==='ready'&&<nav className={s.navigation} aria-label="Inventory registers">{INTAKE_VIEWS.map(v=><button type="button" key={v} disabled={busy||!!pending} aria-current={v===view?'page':undefined} className={v===view?s.navSelected:s.navButton} onClick={()=>selectView(v)}>{names[v]}</button>)}</nav>}
+   {state==='ready'&&<nav className={s.navigation} aria-label="Inventory registers">{INTAKE_VIEWS.map(v=><button type="button" key={v} disabled={busy||!!pending||state!=='ready'} aria-current={v===view?'page':undefined} className={v===view?s.navSelected:s.navButton} onClick={()=>selectView(v)}>{names[v]}</button>)}</nav>}
    <div className={s.sidebarBottom}><Link className={s.navButton} href="/masters/live">Masters workspace</Link><span>Stock posting not enabled</span></div>
   </aside>
   <div className={s.main}><header className={s.topbar}><div className={s.breadcrumb}>FacilityOS / Stores / <strong>Inventory intake</strong></div>{state==='ready'&&<button type="button" className={s.secondary} disabled={busy} onClick={()=>void signOut()}>Sign out</button>}</header>

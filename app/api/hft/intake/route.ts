@@ -19,7 +19,7 @@ export async function POST(request:Request){
  if(req.intent!=='READ'&&request.headers.get('x-hft-intake-context')!==grant.contextId)return fail(401,'INTAKE_CONTEXT_CHANGED');
  try{
   const data=await executeIntake(process.env,grant,req);
-  return Response.json({state:'INVENTORY_REVIEW_RESULT',contextId:grant.contextId,data},{headers});
+  return Response.json({state:'INVENTORY_REVIEW_RESULT',contextId:grant.contextId,expiresAt:grant.expiresAt,data},{headers});
  }catch(e){
   const message=e instanceof Error?e.message:'';
   if(req.intent==='RENAME'){
