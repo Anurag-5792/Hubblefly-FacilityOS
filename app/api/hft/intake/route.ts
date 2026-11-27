@@ -18,8 +18,9 @@ export async function POST(request:Request){
  catch{return fail(422,'INTAKE_INVALID');}
  if(req.intent!=='READ'&&request.headers.get('x-hft-intake-context')!==grant.contextId)return fail(401,'INTAKE_CONTEXT_CHANGED');
  try{
+  const started=performance.now();
   const data=await executeIntake(process.env,grant,req);
-  return Response.json({state:'INVENTORY_REVIEW_RESULT',contextId:grant.contextId,expiresAt:grant.expiresAt,data},{headers});
+  return Response.json({state:'INVENTORY_REVIEW_RESULT',contextId:grant.contextId,expiresAt:grant.expiresAt,data},{headers:{...headers,'Server-Timing':'intake;dur='+String(Math.round(performance.now()-started))}});
  }catch(e){
   const message=e instanceof Error?e.message:'';
   if(req.intent==='RENAME'){

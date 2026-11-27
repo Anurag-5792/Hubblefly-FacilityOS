@@ -1,6 +1,7 @@
 'use client';
 import {useEffect,useState,useRef,type FormEvent} from 'react';
 import Link from 'next/link';
+import {workspaceView,workspaceViewUrl} from '../../../lib/hft/ui-reuse/workspace-view-state.ts';
 import s from '../../masters/live/workspace.module.css';
 import {INTAKE_VIEWS,type IntakeView} from '../../../lib/hft/intake/intake-contract.ts';
 const names:Record<IntakeView,string>={items:'Item directory',opening:'Opening observations',current:'Current stock sheet',issues:'Issues',hft_issues:'HFT issues',movement_holds:'Movement holds',racks:'Rack levels',positions:'Positions',containers:'Containers',stickers:'Sticker / QR register'};
@@ -37,9 +38,14 @@ export default function IntakePage(){
  const epoch=useRef(0),busyRef=useRef(false),activeContext=useRef('');
  const [expiresAt,setExpiresAt]=useState(0);
  const pageSize=50;
+ const [viewReady,setViewReady]=useState(false);
  useEffect(()=>{
+  setView(workspaceView(window.location.href,'view',INTAKE_VIEWS,'items'));setViewReady(true);
+ },[]);
+ useEffect(()=>{
+  if(!viewReady)return;
   const control=new AbortController(),version=++epoch.current;
-  setState('loading');setData(null);setPending(null);setEdit(null);setNotice('');setStorage(false);
+  setState('loading');setData(null);setPending(null);setEdit(null);setStorage(false);
   void call({intent:'READ',view,search,offset,limit:pageSize},undefined,control.signal).then(result=>{
    if(control.signal.aborted||epoch.current!==version)return;
    const p=parsePage(result.data);
@@ -47,13 +53,13 @@ export default function IntakePage(){
    try{setPending(marker(result.contextId));setStorage(true);}catch{setPending(null);setStorage(false);}
   }).catch(error=>{if(!control.signal.aborted&&epoch.current===version){activeContext.current='';setCtx('');setExpiresAt(0);setData(null);setPending(null);setEdit(null);setStorage(false);setState(error instanceof ApiError&&(error.status===401||error.status===403)?'signin':'error');}});
   return()=>control.abort();
- },[view,search,offset,reload]);
+ },[viewReady,view,search,offset,reload]);
  useEffect(()=>{
   if(!expiresAt)return;
   const timer=window.setTimeout(()=>{epoch.current++;activeContext.current='';setCtx('');setExpiresAt(0);setData(null);setPending(null);setEdit(null);setStorage(false);setNotice('');setState('signin');},Math.max(0,expiresAt*1000-Date.now()));
   return()=>window.clearTimeout(timer);
  },[expiresAt]);
- function selectView(v:IntakeView){if(busyRef.current||pending)return;setEdit(null);setView(v);setQuery('');setSearch('');setOffset(0);setNotice('');}
+ function selectView(v:IntakeView){if(busyRef.current||pending)return;window.history.replaceState(window.history.state,'',workspaceViewUrl(window.location.href,'view',v,INTAKE_VIEWS));setEdit(null);setView(v);setQuery('');setSearch('');setOffset(0);setNotice('');}
  function find(e:FormEvent){e.preventDefault();if(busyRef.current)return;setEdit(null);setOffset(0);setSearch(query.trim());setReload(x=>x+1);}
  function begin(){if(busyRef.current)return false;busyRef.current=true;setBusy(true);return true;}
  function end(){busyRef.current=false;setBusy(false);}
@@ -91,12 +97,12 @@ export default function IntakePage(){
   if(!begin())return;try{const r=await fetch('/api/hft/live-masters/signout',{method:'POST',credentials:'same-origin'});if(!r.ok)throw Error('SIGNOUT_FAILED');}catch{setNotice('Sign-out could not be confirmed. Close this page or try again.');}finally{epoch.current++;activeContext.current='';setData(null);setCtx('');setExpiresAt(0);setPending(null);setEdit(null);setStorage(false);setState('signin');end();}
  }
  return <div className={s.shell}>
-  <aside className={s.sidebar}><div className={s.brand}><div className={s.brandMark}>H</div><div><strong>HUBBLEFLY</strong><span>FacilityOS</span></div></div>
+  <aside className={s.sidebar}><div className={s.brand}><div className={s.brandMark}>H</div><div><strong>HUBBLEFLY</strong><span>HFT-OS</span></div></div>
    <div className={s.sideCaption}>STORES · INVENTORY REVIEW</div>
    {state==='ready'&&<nav className={s.navigation} aria-label="Inventory registers">{INTAKE_VIEWS.map(v=><button type="button" key={v} disabled={busy||!!pending||state!=='ready'} aria-current={v===view?'page':undefined} className={v===view?s.navSelected:s.navButton} onClick={()=>selectView(v)}>{names[v]}</button>)}</nav>}
    <div className={s.sidebarBottom}><Link className={s.navButton} href="/masters/live">Masters workspace</Link><span>Stock posting not enabled</span></div>
   </aside>
-  <div className={s.main}><header className={s.topbar}><div className={s.breadcrumb}>FacilityOS / Stores / <strong>Inventory intake</strong></div>{state==='ready'&&<button type="button" className={s.secondary} disabled={busy} onClick={()=>void signOut()}>Sign out</button>}</header>
+  <div className={s.main}><header className={s.topbar}><div className={s.breadcrumb}>HFT-OS / Stores / <strong>Inventory intake</strong></div>{state==='ready'&&<button type="button" className={s.secondary} disabled={busy} onClick={()=>void signOut()}>Sign out</button>}</header>
    <main className={s.content}>
     {state==='signin'||state==='error'?<section className={s.signinCard}><h1>Inventory review</h1><p>{state==='signin'?'This private inventory requires a separately authorized corporate owner session.':'The inventory connection is unavailable. No stock or data change has been made.'}</p><a className={s.primary} href="/api/hft/live-masters/auth/start">Corporate Google sign-in</a><button type="button" className={s.secondary} onClick={()=>setReload(x=>x+1)}>Refresh connection</button></section>:
     <><div className={s.pageHeading}><div><p className={s.kicker}>STORES / IMPORTED DATA</p><h1>{names[view]}</h1><p>Review the actual shared source records. Imported counts are not approved stock balances.</p></div></div>
