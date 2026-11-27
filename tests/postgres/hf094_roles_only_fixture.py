@@ -8,6 +8,7 @@ import datetime as dt
 import importlib.util
 from pathlib import Path
 import subprocess
+import re
 import time
 import uuid
 
@@ -29,7 +30,7 @@ def sql(text, db=DB, user="postgres", check=True):
     return run("docker","exec","-i",CONTAINER,"psql","-X","-v","ON_ERROR_STOP=1","-Atq","-U",user,"-d",db,input=text,check=check)
 
 def as_installer(text,check=True):
-    return sql("SET SESSION AUTHORIZATION "+INSTALLER+";\n"+text,check=check)
+    return sql(text,user=INSTALLER,check=check)
 
 def must_fail(p,code):
     assert p.returncode!=0, "unexpected SQL success"
@@ -55,7 +56,7 @@ def main():
         oid=sql("SELECT oid FROM pg_database WHERE datname=current_database();").stdout.strip()
         assert oid.isdigit()
         def fixture(s):
-            return s.replace(mod.TARGET["database"],DB).replace("<>16397","<>"+oid).replace("'cloud_admin'","'postgres'")
+            return re.sub(r"\b"+re.escape(mod.TARGET["database"])+r"\b",DB,s).replace("<>16397","<>"+oid).replace("'cloud_admin'","'postgres'")
         adapted={k:fixture(v) for k,v in artifacts.items()}
         expiry=(dt.datetime.now(dt.timezone.utc)+dt.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
         # Unmodified production-shaped guard must reject the disposable database.
