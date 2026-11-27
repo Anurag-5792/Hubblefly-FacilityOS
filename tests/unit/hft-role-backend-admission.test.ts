@@ -4,6 +4,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {rootCertificates} from 'node:tls';
+import {HOSTED_OPERATOR_PROFILE,HOSTED_OPERATOR_ISSUER,HOSTED_OPERATOR_AUDIENCE,RETAINED_STORE_PROFILE} from '../../lib/hft/roles/hosted-operator-profile.ts';
 import {assertRoleBackendProfile,isRoleBackendProfile,ROLE_BACKEND_PROFILE,
  rolePoolOptions,ROLE_BACKEND_CATALOG_SQL,assertRoleConnection}
  from '../../lib/hft/roles/role-backend.ts';
@@ -36,7 +37,7 @@ const base={
 const accepted={
  db_oid:'12345',server_address:'127.0.0.1',server_port:5432,
  protected_column_write_count:0,binding_column_write_count:0,audit_column_write_count:0,scope_unauthorized_write:false,
- missing_required_schemas:[],replication_mode:'origin',enforcement:ROLE_EXPECTED_TRIGGERS,
+ missing_required_schemas:[],secret_schema_present:true,replication_mode:'origin',enforcement:ROLE_EXPECTED_TRIGGERS,
  db:base.HFT_ROLE_PG_DATABASE,db_login:base.HFT_ROLE_PG_LOGIN,
  db_role:base.HFT_ROLE_PG_LOGIN,pg_version:180007,replica:false,
  tls:true,tls_version:'TLSv1.3',schema_usage:true,schema_create:false,
@@ -115,6 +116,30 @@ test('missing protected or role schemas fail explicitly; safe OID lookups only',
  assert.doesNotMatch(ROLE_BACKEND_CATALOG_SQL,/has_schema_privilege\(current_user,'/);
  assert.match(ROLE_BACKEND_CATALOG_SQL,/to_regnamespace/);
  assert.match(ROLE_BACKEND_CATALOG_SQL,/pg_attribute/);
+});
+test('minimum Roles-only target requires actual secret-schema absence, canonical schemas and unchanged privilege checks',async()=>{
+ const hosted={...base,HFT_HOSTED_OPERATOR_PROFILE:HOSTED_OPERATOR_PROFILE,HFT_HOSTED_OPERATOR_MODE:'ROLES_ONLY',
+  HFT_OPERATIONS_SOURCE:'database',HFT_SESSION_ISSUER:HOSTED_OPERATOR_ISSUER,HFT_SESSION_AUDIENCE:HOSTED_OPERATOR_AUDIENCE,
+  HFT_HOSTED_OPERATOR_ADMISSION_SHA256:'a'.repeat(64),HFT_HOSTED_OPERATOR_SOURCE_COMMIT:'b'.repeat(40),
+  VERCEL_GIT_COMMIT_SHA:'b'.repeat(40),HFT_HOSTED_OPERATOR_ACTORS_JSON:'{}'};
+ const minimal={missing_required_schemas:['hft_secret'],secret_schema_present:false,tls:false,tls_version:null};
+ assert.match(ROLE_BACKEND_CATALOG_SQL,/to_regnamespace\('hft_secret'\) IS NOT NULL AS secret_schema_present/);
+ await assert.doesNotReject(assertRoleConnection(client(minimal),hosted));
+ for(const drift of [{missing_required_schemas:[],secret_schema_present:true},{secret_schema_present:undefined},
+  {secret_schema_present:true},{missing_required_schemas:[]},{missing_required_schemas:['hft','hft_secret']},
+  {missing_required_schemas:['hft_app_roles','hft_secret']},{missing_required_schemas:['hft_secret','hft_secret']},
+  {secret_schema_usage:true},{protected_function_execute_count:1},{protected_relation_write_count:1},
+  {protected_column_write_count:1},{stock_account_read:true},{stock_history_read:true},{privileged_role_memberships:1},
+  {identity_binding_write:true},{audit_write_or_delete:true},{audit_trigger_count:1},{scope_unauthorized_write:true}])
+  await assert.rejects(assertRoleConnection(client({...minimal,...drift}),hosted),/NOT_INSTALLED|NOT_ADMITTED/);
+ await assert.rejects(assertRoleConnection(client(minimal,{authorized:false}),hosted),/CLIENT_TLS_NOT_VERIFIED/);
+ await assert.rejects(assertRoleConnection(client(minimal),base),/ROLE_REQUIRED_SCHEMAS_NOT_INSTALLED/);
+ const receive={...hosted,HFT_HOSTED_OPERATOR_MODE:'ROLES_RECEIVE',HFT_STORES_RUNTIME_PROFILE:RETAINED_STORE_PROFILE,
+  HFT_STORES_RESOURCE_PROJECT:base.HFT_ROLE_RESOURCE_PROJECT,HFT_STORES_RESOURCE_BRANCH:base.HFT_ROLE_RESOURCE_BRANCH,
+  HFT_STORES_APPROVED_DATABASE:base.HFT_ROLE_PG_DATABASE,PGDATABASE:base.HFT_ROLE_PG_DATABASE,
+  PGHOST:host,PGPORT:'5432'};
+ await assert.rejects(assertRoleConnection(client(minimal),receive),/ROLE_REQUIRED_SCHEMAS_NOT_INSTALLED/);
+ await assert.doesNotReject(assertRoleConnection(client(),receive));
 });
 test('trigger admission rejects disabled, replica-only, misplaced, replaced and no-op functions',()=>{
  assert.doesNotThrow(()=>assertRoleEnforcement(ROLE_EXPECTED_TRIGGERS));

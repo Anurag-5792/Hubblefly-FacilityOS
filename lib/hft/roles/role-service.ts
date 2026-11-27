@@ -57,6 +57,11 @@ export async function requireCurrentBusinessPermission(
  });
 }
 
+// Reauthentication changes only the session ID. Ownership must follow the
+// original verified subject AND its original canonical employee/person.
+function ownsRoleEvent(event:AuditEvent,actor:Principal):boolean{
+ return event.actorSubject===actor.subject&&event.actorEmployeeId===actor.employeeId&&event.actorPersonId===actor.personId;
+}
 export class RoleService {
  constructor(store:RoleStore,session:SessionIdentity,clock:()=>string=()=>new Date().toISOString()){
   this.store=store;this.session=session;this.clock=clock;
@@ -145,7 +150,7 @@ export class RoleService {
     const actor=await this.authorize(tx,change.scope,'roles.manage');
     const existing=await tx.event(change.requestId);
     if(existing){
-     if(existing.actorSubject!==actor.subject||eventDigest(existing.command)!==eventDigest(change))deny('ROLE_REQUEST_ID_REUSED');
+     if(!ownsRoleEvent(existing,actor)||eventDigest(existing.command)!==eventDigest(change))deny('ROLE_REQUEST_ID_REUSED');
      return eventDigest(existing);
     }
     const event=planChange(change,actor,await tx.employee(change.scope,change.employeeId),
@@ -163,7 +168,7 @@ export class RoleService {
  private async readback(scope:Scope,requestId:string,expectedDigest:string|null):Promise<unknown>{
   try{return await this.store.read(async tx=>{
    const actor=await this.authorize(tx,scope,'roles.read'),event=await tx.event(requestId);
-   if(!event||event.actorSubject!==actor.subject||!sameScope(event.after.scope,scope)||
+   if(!event||!ownsRoleEvent(event,actor)||!sameScope(event.after.scope,scope)||
     (expectedDigest!==null&&eventDigest(event)!==expectedDigest))deny('ROLE_READBACK_MISMATCH');
    const assignment=await tx.assignment(scope,event.after.employeeId);validateAssignment(assignment);
    if(assignment.revision<event.after.revision||!sameScope(assignment.scope,scope)||

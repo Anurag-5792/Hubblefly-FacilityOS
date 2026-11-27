@@ -6,6 +6,7 @@ import {isRoleQualificationAttempt,assertRoleQualificationProfile,assertQualific
  */
 import {X509Certificate} from 'node:crypto';
 import {assertVerifiedLiveTls} from '../live/live-tls.ts';
+import {hostedOperatorAttempt,hostedOperatorMode} from './hosted-operator-profile.ts';
 import {ROLE_TRIGGER_CATALOG_SQL,ROLE_ENFORCEMENT_SHA256,assertRoleEnforcement}
  from './role-enforcement.ts';
 import {isIP} from 'node:net';
@@ -100,6 +101,7 @@ SELECT current_database() AS db,session_user AS db_login,
  pg_is_in_recovery() AS replica,
  ARRAY(SELECT required.name FROM (VALUES('hft'),('hft_secret'),('hft_app_roles')) required(name)
   WHERE pg_catalog.to_regnamespace(required.name) IS NULL ORDER BY required.name) AS missing_required_schemas,
+ pg_catalog.to_regnamespace('hft_secret') IS NOT NULL AS secret_schema_present,
  (${ROLE_TRIGGER_CATALOG_SQL}) AS enforcement,
  current_setting('session_replication_role') AS replication_mode,
  (SELECT ssl FROM pg_catalog.pg_stat_ssl
@@ -210,7 +212,7 @@ type Catalog=Readonly<{
  db_oid:string;server_address:string;server_port:number;
  protected_column_write_count:number;binding_column_write_count:number;audit_column_write_count:number;
  scope_unauthorized_write:boolean;
- missing_required_schemas:string[];enforcement:unknown;replication_mode:string;
+ missing_required_schemas:string[];secret_schema_present:boolean;enforcement:unknown;replication_mode:string;
  db:string;db_login:string;db_role:string;pg_version:number;
  replica:boolean;tls:boolean;tls_version:string|null;
  schema_usage:boolean;schema_create:boolean;scope_read:boolean;
@@ -228,13 +230,20 @@ export async function assertRoleConnection(client:RoleSqlClient,
  env:RoleBackendEnv):Promise<RoleDatabaseIdentity>{
  assertRoleBackendProfile(env);
  const isolated=isRoleQualificationAttempt(env);
+ const rolesOnly=hostedOperatorAttempt(env)&&hostedOperatorMode(env)==='ROLES_ONLY';
  // Retained Neon terminates TLS at its proxy; verify the actual client socket.
  // The separately admitted CLI profile keeps its original backend TLS requirement.
  if(!isolated)assertVerifiedLiveTls(client,env.HFT_ROLE_PG_HOST!,Number(env.HFT_ROLE_PG_PORT));
  const result=await client.query<Catalog>(ROLE_BACKEND_CATALOG_SQL);
  const v=result.rows[0];
- if(v&&Array.isArray(v.missing_required_schemas)&&v.missing_required_schemas.length)
-  throw Error('ROLE_REQUIRED_SCHEMAS_NOT_INSTALLED');
+ // Canonical 0001–0006 + role bootstrap is the minimum Roles-only target.
+ // The actual catalog must prove hft_secret absent, not merely omit it from a required list.
+ if(v&&Array.isArray(v.missing_required_schemas)){
+  if(rolesOnly){
+   if(v.missing_required_schemas.length!==1||v.missing_required_schemas[0]!=='hft_secret'||v.secret_schema_present!==false)
+    throw Error('ROLE_REQUIRED_SCHEMAS_NOT_INSTALLED');
+  }else if(v.missing_required_schemas.length)throw Error('ROLE_REQUIRED_SCHEMAS_NOT_INSTALLED');
+ }
  if(result.rows.length!==1||!v||!Array.isArray(v.missing_required_schemas)||
   typeof v.db_oid!=='string'||!/^\d+$/.test(v.db_oid)||Number(v.db_oid)<1||
   typeof v.server_address!=='string'||!isIP(v.server_address)||

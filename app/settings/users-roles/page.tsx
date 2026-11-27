@@ -26,13 +26,19 @@ const errorText=(code:string)=>({
  ROLE_INVALID_MODULE_PERMISSIONS:'Select only permitted module CRUD actions.',
  ROLE_BACKDATING_DENIED:'The start date is in the past. Use Starts now or a future date.',
 } as Record<string,string>)[code]??'The request was rejected or could not be verified. No successful assignment is claimed.';
-class RoleRequestRejected extends Error {}
+class RoleRequestRejected extends Error {constructor(code:string,readonly status:number){super(code);}}
 async function call(body:unknown,signal?:AbortSignal,contextId?:string):Promise<Record<string,unknown>>{
  const r=await fetch(endpoint,{method:'POST',credentials:'same-origin',cache:'no-store',
   headers:{'Content-Type':'application/json',...(contextId?{'X-HFT-Operator-Context':contextId}:{})},body:JSON.stringify(body),signal});
- const data=await r.json() as Record<string,unknown>;
+ let data:Record<string,unknown>;
+ try{data=await r.json() as Record<string,unknown>;}catch(error){
+  if(r.status===401||r.status===403)throw new RoleRequestRejected('HOSTED_OPERATOR_SESSION_REQUIRED',r.status);
+  throw error;
+ }
+ // HTTP access loss must not be hidden by an unexpected response body.
+ if(r.status===401||r.status===403)throw new RoleRequestRejected(data?.state==='UNAVAILABLE'&&typeof data.code==='string'?data.code:'HOSTED_OPERATOR_SESSION_REQUIRED',r.status);
  if(data.state==='UNCONFIRMED')return data;
- if(!r.ok){if(r.status>=400&&r.status<500&&data.state==='UNAVAILABLE')throw new RoleRequestRejected(String(data.code));
+ if(!r.ok){if(r.status>=400&&r.status<500&&data.state==='UNAVAILABLE')throw new RoleRequestRejected(String(data.code),r.status);
   throw Error(String(data.code??'ROLE_OPERATION_UNAVAILABLE'));}
  return data;
 }
@@ -50,8 +56,8 @@ export default function RoleAssignmentPage(){
  const contextRef=useRef('');const [trackingBlocked,setTrackingBlocked]=useState(false);const mutationBusy=useRef(false);
  function forgetAccess(){epoch.current++;abort.current?.abort();contextRef.current='';setBoot(null);setScope(null);setPending(null);setTrackingBlocked(false);setEmployees([]);setQuery('');setView(null);setOpen(false);setRoles([]);setModuleGrants([]);setDelegateAdmin(false);setReason('');setBusy(false);}
  async function signOut(){if(busy)return;forgetAccess();try{const response=await fetch('/api/hft/live-masters/signout',{method:'POST',credentials:'same-origin',cache:'no-store'});if(!response.ok||(await response.json()).state!=='SIGNED_OUT')throw Error('SIGNOUT_UNCONFIRMED');setMessage('Signed out. Sign in again to continue.');}catch{setMessage('Sign-out unconfirmed. Close this tab or sign in again.');}}
- function lostAccess(e:unknown){return e instanceof RoleRequestRejected&&/SESSION_REQUIRED|CONTEXT_CHANGED|IDENTITY_CHANGED_DENIED|ACTOR_OR_SCOPE_DENIED|ROLE_PERMISSION_DENIED|ROLE_MANAGEMENT_DENIED/.test(e.message);}
- function showError(e:unknown){if(lostAccess(e))forgetAccess();setMessage(errorText(e instanceof Error?e.message:''));}
+ function lostAccess(e:unknown,historyRead=false){return e instanceof RoleRequestRejected&&(e.status===401||(historyRead&&e.status===403)||/SESSION_REQUIRED|CONTEXT_CHANGED|IDENTITY_CHANGED_DENIED|ACTOR_OR_SCOPE_DENIED|ROLE_PERMISSION_DENIED|ROLE_MANAGEMENT_DENIED/.test(e.message));}
+ function showError(e:unknown,historyRead=false){if(lostAccess(e,historyRead))forgetAccess();setMessage(errorText(e instanceof Error?e.message:''));}
  function nextRequest(){abort.current?.abort();abort.current=new AbortController();return {n:++epoch.current,signal:abort.current.signal};}
  useEffect(()=>{const controller=new AbortController();
   call({action:'BOOTSTRAP'},controller.signal).then(data=>{
@@ -124,11 +130,24 @@ export default function RoleAssignmentPage(){
    else setMessage('Still unconfirmed. Keep this request ID for internal investigation; do not re-submit.');
   }catch(e){if(operationEpoch===epoch.current&&context===contextRef.current){if(lostAccess(e))forgetAccess();setMessage('Readback unavailable. No success is claimed and no write was retried.');}}finally{setBusy(false);}
  }
- async function moreHistory(){if(!view||!scope||!view.nextBeforeRevision)return;setBusy(true);const {n,signal}=nextRequest();
-  try{const data=await call({action:'VIEW',scope,employeeId:view.employee.employeeId,beforeRevision:view.nextBeforeRevision},signal,contextRef.current);
-   if(n===epoch.current&&data.state==='READ_VERIFIED'){const v=data as unknown as View;
-    setView({...v,history:[...view.history,...v.history].filter((e,i,a)=>a.findIndex(x=>x.requestId===e.requestId)===i)});}}
-  catch(e){if(!signal.aborted)setMessage(errorText(e instanceof Error?e.message:''));}finally{if(n===epoch.current)setBusy(false);}
+ async function moreHistory(){
+  if(!boot||!view||!scope||!view.nextBeforeRevision||busy)return;
+  setBusy(true);const {n,signal}=nextRequest(),context=contextRef.current;
+  const current=()=>n===epoch.current&&!signal.aborted&&context===contextRef.current;
+  const expired=()=>boot.expiresAt!==undefined&&boot.expiresAt<=Date.now()/1000;
+  try{
+   const data=await call({action:'VIEW',scope,employeeId:view.employee.employeeId,beforeRevision:view.nextBeforeRevision},signal,context);
+   if(!current())return;
+   if(expired()){forgetAccess();setMessage('Session expired. Sign in again. Preserve any unresolved request reference.');return;}
+   const v=data as unknown as View;
+   if(v.state!=='READ_VERIFIED'||v.employee?.employeeId!==view.employee.employeeId||
+    !v.assignment||v.assignment.employeeId!==view.employee.employeeId||!sameScope(v.assignment.scope,scope)||!Array.isArray(v.history))
+    throw Error('ROLE_OPERATION_UNAVAILABLE');
+   setView({...v,history:[...view.history,...v.history].filter((e,i,a)=>a.findIndex(x=>x.requestId===e.requestId)===i)});
+  }catch(e){if(current()){
+   if(expired()){forgetAccess();setMessage('Session expired. Sign in again. Preserve any unresolved request reference.');}
+   else showError(e,true);
+  }}finally{if(current())setBusy(false);}
  }
  const self=view?.employee.employeeId===boot?.actorEmployeeId;
  const entities=[...new Set(boot?.scopes.map(s=>s.legalEntityId)??[])];
