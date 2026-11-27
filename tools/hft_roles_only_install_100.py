@@ -255,19 +255,30 @@ def guarded_apply(pg,custody,order,key,host,ci_result,provider,authorize,backup,
         raise RuntimeError("HF100_"+state) from None
 def main():
     p=argparse.ArgumentParser(description=__doc__);g=p.add_mutually_exclusive_group(required=True)
-    for mode in ("inspect","qualify","apply"):g.add_argument("--"+mode,action="store_true")
+    for mode in ("inspect","measure-baseline","qualify","apply"):g.add_argument("--"+mode,action="store_true")
     for n in ("owner-order","owner-signature","machine-contract","passfile","ca","receipt-key"):p.add_argument("--"+n)
     a=p.parse_args();manifest,sql,plan=inspect()
     if a.inspect:
         for path in (SELF,ROOT/"tools/hf100_control.py",ROOT/"tools/hf100_registry.py",ROOT/"tools/hf100_native_restore.py",POLICY):print(str(path.relative_to(ROOT))+" SHA256="+sha(path.read_bytes()))
         print("HF100_FROZEN_V2_SQL_PROBE_VERIFIED; NO CONNECTION");return
-    need(all((a.owner_order,a.owner_signature,a.machine_contract,a.passfile,a.ca,a.receipt_key)),"HF100_SIGNED_ORDER_AND_PRIVATE_INPUTS_REQUIRED")
+    if a.measure_baseline:
+        need(all((a.owner_order,a.machine_contract,a.passfile,a.ca)) and not a.owner_signature and not a.receipt_key,"HF100_UNSIGNED_MEASUREMENT_INPUTS_REQUIRED")
+    else:need(all((a.owner_order,a.owner_signature,a.machine_contract,a.passfile,a.ca,a.receipt_key)),"HF100_SIGNED_ORDER_AND_PRIVATE_INPUTS_REQUIRED")
     for n in ("SSL_CERT_FILE","SSL_CERT_DIR","REQUESTS_CA_BUNDLE","CURL_CA_BUNDLE","LD_PRELOAD","LD_LIBRARY_PATH","GIT_CONFIG_COUNT","GIT_CONFIG_PARAMETERS"):
         need(not os.environ.get(n),"HF100_AMBIENT_TRUST_OVERRIDE_DENIED")
     os.environ["PATH"]=PATH
-    raw=private(a.owner_order);sig=private(a.owner_signature);contract=private(a.machine_contract)
+    raw=private(a.owner_order);contract=private(a.machine_contract)
     order=control.combined(raw,contract,v1,sha(SELF.read_bytes()),sha(POLICY.read_bytes()))
     paths,host=verify_host(order);source(order,paths)
+    if a.measure_baseline:
+        v2.provider(order,v1)
+        with tempfile.TemporaryDirectory(prefix="hf100-measure-") as tmp:
+            env,proof=transport(order,paths,a.passfile,a.ca,tmp)
+            pg=Pg(v1.TARGET,paths,env);cat,tls=pg.wire();v2.fresh(cat,v1.TARGET)
+            print("HF100_BASELINE_SHA256="+sha(canonical(cat)))
+            print("HF100_UNSIGNED_MEASUREMENT_ONLY; NO AUTHORITY, CLAIM, DUMP OR DDL")
+        return
+    sig=private(a.owner_signature)
     key=private(a.receipt_key,64);need(len(key)==32 and sha(key)==order["receipt_key_sha256"],"HF100_RECEIPT_KEY_PIN_DENIED")
     c=order["control"];d=order["custody"]
     custody=control.RegistryDrive(order,control.Drive(os.environ.get("HFT_HF100_DRIVE_CONTROL_TOKEN",""),c["reader_permission_id"]),control.Drive(os.environ.get("HFT_HF100_DRIVE_CUSTODY_TOKEN",""),d["writer_permission_id"]))

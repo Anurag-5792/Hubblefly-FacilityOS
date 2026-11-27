@@ -21,7 +21,7 @@ def original(c):
     v=h.v2
     o={"schema":a.SCHEMA,"decision_id":"SYNTHETIC-HF11","issuer":{"corporate_openpgp_primary_fingerprint":v.OWNER},
        "status":"PROPOSED_UNSIGNED_NOT_EFFECTIVE","execution_status":"UNSIGNED_PENDING_SUCCESSOR_RUNNER_AND_AUTHENTIC_TECHNICAL_EVIDENCE",
-       "resources":{"retained_roles_only":h.v1.TARGET},"routine_without_per_release_owner_signature":{"actions":["SOURCE_ENGINEERING"]},
+       "resources":{"retained_roles_only":copy.deepcopy(h.v1.TARGET)},"routine_without_per_release_owner_signature":{"actions":["SOURCE_ENGINEERING"]},
        "technical_evidence":{"no_operator_provided_pass_boolean":True},"validity":{k:None for k in a.TIME_FIELDS},
        "single_initial_hf094_order":{"authorized_action":h.v1.ACTION,"one_time_atomic_install":True,
          "immutable_sql":{x["path"]:x["sha256"] for x in h.v1.load_package()[0]["files"]},"final_v2_successor":{k:None for k in a.FINAL_FIELDS}}}
