@@ -176,6 +176,6 @@ RESET ROLE;
 REVOKE CREATE ON DATABASE hft_r1_retained_masters_np077 FROM hft_engineering,hft_r1_roles_owner;
 -- Keep only the provider's unavoidable ADMIN-only relationship if present;
 -- remove effective SET/INHERIT; postflight rejects any additional edge.
-GRANT hft_engineering,hft_r1_roles_owner TO hft_r1_retained_masters_np077_owner
- WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
+REVOKE hft_engineering,hft_r1_roles_owner FROM hft_r1_retained_masters_np077_owner
+ GRANTED BY CURRENT_USER;
 -- No initial Owner Admin, identity, scope, employee, role assignment, password or LOGIN.

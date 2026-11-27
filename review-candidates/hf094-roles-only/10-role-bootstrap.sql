@@ -32,7 +32,7 @@ CREATE ROLE hft_r1_roles_owner NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATE
 CREATE ROLE hft_r1_roles_np_login NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD NULL;
 -- Only the existing DB owner may temporarily assume the two DDL owners.
 GRANT hft_engineering,hft_r1_roles_owner TO hft_r1_retained_masters_np077_owner
- WITH ADMIN TRUE, INHERIT FALSE, SET TRUE;
+ WITH ADMIN FALSE, INHERIT FALSE, SET TRUE GRANTED BY CURRENT_USER;
 GRANT CREATE ON DATABASE hft_r1_retained_masters_np077 TO hft_engineering,hft_r1_roles_owner;
 GRANT CONNECT ON DATABASE hft_r1_retained_masters_np077 TO hft_r1_roles_np_login;
 -- Before canonical 0001–0006; revoke PUBLIC default function EXECUTE globally for actual creators.

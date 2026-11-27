@@ -20,13 +20,13 @@
   "files": [
     {
       "path": "10-role-bootstrap.sql",
-      "git_blob": "bedc2b7d00c80d2f118dfae572d61a8058f3a111",
-      "sha256": "67c7640927b88229bd6a271d54eedc4c9d89eb06a184fda5e6a250b10532feab"
+      "git_blob": "b99ee50ce7312397b152809f10d6fa18f50f22a1",
+      "sha256": "ad3b01e3bdba43fe6316f92ef1e0848a1478282bde44679d738f61ade3e047d3"
     },
     {
       "path": "20-role-assignment.sql",
-      "git_blob": "579dc8deec52177bcee5f9e5f68162cd6d8e9297",
-      "sha256": "42133adb467a66d61c05a9bcef0065a349dda40a2d22d5f0f97aee4dbbc4faa0"
+      "git_blob": "77f00ad1be8c4bb54d7df384c1d49dbfa6faba4d",
+      "sha256": "db435edb08bb73e7eb1de20bdd529c5af5651e2072f73d5ad875abe9db5a87f7"
     },
     {
       "path": "90-catalog-acl-postflight.sql",
