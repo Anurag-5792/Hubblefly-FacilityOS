@@ -274,7 +274,7 @@ export default function LiveMastersPage(){
  const editorOpen=editor!==null;
  useEffect(()=>{if(editorOpen)editorPanel.current?.focus();},[editorOpen]);
  function closeRecord(){setEditor(null);setAudit([]);addButton.current?.focus();}
- function clearFilters(){setFilter('');setServerSearch('');setDepartment('');setStatusFilter('');setTrackingFilter('');setSummaryFilter('all');setListReceived('');}
+ function clearFilters(){setFilter('');setServerSearch('');setDepartment('');setStatusFilter('');setTrackingFilter('');setSummaryFilter('all');}
  const matching=currentRecords.filter(r=>{
   const q=filter.trim().toLocaleLowerCase();
   return (!q||(r.recordId+' '+recordDetails(r)).toLocaleLowerCase().includes(q))&&
