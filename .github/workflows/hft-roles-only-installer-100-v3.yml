@@ -1,0 +1,26 @@
+name: HF100 AWS-free installer qualification
+on:
+  push:
+    branches:
+      - engineering/hft-r1-roles-only-installer-100-v3
+permissions:
+  contents: read
+jobs:
+  aws-free-installer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact successor
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify frozen source and HF100 guards
+        run: |
+          git diff --exit-code d7d27ec86d97f4cdb83589882b6cf60b060b956d HEAD -- app lib db tools/hft_roles_only_install_094.py tools/hft_roles_only_install_094_v2.py tools/hf094_v2_protected.py review-candidates/hf094-roles-only review-candidates/hf094-owner-only-v2
+          git diff --exit-code 273da99f04f9c0f98c691ab4c40a0744a0f48d9e HEAD -- tools/hf100-host-probe
+          python3 -IB tools/hft_roles_only_install_100.py --inspect
+          python3 -m unittest discover -s tools/hf100-host-probe -p test_hf100_host_probe.py -v
+          python3 -m unittest discover -s tests -p test_hf100_installer.py -v
+      - name: Execute PostgreSQL 18 guarded registry and installation campaign
+        run: python3 tests/postgres/hf100_guarded_fixture.py

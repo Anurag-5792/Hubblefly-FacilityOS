@@ -1,0 +1,25 @@
+{
+  "schema": "HF100_OWNER_ONLY_AWS_FREE_V3",
+  "state": "NOT_ADMITTED",
+  "frozen_v2": "d7d27ec86d97f4cdb83589882b6cf60b060b956d",
+  "host_probe": "273da99f04f9c0f98c691ab4c40a0744a0f48d9e",
+  "action": "HF094_RETAINED_ROLES_ONLY_CANONICAL_0001_0006_AND_ROLE_SQL",
+  "original_scope": "HF11_HFT_R1_OWNER_ONLY_STANDING_HF094_V2",
+  "host_kinds": [
+    "LINUX_WSL",
+    "VERCEL_SANDBOX"
+  ],
+  "custody": "existing private Google Drive, exact identities ACLs file versions/readback; not immutable",
+  "registry": "existing retained database; public.hf100_install_receipt and public.hf100_append_receipt; NOLOGIN owner; fixed target/action; independent commit",
+  "risk": "Privileged administrator or coordinated database/Drive rollback can defeat witnesses; no immutable storage claim, no automatic replay or reset",
+  "no_second_human_signer": true,
+  "sql_unchanged": true,
+  "no_new_database": true,
+  "no_incremental_spend": true,
+  "excluded": [
+    "stock posting",
+    "role activation",
+    "production",
+    "resource provisioning"
+  ]
+}
