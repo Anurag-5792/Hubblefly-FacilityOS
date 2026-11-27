@@ -30,8 +30,8 @@
     },
     {
       "path": "90-catalog-acl-postflight.sql",
-      "git_blob": "576db70b86267444da63e1af85a327283402a0b4",
-      "sha256": "139c0bbeafc702aa010ac6ae525a6e7dcbee02bddaf71cf0a24c0e5df67af7b3"
+      "git_blob": "c956861a5d7299206ccb0c7e4946a8cf36d8b7a4",
+      "sha256": "b4979e3f39be68c3b18a56c0c924d0176b472da0b11b64f76f3c6f44d02f2414"
     }
   ],
   "sequence": [
