@@ -15,7 +15,7 @@ function identity(c:EmployeeLoginContext):EmployeeIdentity{
 }
 function valid(a:EmployeeIdentity){return [a.legalEntityId,a.employeeId,a.subject,a.personId,a.siteId].every(id)&&Number.isSafeInteger(a.loginVersion)&&a.loginVersion>0&&Number.isSafeInteger(a.employeeVersion)&&a.employeeVersion>0;}
 export function issueEmployeeCookie(e:Env,c:EmployeeLoginContext):string{
- if(!employeeLoginProfileAdmitted(e)||!valid(c))throw Error('HF101_SESSION_DENIED');
+ if(!employeeLoginProfileAdmitted(e)||!valid(c)||new URL(e.HFT_PUBLIC_ORIGIN??'').protocol!=='https:'||new URL(e.HFT_PUBLIC_ORIGIN??'').origin!==e.HFT_PUBLIC_ORIGIN)throw Error('HF101_SESSION_DENIED');
  const key=createPrivateKey(e.HFT_LIVE_R1_SESSION_ED25519_PRIVATE_KEY_PEM??'');
  if(key.asymmetricKeyType!=='ed25519'||!createPublicKey(key).export({format:'der',type:'spki'}).equals(createPublicKey(e.HFT_SESSION_ED25519_PUBLIC_KEY_PEM??'').export({format:'der',type:'spki'})))throw Error('HF101_SIGNER_DENIED');
  const now=Math.floor(Date.now()/1000);
@@ -24,7 +24,7 @@ export function issueEmployeeCookie(e:Env,c:EmployeeLoginContext):string{
  return name+'='+body+'.'+sign(null,Buffer.from(body,'ascii'),key).toString('base64url')+'; '+common+'; Max-Age=600';
 }
 export function readEmployeeSession(req:Request,e:Env):Session{
- if(!employeeLoginProfileAdmitted(e)||req.method!=='POST'||!e.HFT_PUBLIC_ORIGIN||new URL(req.url).origin!==e.HFT_PUBLIC_ORIGIN||req.headers.get('origin')!==e.HFT_PUBLIC_ORIGIN||
+ if(!employeeLoginProfileAdmitted(e)||req.method!=='POST'||!e.HFT_PUBLIC_ORIGIN||new URL(req.url).protocol!=='https:'||new URL(req.url).origin!==e.HFT_PUBLIC_ORIGIN||req.headers.get('origin')!==e.HFT_PUBLIC_ORIGIN||
   (req.headers.has('sec-fetch-site')&&req.headers.get('sec-fetch-site')!=='same-origin')||req.headers.has('authorization')||req.headers.has('x-user-id'))throw Error('HF101_SESSION_DENIED');
  const raw=cookieValue(req.headers.get('cookie'),name);
  if(!raw||raw.length>4096)throw Error('HF101_SESSION_DENIED');

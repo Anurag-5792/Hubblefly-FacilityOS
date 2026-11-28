@@ -28,8 +28,10 @@ class Transaction implements RoleTransaction {
    deny('ROLE_CANONICAL_IDENTITY_CHANGED_DENIED');
   if(session.employeeLoginVersion!==undefined||session.employeeRecordVersion!==undefined){
    if(!Number.isSafeInteger(session.employeeLoginVersion)||!Number.isSafeInteger(session.employeeRecordVersion)||!session.canonicalEmployeeId||!session.canonicalPersonId)deny('ROLE_CANONICAL_IDENTITY_CHANGED_DENIED');
-   const current=await this.client.query<{valid:boolean}>('SELECT hft_employee_login.employee_session_assert_v1($1,$2,$3,$4,$5::bigint,$6::bigint,$7) AS valid',[session.scope.legalEntityId,session.canonicalEmployeeId,session.subject,session.canonicalPersonId,session.employeeLoginVersion,session.employeeRecordVersion,session.scope.siteId]);
-   if(current.rows.length!==1||current.rows[0].valid!==true)deny('ROLE_CANONICAL_IDENTITY_CHANGED_DENIED');
+   try{
+    const current=await this.client.query<{valid:boolean}>('SELECT hft_employee_login.employee_session_assert_v1($1,$2,$3,$4,$5::bigint,$6::bigint,$7) AS valid',[session.scope.legalEntityId,session.canonicalEmployeeId,session.subject,session.canonicalPersonId,session.employeeLoginVersion,session.employeeRecordVersion,session.scope.siteId]);
+    if(current.rows.length!==1||current.rows[0].valid!==true)deny('ROLE_CANONICAL_IDENTITY_CHANGED_DENIED');
+   }catch(e){if((e as {code?:string}).code==='42501')deny('ROLE_CANONICAL_IDENTITY_CHANGED_DENIED');throw e;}
   }
   return {subject:session.subject,sessionId:session.sessionId,expiresAt:session.expiresAt,
    employeeId:r.rows[0].employee_id,personId:r.rows[0].person_id,

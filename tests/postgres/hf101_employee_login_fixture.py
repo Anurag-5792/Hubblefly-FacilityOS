@@ -63,6 +63,17 @@ CREATE ROLE hf101_role_runtime LOGIN NOINHERIT;
 GRANT USAGE ON SCHEMA hft_employee_login TO hf101_role_runtime;
 GRANT EXECUTE ON FUNCTION hft_employee_login.employee_session_assert_v1(text,text,text,text,bigint,bigint,text) TO hf101_role_runtime;
 """)
+        # Compare actual native PostgreSQL prosrc (not a fixture-invented pass)
+        # to the source-pinned function catalog and dedicated ownership.
+        pins=json.loads((ROOT/"lib/hft/live/employee-login-pins.ts").read_text().split(">>=",1)[1].strip().rstrip(";"))
+        cat=json.loads(q("SELECT jsonb_agg(jsonb_build_object('name',p.proname,'args',oidvectortypes(p.proargtypes),'sha256',encode(sha256(convert_to(p.prosrc,'UTF8')),'hex'),'definer',p.prosecdef,'owner',pg_get_userbyid(p.proowner))) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='hft_employee_login';").stdout)
+        assert len(cat)==len(pins)
+        for x in cat:
+            assert x.pop("owner")=="hft_r1_employee_login_owner"
+            assert {k:v for k,v in x.items() if k!="name"}==pins[x["name"]],x
+        assert q("SELECT has_table_privilege('hft_r1_employee_login_owner','hft.employee','SELECT') AND NOT has_table_privilege('hft_r1_employee_login_owner','hft.employee','INSERT,UPDATE,DELETE') AND NOT has_table_privilege('hft_r1_employee_login_owner','hft_app_roles.assignment','INSERT,UPDATE,DELETE');").stdout.strip()=="t"
+        assert q("SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='hft_employee_login' AND NOT t.tgisinternal AND t.tgenabled='A' AND t.tgtype=58;").stdout.strip()=="1"
+        print("HF101_NATIVE_FUNCTION_PINS_AND_DEFINER_ACL=PASS")
         def assignment(emp,rev,roles):
             s={"employeeId":emp,"scope":{"legalEntityId":"HF101-HFT","siteId":"HF101-SITE","warehouseId":"HF101-WH"},"revision":rev,"revokedFrom":None,"periods":[{"from":"2020-01-01T00:00:00.000Z","to":None,"roles":roles}] if roles else []}
             req=str(uuid.uuid4());ev={"requestId":req,"after":s,"actorSubject":"HF101-OWNER-SUB","actorSessionId":"FIXTURE","reason":"Synthetic role fixture"}

@@ -1,3 +1,4 @@
+import {employeeLoginAttempt} from '../live/employee-login-profile.ts';
 import {assertRoleQualificationProfile} from '../roles/role-isolated-profile.ts';
 import {assertLiveProfile} from '../live/live-profile.ts';
 import {hostedOperatorAttempt,assertHostedOperatorDuty,hostedOperatorMode} from '../roles/hosted-operator-profile.ts';
@@ -60,6 +61,7 @@ export function resolveVerifiedRequestOperator(request:Request,
  'RETAINED_STORES_OPERATOR'|'RETAINED_APP_ROLES'|'ISOLATED_ROLE_QUALIFICATION'|
  'LIVE_R1_MASTERS'='DEFAULT'
 ):VerifiedRequestOperator{
+  if(employeeLoginAttempt(env))throw Error('HF101_LEGACY_SESSION_DENIED');
   const hosted=hostedOperatorAttempt(env);
   if(hosted&&purpose!=='RETAINED_APP_ROLES'&&purpose!=='RETAINED_STORES_OPERATOR')
    throw Error('HOSTED_OPERATOR_SESSION_PURPOSE_DENIED');
