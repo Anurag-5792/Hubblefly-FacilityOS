@@ -25,7 +25,7 @@ export async function requireBoundRoleOperationFence(pool:PgPool,client:PgQueryC
   `SELECT pg_catalog.pg_try_advisory_xact_lock_shared($1::integer,$2::integer) AS acquired,
    pg_catalog.current_database() AS db,
    (SELECT oid::text FROM pg_catalog.pg_database WHERE datname=current_database()) AS db_oid,
-   inet_server_addr()::text AS address,inet_server_port() AS port,
+   pg_catalog.host(inet_server_addr()) AS address,inet_server_port() AS port,
    pg_catalog.current_setting('transaction_isolation') AS isolation,
    pg_catalog.current_setting('transaction_read_only') AS read_only`,ROLE_FENCE_KEYS);
  const row=r.rows[0];

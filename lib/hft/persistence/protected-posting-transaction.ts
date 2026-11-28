@@ -4,6 +4,7 @@ import {isRoleQualificationAttempt,assertRoleQualificationProfile,assertQualific
  * No HTTP exposure and no activation: requires independently provisioned
  * non-owner runtime role, DB-side actor proof validation and pgcrypto.
  */
+import {assertVerifiedLiveTls} from '../live/live-tls.ts';
 import {requireBoundRoleOperationFence} from '../roles/role-operation-fence.ts';
 import {assertSecureStartup} from '../security/authorization.ts';
 import {isRetainedStoresProfile,assertRetainedStoresProfile}
@@ -64,6 +65,11 @@ async function runProtectedTransaction<T>(pool:PgPool,env:IsolatedPgEnvironment,
   const client=await pool.connect();
   let began=false,commitStarted=false,discard=false;
   try {
+    // Prove transport before any SQL on the retained operator connection.
+    if(isRetainedStoresProfile(env)&&!isRoleQualificationAttempt(env)){
+      const transport=assertOnlinePgTransport(env,'P2_STORES');
+      try{assertVerifiedLiveTls(client,transport.host,transport.port);}catch(error){discard=true;throw error;}
+    }
     began=true;
     await client.query(readOnly
       ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'
@@ -73,7 +79,7 @@ async function runProtectedTransaction<T>(pool:PgPool,env:IsolatedPgEnvironment,
     const check=await client.query<{db_name:string;db_login:string;db_role:string;
       server_address:string|null;server_port:number|null}>(
       `SELECT current_database() AS db_name,session_user AS db_login,
-       current_user AS db_role,inet_server_addr()::text AS server_address,
+       current_user AS db_role,pg_catalog.host(inet_server_addr()) AS server_address,
        inet_server_port() AS server_port`);
     const id=check.rows[0];
     if(check.rows.length!==1||id.db_name!==expected.database||
@@ -82,7 +88,8 @@ async function runProtectedTransaction<T>(pool:PgPool,env:IsolatedPgEnvironment,
       throw new Error('PROTECTED_DATABASE_IDENTITY_ATTESTATION_FAILED');
     if(isOnlinePgTransport(env)){
       assertOnlineBackendIdentity(env,id,'P2_STORES');
-      await assertOnlinePgBackendTls(client);
+      // Other online/isolated profiles keep their existing backend-TLS gate.
+      if(!isRetainedStoresProfile(env)||isRoleQualificationAttempt(env))await assertOnlinePgBackendTls(client);
       if(isRetainedStoresProfile(env)||isRoleQualificationAttempt(env))
        await assertOnlineRuntimeCatalog(client,'OPS_A2_STORES');
       else

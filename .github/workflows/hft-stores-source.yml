@@ -4,8 +4,13 @@ on:
     branches:
       - engineering/hft-r1-stores-foundation
       - engineering/hft-r1-neon-proxy-tls-qualification-010
+      - engineering/hft-r1-inventory-intake-088
+      - engineering/hft-r1-mis-planning-019
+      - engineering/hft-r1-workspace-integration-095
+      - engineering/hft-r1-mis-operational-098
       - engineering/hft-r1-branding-summary-095
       - engineering/hft-r1-brand-refinement-097
+      - engineering/hft-r1-hf099-live-integration
   pull_request:
     branches:
       - main
@@ -30,21 +35,40 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Verify source contracts and production build
         run: npm run verify
+      - name: HF098 disposable PostgreSQL lifecycle and restricted requirements reader
+        if: github.ref == 'refs/heads/engineering/hft-r1-mis-operational-098' || github.ref == 'refs/heads/engineering/hft-r1-hf099-live-integration'
+        run: python3 tests/postgres/hf098_mis_requirements_fixture.py
       - name: C050 mounted React scope regression (CI-local synthetic P3)
         run: node tests/browser/hft-c050-mounted.mjs
       - name: Live Masters mounted workspace regression (CI-local synthetic records)
         run: node tests/browser/hft-live-masters-mounted.mjs
       - name: Masters visual evidence (CI-local synthetic only)
-        if: github.ref == 'refs/heads/engineering/hft-r1-brand-refinement-097'
+        if: (github.ref == 'refs/heads/engineering/hft-r1-brand-refinement-097' || github.ref == 'refs/heads/engineering/hft-r1-hf099-live-integration')
         env:
           HFT_UI_CAPTURE_DIR: ${{ runner.temp }}/hf16-097-visual
         run: node tests/browser/hft-live-masters-mounted.mjs --visual
       - name: Upload rendered visual evidence
-        if: always() && github.ref == 'refs/heads/engineering/hft-r1-brand-refinement-097'
+        if: always() && (github.ref == 'refs/heads/engineering/hft-r1-brand-refinement-097' || github.ref == 'refs/heads/engineering/hft-r1-hf099-live-integration')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: hf16-097-visual
           path: ${{ runner.temp }}/hf16-097-visual/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Hosted role history security regression (CI-local synthetic records)
+        run: node tests/browser/hft-role-history-094-mounted.mjs
+      - name: Inventory security mounted regression (CI-local synthetic records)
+        run: node tests/browser/hft-intake-security-091-mounted.mjs
+      - name: MIS mounted read-only planner (CI-local synthetic only)
+        env:
+          HFT_MIS_CAPTURE_DIR: ${{ runner.temp }}/hft-mis-019
+        run: node --experimental-strip-types tests/browser/hft-mis-planning-mounted.mjs
+      - name: Upload synthetic MIS visual evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hf16-mis-019-visual
+          path: ${{ runner.temp }}/hft-mis-019/
           if-no-files-found: error
           retention-days: 14
       - name: Production dependency audit (moderate or above)

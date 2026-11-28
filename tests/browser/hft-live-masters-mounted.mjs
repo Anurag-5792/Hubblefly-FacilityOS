@@ -39,7 +39,7 @@ const mock=`(()=>{
  const get=Storage.prototype.getItem,set=Storage.prototype.setItem,remove=Storage.prototype.removeItem;
  const isPending=k=>String(k).startsWith('hft.liveMasters.pending.');
  const failure=()=>get.call(sessionStorage,'hft.live.fixture.storageFailure');
- window.__pendingReads=[];window.__contextReturned=false;window.__liveCalls=[];window.__unknownSave=false;
+ window.__pendingReads=[];window.__contextReturned=false;window.__liveCalls=[];window.__misCalls=0;window.__unknownSave=false;
  Storage.prototype.getItem=function(k){
   if(this===sessionStorage&&isPending(k)){
    window.__pendingReads.push({key:k,verified:window.__contextReturned});
@@ -64,6 +64,7 @@ const mock=`(()=>{
    sessionStorage.removeItem(login);
    return new Response(JSON.stringify({state:'SIGNED_OUT'}),{headers:{'Content-Type':'application/json'}});
   }
+  if(path==='/api/hft/mis')window.__misCalls++;
   if(path!=='/api/hft/live-masters')return orig(input,options);
   const p=JSON.parse(options.body);window.__liveCalls.push(p);
   const who=sessionStorage.getItem(login);
@@ -115,6 +116,43 @@ async function workflow(){
  await run('sessionStorage.setItem("hft.live.fixture.login","yes")');
  await send('Page.reload');
  await wait(()=>has('No employees recorded'),'EMPTY_DIRECTORY');
+ // Integrated navigation and URL-only tab state, without transferring any authority.
+ await click('Items');await wait(()=>has('No items recorded'),'INTEGRATED_ITEM_VIEW');
+ assert.equal(await run('new URL(location.href).searchParams.get("view")'),'ITEM');
+ await send('Page.reload');await wait(()=>has('No items recorded'),'INTEGRATED_ITEM_RELOAD');
+ assert.equal(await run('window.__liveCalls.filter(p=>p.intent==="LIST").every(p=>p.kind==="ITEM"&&p.scope.legalEntityId==="FIXTURE-HFT"&&p.scope.siteId==="FIXTURE-SITE"&&p.scope.warehouseId==="FIXTURE-WH1")'),true);
+ await click('Employees');await wait(()=>has('No employees recorded'),'INTEGRATED_EMPLOYEE_VIEW');
+ await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application navigation").querySelector("a").click()');
+ await wait(()=>has('HFT-OS workspace'),'INTEGRATED_DASHBOARD');
+ // The actual HTTP boundary is tested without interception or credentials.
+ const shell=await fetch(URL_ROOT+'/mis');assert.equal(shell.status,200);
+ assert.match(await shell.text(),/Management data unavailable/);
+ for(const [path,method] of [['/api/hft/mis','GET'],['/api/hft/mis','POST'],['/api/hft/stores/read','POST'],['/api/hft/stores/receive','POST'],['/stores/operations','GET'],['/stores/intake','GET'],['/mis','POST']]){
+  const response=await fetch(URL_ROOT+path,{method,headers:{'Content-Type':'application/json'},...(method==='POST'?{body:JSON.stringify({intent:'CONTEXT'})}:{})});
+  assert.equal(response.status,503,path+' '+method);
+  assert.equal((await response.json()).code,'LIVE_R1_RUNTIME_NOT_ADMITTED');
+  assert.match(response.headers.get('cache-control')||'',/no-store/);
+ }
+ await run(`document.querySelector('nav[aria-label="Application modules"] a[href="/mis"]').click()`);
+ await wait(()=>has('Management data unavailable'),'MIS_PRESENTATION');
+ assert.ok(await has('Presentation only'));assert.ok(await has('Not assessed'));
+ assert.equal(await run('window.__misCalls'),0);
+ assert.equal(await run('[...document.querySelectorAll("section[aria-label=\\\"Management summary\\\"] button")].every(b=>b.disabled&&b.querySelector("strong").textContent==="—")'),true);
+ await click('Plan My Builds');await wait(()=>has('Planning and export are unavailable'),'MIS_PLAN_PRESENTATION');
+ assert.equal(await run('window.__misCalls'),0);
+ assert.equal(await run('document.querySelector("form,input,select")===null'),true);
+ assert.equal(await run('[...document.querySelectorAll("button")].some(b=>/Export CSV|Calculate requirements|Refresh source|Show Build Readiness/.test(b.textContent)&&!b.disabled)'),false);
+ await click('Hide Sidebar');await wait(()=>run('document.getElementById("mis-sidebar").hidden'),'MIS_PRESENTATION_COLLAPSED');
+ await click('Show Sidebar');await click('Management overview');await wait(()=>has('No manufacturing readiness assessment available.'),'MIS_PRESENTATION_OVERVIEW');
+ await viewport(390,844);assert.ok(await has('Management data unavailable'));await viewport(1440,900);
+ assert.equal(await run('window.__misCalls'),0);
+ await run(`document.querySelector('main a[href="/"]').click()`);await wait(()=>has('HFT-OS workspace'),'MIS_BACK_TO_DASHBOARD');
+ console.log('HF099_MASTERS_MIS_PRESENTATION=PASS; actual HTTP denies, mounted overview/plan/navigation, zero MIS data requests');
+ assert.equal(await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application modules").querySelector("a[href=\\\"/masters/live\\\"]")!==null'),true);
+ assert.equal(await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application modules").querySelector("a[href=\\\"/stores/intake\\\"]")!==null'),false);
+ assert.equal(await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application modules").querySelector("a[href=\\\"/stores/operations\\\"]")!==null'),false);
+ await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application modules").querySelector("a[href=\\\"/masters/live\\\"]").click()');
+ await wait(()=>has('No employees recorded'),'INTEGRATED_RETURN_TO_MASTERS');
  assert.equal(await run('[...document.querySelectorAll("section")].some(e=>e.getAttribute("aria-label")==="Assigned workspace")'),false);
  assert.equal(await run('document.querySelector("input[aria-label=Company]")===null&&document.querySelector("input[aria-label=Site]")===null'),true);
  assert.deepEqual(await run('Array.from(document.querySelector("select[aria-label=Warehouse]").options,o=>o.value)'),['FIXTURE-WH1','FIXTURE-WH2']);
@@ -262,7 +300,7 @@ async function workflow(){
  await click('Hide Sidebar');await wait(()=>run('document.getElementById("master-sidebar").hidden'),'MOBILE_COLLAPSE');
  assert.ok(await run('document.documentElement.scrollWidth<=window.innerWidth+2'),'MOBILE_COLLAPSED_OVERFLOW');
  await click('Show Sidebar');await wait(()=>run('!document.getElementById("master-sidebar").hidden'),'MOBILE_EXPAND');
- console.log('LIVE_MASTERS_MOUNTED=PASS; synthetic signed-out/context/scope/create/edit/history/actor isolation/re-login/legacy/storage failures/scope header/sidebar continuity/mobile');
+ console.log('LIVE_MASTERS_MOUNTED=PASS; synthetic signed-out/context/scope/create/edit/history/actor isolation/re-login/legacy/storage failures/profile-aware dashboard and URL reload/scope header/sidebar continuity/mobile');
 }
 // Separate capture mode; ordinary two-actor regression remains unchanged.
 const captures=[];

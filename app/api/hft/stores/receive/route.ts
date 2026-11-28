@@ -3,6 +3,7 @@
  * Fails closed until independently admitted runtime roles, source evidence,
  * managed keys and PG18.7 protected function ACLs are actually installed.
  */
+import {assertHostedOperatorDuty,hostedOperatorAttempt} from '../../../../../lib/hft/roles/hosted-operator-profile.ts';
 import {resolveVerifiedRequestOperator,assertVerifiedRequestOperator}
  from '../../../../../lib/hft/security/verified-request.ts';
 import {assertOperatorRuntimeProfile,isRoleQualificationAttempt}
@@ -26,6 +27,8 @@ const fail=(status:number,code:string)=>Response.json({
  state:'UNAVAILABLE_OR_UNVERIFIED',code,automaticRetryAllowed:false
 },{status,headers});
 export async function POST(request:Request):Promise<Response>{
+ try{if(!isRoleQualificationAttempt(process.env))assertHostedOperatorDuty(process.env,'stock');}
+ catch{return fail(503,'HOSTED_OPERATOR_STOCK_NOT_ADMITTED');}
  try{assertOperatorRuntimeProfile(process.env);}
  catch{return fail(503,'OPS_A2_OPERATOR_RESOURCE_NOT_ADMITTED');}
  if(request.headers.get('content-type')?.split(';')[0].trim()!=='application/json')
@@ -34,6 +37,7 @@ export async function POST(request:Request):Promise<Response>{
  try{actor=resolveVerifiedRequestOperator(request,process.env,
    isRoleQualificationAttempt(process.env)?'ISOLATED_ROLE_QUALIFICATION':'RETAINED_STORES_OPERATOR');}
  catch{return fail(401,'OPS_A2_OPERATOR_SIGNED_SESSION_REQUIRED');}
+ if(hostedOperatorAttempt(process.env)&&request.headers.get('x-hft-operator-context')!==actor.hostedOperatorContext)return fail(401,'HOSTED_OPERATOR_CONTEXT_CHANGED');
  let body:unknown;
  try{
   const raw=await request.text();

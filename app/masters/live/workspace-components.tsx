@@ -1,5 +1,6 @@
 import type {ReactNode} from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import logo from '../../assets/hubblefly-official-logo.png';
 import {LIVE_KINDS,type LiveKind,type LiveRecord} from '../../../lib/hft/live/live-contract.ts';
 import s from './workspace.module.css';
@@ -45,6 +46,9 @@ export function MasterNavigation({kind,ready,disabled,onChange,hidden=false}:{ki
      className={kind===k?s.navSelected:s.navButton} disabled={disabled}
      onClick={()=>onChange(k)}><Icon name={meta[k].icon}/><span>{meta[k].plural}</span></button>)}
    </nav></>}
+  <nav className={s.moduleNavigation} aria-label="Application navigation">
+   {disabled&&ready?<span className={s.moduleDisabled}>Resolve the current operation before leaving.</span>:<Link href="/" className={s.navButton}><Icon name="chevron"/> Application dashboard</Link>}
+  </nav>
   <div className={s.sidebarBottom}><Icon name="lock"/><div><strong>Assigned access</strong><span>Protected master data</span></div></div>
  </aside>;
 }
