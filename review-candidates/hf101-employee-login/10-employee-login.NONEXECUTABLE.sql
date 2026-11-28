@@ -10,7 +10,7 @@ CREATE TABLE hft_app_roles.employee_login_registration(
  legal_entity_id text NOT NULL, employee_id text NOT NULL,
  subject text NOT NULL UNIQUE, person_id text NOT NULL UNIQUE,
  email text NOT NULL UNIQUE CHECK(email=lower(btrim(email)) AND length(email)<=254 AND email~'^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'),
- google_subject text UNIQUE CHECK(google_subject IS NULL OR google_subject~'^[!-~]{1,256}$'),
+ google_subject text UNIQUE CHECK(google_subject IS NULL OR (length(google_subject) BETWEEN 1 AND 256 AND google_subject~'^[!-~]+$')),
  version bigint NOT NULL DEFAULT 1 CHECK(version>0 AND version<9007199254740992),
  PRIMARY KEY(legal_entity_id,employee_id),
  FOREIGN KEY(legal_entity_id,employee_id) REFERENCES hft_app_roles.identity_binding(legal_entity_id,employee_id)
@@ -60,7 +60,7 @@ CREATE FUNCTION hft_app_roles.employee_google_claim_v1(p_email text,p_google_sub
 DECLARE l hft_app_roles.employee_login_registration%ROWTYPE; ev bigint; first_bind boolean;
 BEGIN
  PERFORM pg_advisory_xact_lock(1212568624,77);
- IF p_email IS NULL OR p_google_subject IS NULL OR p_google_subject!~'^[!-~]{1,256}$' THEN RAISE EXCEPTION 'HF101_EMPLOYEE_LOGIN_DENIED' USING ERRCODE='42501'; END IF;
+ IF p_email IS NULL OR p_google_subject IS NULL OR length(p_google_subject) NOT BETWEEN 1 AND 256 OR p_google_subject!~'^[!-~]+$' THEN RAISE EXCEPTION 'HF101_EMPLOYEE_LOGIN_DENIED' USING ERRCODE='42501'; END IF;
  SELECT x.* INTO l FROM hft_app_roles.employee_login_registration x
  JOIN hft_app_roles.identity_binding b USING(legal_entity_id,employee_id)
  JOIN hft.employee e USING(legal_entity_id,employee_id)
