@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import {useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useRef,useState} from 'react';
 type Context={state:'PENDING_ROLE'|'ROLE_ASSIGNED';employeeId:string;fullName:string;email:string;legalEntityId:string;siteId:string;expiresAt:number;registrationWarehouses:string[];scopes:{warehouseId:string;permissions:string[]}[]};
 import type {EmployeeDirectoryRow,EmailTarget as Target} from '../../../lib/hft/live/employee-login-backend.ts';
 class AccessError extends Error {constructor(message:string,readonly status:number){super(message);}}
@@ -12,17 +12,17 @@ export default function EmployeeAccount(){
  const [context,setContext]=useState<Context|null>(null),[message,setMessage]=useState('Checking employee access…'),[busy,setBusy]=useState(false);
  const [warehouse,setWarehouse]=useState(''),[employee,setEmployee]=useState(''),[target,setTarget]=useState<Target|null>(null),[email,setEmail]=useState(''),[reason,setReason]=useState('');
  const [directory,setDirectory]=useState<EmployeeDirectoryRow[]|null>(null),[search,setSearch]=useState(''),[recover,setRecover]=useState(false),[evidence,setEvidence]=useState(''),[confirmed,setConfirmed]=useState(false);
- function clearRecovery(){setRecover(false);setEvidence('');setConfirmed(false);}
+ const clearRecovery=useCallback(()=>{setRecover(false);setEvidence('');setConfirmed(false);},[]);
  const generation=useRef(0),controller=useRef<AbortController|null>(null),locked=useRef(false);
  function begin(){if(locked.current)return null;locked.current=true;controller.current?.abort();controller.current=new AbortController();setBusy(true);return {n:++generation.current,signal:controller.current.signal};}
  function end(n:number){if(n===generation.current){locked.current=false;setBusy(false);}}
- function clear(){setContext(null);setTarget(null);setEmail('');setReason('');setWarehouse('');setEmployee('');setDirectory(null);setSearch('');clearRecovery();}
+ const clear=useCallback(()=>{setContext(null);setTarget(null);setEmail('');setReason('');setWarehouse('');setEmployee('');setDirectory(null);setSearch('');clearRecovery();},[clearRecovery]);
  async function refresh(){const run=begin();if(!run)return;clear();try{const c=await request({action:'CONTEXT'},run.signal) as Context;if(run.n!==generation.current)return;
   if(!['PENDING_ROLE','ROLE_ASSIGNED'].includes(c.state)||!Array.isArray(c.scopes)||!Array.isArray(c.registrationWarehouses)||c.expiresAt<=Date.now()/1000)throw Error('HF101_CONTEXT_INVALID');
   setContext(c);setWarehouse(c.registrationWarehouses[0]??'');setMessage(c.state==='PENDING_ROLE'?'Signed in. Awaiting role assignment.':'Signed in. Current role permissions verified.');
  }catch{if(run.n===generation.current)setMessage('Sign in with your registered email. An active, verified employee account and admitted database are required.');}finally{end(run.n);}}
  useEffect(()=>{void refresh();return()=>{generation.current++;controller.current?.abort();locked.current=false;};},[]); // eslint-disable-line react-hooks/exhaustive-deps
- useEffect(()=>{if(!context)return;const timer=setTimeout(()=>{generation.current++;controller.current?.abort();locked.current=false;setBusy(false);clear();setMessage('Session expired. Sign in again.');},Math.max(0,context.expiresAt*1000-Date.now()));return()=>clearTimeout(timer);},[context]);
+ useEffect(()=>{if(!context)return;const timer=setTimeout(()=>{generation.current++;controller.current?.abort();locked.current=false;setBusy(false);clear();setMessage('Session expired. Sign in again.');},Math.max(0,context.expiresAt*1000-Date.now()));return()=>clearTimeout(timer);},[context,clear]);
  async function searchDirectory(){const run=begin();if(!run)return;setDirectory(null);setTarget(null);clearRecovery();setEmail('');setReason('');
   try{const data=await request({action:'DIRECTORY',warehouseId:warehouse,query:search.trim()},run.signal);
    if(run.n!==generation.current)return;if(data.state!=='DIRECTORY_VERIFIED'||!Array.isArray(data.employees)||data.employees.length>30)throw Error('HF101_DIRECTORY_INVALID');

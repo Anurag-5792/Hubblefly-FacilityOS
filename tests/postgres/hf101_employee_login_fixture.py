@@ -15,7 +15,9 @@ def deny(s,code,user="hf101_gateway"):
     p=q(s,user=user,check=False);assert p.returncode and code in p.stderr,p.stderr
 def query(s):return json.loads(q(s,user="hf101_gateway").stdout)
 def main():
-    socket_dir=tempfile.mkdtemp(prefix="hf101-pg-socket-")
+    socket_root=tempfile.mkdtemp(prefix="hf101-private-")
+    socket_dir=os.path.join(socket_root,"hf101-pg-socket-"+uuid.uuid4().hex[:8])
+    os.mkdir(socket_dir,0o777)
     os.chmod(socket_dir,0o777)
     try:
         run("run","-d","--rm","--network","none","--name",C,"-v",socket_dir+":/var/run/postgresql","-e","POSTGRES_HOST_AUTH_METHOD=trust","postgres:18.7")
@@ -187,6 +189,5 @@ GRANT SELECT,INSERT ON hft_app_roles.assignment_event TO hf101_role_runtime;
     finally:
         run("rm","-f",C,check=False)
         # PostgreSQL owns the mounted directory while running.
-        try:shutil.rmtree(socket_dir)
-        except PermissionError:os.rmdir(socket_dir)
+        shutil.rmtree(socket_root)
 if __name__=="__main__":main()
