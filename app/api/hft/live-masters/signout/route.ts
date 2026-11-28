@@ -1,3 +1,4 @@
+import {clearEmployeeCookie} from '../../../../../lib/hft/live/employee-login-session.ts';
 import {clearAuthCookies} from '../../../../../lib/hft/live/live-oidc.ts';
 export const runtime='nodejs';
 export async function POST(request:Request):Promise<Response>{
@@ -10,6 +11,7 @@ export async function POST(request:Request):Promise<Response>{
  const headers=new Headers({'Content-Type':'application/json',
   'Cache-Control':'no-store'});
  for(const cookie of clearAuthCookies)headers.append('Set-Cookie',cookie);
+ headers.append('Set-Cookie',clearEmployeeCookie);
  return new Response(JSON.stringify({state:'SIGNED_OUT'}),{status:200,headers});
 }
 export async function GET(){return Response.json({state:'REJECTED'},

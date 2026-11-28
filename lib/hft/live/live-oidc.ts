@@ -5,6 +5,8 @@
 import {createCipheriv,createDecipheriv,createHash,createHmac,createPrivateKey,
  createPublicKey,randomBytes,randomUUID,sign,timingSafeEqual,verify}
  from 'node:crypto';
+import {employeeLoginAttempt,employeeLoginProfileAdmitted} from './employee-login-profile.ts';
+import {assertAuthoritativeGoogleEmail} from './employee-login-core.ts';
 import {assertLiveProfile,type LiveEnv} from './live-profile.ts';
 import {identityProofModeAdmitted} from './live-identity-mode.ts';
 import {clearIntakeCookie,issueIntakeCookie} from '../intake/intake-session.ts';
@@ -32,12 +34,13 @@ function url(value:string|undefined){
 }
 export type OidcConfig=Readonly<{issuer:string;authorize:string;token:string;
  jwks:string;clientId:string;clientSecret:string;stateKey:Buffer;
- privatePem:string;hosted?:true;proofBinding?:Readonly<{email:string;origin:string;sourceCommit:string}>;
+ privatePem:string;hosted?:true;employee?:true;proofBinding?:Readonly<{email:string;origin:string;sourceCommit:string}>;
  actors:Readonly<Record<string,{subject:string;
  providerSubject:string;legalEntityId:string;siteId:string;warehouseIds:string[]}>>}>;
 export function oidcConfig(env:LiveEnv,identityProofOnly=false):OidcConfig{
- const hosted=hostedOperatorAttempt(env);
- if(hosted){
+ const hosted=hostedOperatorAttempt(env),employee=employeeLoginAttempt(env);
+ if(employee){if(identityProofOnly||!employeeLoginProfileAdmitted(env))throw Error('HF101_PROFILE_NOT_ADMITTED');}
+ else if(hosted){
   if(identityProofOnly)throw Error('HOSTED_OPERATOR_PROOF_MODE_DENIED');
   assertHostedLoginRuntime(env);
  }else if(identityProofOnly){
@@ -52,8 +55,8 @@ export function oidcConfig(env:LiveEnv,identityProofOnly=false):OidcConfig{
  const clientId=env.HFT_LIVE_R1_OIDC_CLIENT_ID||'';
  const clientSecret=env.HFT_LIVE_R1_OIDC_CLIENT_SECRET||'';
  const baseStateKey=Buffer.from(env.HFT_LIVE_R1_OIDC_STATE_KEY_BASE64||'','base64');
- if(hosted&&baseStateKey.length!==32)throw Error('HOSTED_OPERATOR_STATE_KEY_INVALID');
- const stateKey=hosted?createHmac('sha256',baseStateKey).update('HFT-HOSTED-OPERATOR-OIDC-V1\0'+env.HFT_PUBLIC_ORIGIN).digest():baseStateKey;
+ if((hosted||employee)&&baseStateKey.length!==32)throw Error('HOSTED_OPERATOR_STATE_KEY_INVALID');
+ const stateKey=employee?createHmac('sha256',baseStateKey).update('HFT-EMPLOYEE-OIDC-V1\0'+env.HFT_PUBLIC_ORIGIN).digest():hosted?createHmac('sha256',baseStateKey).update('HFT-HOSTED-OPERATOR-OIDC-V1\0'+env.HFT_PUBLIC_ORIGIN).digest():baseStateKey;
  const privatePem=env.HFT_LIVE_R1_SESSION_ED25519_PRIVATE_KEY_PEM||'';
  let actors:Record<string,{subject:string;providerSubject:string;legalEntityId:string;
   siteId:string;warehouseIds:string[]}>={};
@@ -71,11 +74,11 @@ export function oidcConfig(env:LiveEnv,identityProofOnly=false):OidcConfig{
    jwks!=='https://www.googleapis.com/oauth2/v3/certs')
    throw Error('LIVE_R1_IDENTITY_GOOGLE_PROVIDER_REQUIRED');
   proofBinding={email,origin,sourceCommit};
- }else if(hosted){
+ }else if(employee||hosted){
   if(issuer!=='https://accounts.google.com'||authorize!=='https://accounts.google.com/o/oauth2/v2/auth'||
    token!=='https://oauth2.googleapis.com/token'||jwks!=='https://www.googleapis.com/oauth2/v3/certs')
    throw Error('HOSTED_OPERATOR_GOOGLE_PROVIDER_REQUIRED');
-  actors={...operatorRoster(env)};
+  if(hosted)actors={...operatorRoster(env)};
  }else{
   try{
    actors=JSON.parse(env.HFT_LIVE_R1_OIDC_APPROVED_ACTORS_JSON||'') as typeof actors;
@@ -83,7 +86,7 @@ export function oidcConfig(env:LiveEnv,identityProofOnly=false):OidcConfig{
  }
  if(!clientId||clientSecret.length<12||stateKey.length!==32||
   !privatePem||!actors||typeof actors!=='object'||Array.isArray(actors)||
-  (!identityProofOnly&&Object.keys(actors).length<1)||Object.keys(actors).length>40)
+  (!identityProofOnly&&!employee&&Object.keys(actors).length<1)||Object.keys(actors).length>40)
   throw Error('LIVE_R1_OIDC_CREDENTIALS_NOT_ADMITTED');
  for(const [email,a] of Object.entries(actors)){
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)||email!==email.toLowerCase()||
@@ -103,7 +106,7 @@ export function oidcConfig(env:LiveEnv,identityProofOnly=false):OidcConfig{
    throw Error('LIVE_R1_OIDC_SIGNER_KEY_MISMATCH');
  }catch{throw Error('LIVE_R1_OIDC_SIGNER_KEY_MISMATCH');}
  return {issuer,authorize,token,jwks,clientId,clientSecret,
-  stateKey,privatePem,actors,proofBinding,...(hosted?{hosted:true as const}:{})};
+  stateKey,privatePem,actors,proofBinding,...(hosted?{hosted:true as const}:{}),...(employee?{employee:true as const}:{})};
 }
 export type Flow=Readonly<{state:string;nonce:string;verifier:string;issuedAt:number;
  identityProofOnly?:true;operatorReturn?:'roles'|'stores';intakeReturn?:true}>;
@@ -230,7 +233,7 @@ export async function verifyGoogleIdentity(config:OidcConfig,env:LiveEnv,
   typeof claims.iat!=='number'||typeof claims.exp!=='number'||
   !Number.isSafeInteger(claims.iat)||!Number.isSafeInteger(claims.exp)||
   (claims.azp!==undefined&&claims.azp!==config.clientId)||
-  (config.proofBinding&&claims.iat<Math.floor(flow.issuedAt/1000)-30)||
+  ((config.proofBinding||config.employee)&&claims.iat<Math.floor(flow.issuedAt/1000)-30)||
   claims.exp<=Date.now()/1000||claims.iat>Date.now()/1000+30||
   (claims.nbf!==undefined&&
    (typeof claims.nbf!=='number'||claims.nbf>Date.now()/1000+30))||
@@ -257,7 +260,7 @@ export async function verifyGoogleIdentity(config:OidcConfig,env:LiveEnv,
   throw Error('LIVE_R1_OIDC_VERIFIED_EMAIL_REQUIRED');
  if(config.proofBinding&&email.toLowerCase()!==config.proofBinding.email)
   throw Error('LIVE_R1_IDENTITY_EXPECTED_EMAIL_MISMATCH');
- return {email:email.toLowerCase(),providerSubject:claims.sub};
+ return {email:config.employee?assertAuthoritativeGoogleEmail(email,claims.email_verified,claims.hd):email.toLowerCase(),providerSubject:claims.sub};
 }
 export async function completeIdentityProof(config:OidcConfig,env:LiveEnv,
  flow:Flow,code:string){
@@ -286,7 +289,7 @@ function assertHostedLoginRuntime(env:LiveEnv){
 }
 export async function completeLogin(config:OidcConfig,env:LiveEnv,
  flow:Flow,code:string,onIntakeCookie?:(cookie:string)=>void):Promise<string>{
- if(flow.identityProofOnly||config.proofBinding)throw Error('LIVE_R1_IDENTITY_PROOF_CANNOT_CREATE_SESSION');
+ if(flow.identityProofOnly||config.proofBinding||config.employee||employeeLoginAttempt(env))throw Error('LIVE_R1_IDENTITY_PROOF_CANNOT_CREATE_SESSION');
  const hosted=hostedOperatorAttempt(env);
  if(Boolean(config.hosted)!==hosted||Boolean(flow.operatorReturn)!==hosted)
   throw Error('HOSTED_OPERATOR_FLOW_MODE_DENIED');

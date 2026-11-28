@@ -2,7 +2,8 @@
 import {hostedOperatorAttempt,hostedOperatorMode,type OperatorEnv} from '../roles/hosted-operator-profile.ts';
 import {misRequirementsConfigured} from '../planning/mis-profile.ts';
 import {identityProofModeAdmitted} from '../live/live-identity-mode.ts';
-export type LoginDestination='proof'|'masters'|'intake'|'roles'|'stores';
+import {employeeLoginAttempt,employeeLoginProfileAdmitted} from '../live/employee-login-profile.ts';
+export type LoginDestination='proof'|'masters'|'intake'|'roles'|'stores'|'employee';
 export function liveWorkspaceRoutesAdmitted(e:OperatorEnv):boolean{
  return !hostedOperatorAttempt(e)&&e.HFT_LIVE_R1_IDENTITY_PROOF_MODE===undefined&&
  e.HFT_LIVE_R1_PROFILE==='HFT_R1_PRODUCTION_LIVE_MASTERS_V1'&&
@@ -23,7 +24,8 @@ export function intakeWorkspaceRouteAdmitted(e:OperatorEnv):boolean{
  return liveWorkspaceRoutesAdmitted(e)&&e.HFT_INTAKE_PROFILE==='HFT_INTAKE_OWNER_REVIEW_V1'&&e.HFT_ENVIRONMENT==='production-qualification'&&e.VERCEL_ENV==='preview';
 }
 export function assertLoginDestination(e:OperatorEnv,d:LoginDestination):void{
- if(hostedOperatorAttempt(e)){
+ if(employeeLoginAttempt(e)){if((d==='employee'||d==='roles')&&employeeLoginProfileAdmitted(e))return;}
+ else if(hostedOperatorAttempt(e)){
   const mode=hostedOperatorMode(e);
   if(d==='roles'||d==='stores'&&mode==='ROLES_RECEIVE')return;
  }else if(e.HFT_LIVE_R1_IDENTITY_PROOF_MODE!==undefined){
@@ -35,13 +37,14 @@ export function assertLoginDestination(e:OperatorEnv,d:LoginDestination):void{
 }
 export function loginDestination(e:OperatorEnv,values:readonly string[]):LoginDestination{
  if(values.length>1)throw Error('WORKSPACE_LOGIN_DESTINATION_DENIED');
- const d=values[0]??(hostedOperatorAttempt(e)?'roles':e.HFT_LIVE_R1_IDENTITY_PROOF_MODE!==undefined?'proof':'masters');
- if(!['proof','masters','intake','roles','stores'].includes(d)||values.length&&d==='proof')throw Error('WORKSPACE_LOGIN_DESTINATION_DENIED');
+ const d=values[0]??(employeeLoginAttempt(e)?'employee':hostedOperatorAttempt(e)?'roles':e.HFT_LIVE_R1_IDENTITY_PROOF_MODE!==undefined?'proof':'masters');
+ if(!['proof','masters','intake','roles','stores','employee'].includes(d)||values.length&&d==='proof')throw Error('WORKSPACE_LOGIN_DESTINATION_DENIED');
  assertLoginDestination(e,d as LoginDestination);return d as LoginDestination;
 }
-export const loginPath=(d:Exclude<LoginDestination,'proof'>)=>({masters:'/masters/live',intake:'/stores/intake',roles:'/settings/users-roles',stores:'/stores/operations'})[d];
+export const loginPath=(d:Exclude<LoginDestination,'proof'>)=>({masters:'/masters/live',intake:'/stores/intake',roles:'/settings/users-roles',stores:'/stores/operations',employee:'/employee/account'})[d];
 export type ModuleLink={label:string;description:string;href:string|null;status:string};
 export function workspaceModules(e:OperatorEnv):ModuleLink[]{
+ if(employeeLoginAttempt(e))return employeeLoginProfileAdmitted(e)?[{label:'Employee account',description:'Sign in with your registered corporate email. Current role access is checked on the server.',href:'/employee/account',status:'Verified employee identity'}]:[];
  let hosted:'ROLES_ONLY'|'ROLES_RECEIVE'|null=null;
  try{if(hostedOperatorAttempt(e))hosted=hostedOperatorMode(e);}catch{/* no eligible links */}
  const proof=e.HFT_LIVE_R1_IDENTITY_PROOF_MODE!==undefined,live=liveWorkspaceRoutesAdmitted(e),intake=intakeWorkspaceRouteAdmitted(e);
