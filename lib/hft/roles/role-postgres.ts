@@ -176,7 +176,8 @@ export class PostgresRoleStore implements RoleStore {
    // Write connections are never returned for reuse: session settings and any
    // lost lock/BEGIN/COMMIT response cannot leak into another request. Closing
    // the connection releases an uncertain session lock, including error paths.
-   c.release(discard||scope!==null||this.employeeIdentityFence||sessionFence);
+   if(this.employeeIdentityFence)c.release(true);
+   else c.release(discard||scope!==null||sessionFence);
   }
  }
 }
