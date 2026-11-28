@@ -1,3 +1,4 @@
+import {employeeLoginAttempt,employeeLoginPathAdmitted} from './lib/hft/live/employee-login-profile';
 import { NextResponse, type NextRequest } from 'next/server';
 import {hostedOperatorAttempt,hostedOperatorPathAdmitted,hostedOperatorMode} from './lib/hft/roles/hosted-operator-profile';
 import {liveWorkspaceRoutesAdmitted,intakeWorkspaceRouteAdmitted,misPresentationAdmitted} from './lib/hft/ui-reuse/workspace-profile';
@@ -38,6 +39,10 @@ const liveRoutes=new Set(['/','/masters/live','/api/hft/live-masters',
  '/api/hft/live-masters/auth/callback','/api/hft/live-masters/signout']);
 export function middleware(request:NextRequest){
  const path=request.nextUrl.pathname;
+ if(employeeLoginAttempt(process.env)){
+  if(employeeLoginPathAdmitted(path,request.method,process.env))return NextResponse.next();
+  return NextResponse.json({state:'UNAVAILABLE',code:'HF101_ROUTE_NOT_ADMITTED'},{status:503,headers:{'Cache-Control':'no-store'}});
+ }
  if(hostedOperatorAttempt(process.env)){
   if(hostedOperatorPathAdmitted(path,process.env)){
    if(path==='/stores')return NextResponse.redirect(new URL(hostedOperatorMode(process.env)==='ROLES_RECEIVE'?'/stores/operations':'/settings/users-roles',request.url));

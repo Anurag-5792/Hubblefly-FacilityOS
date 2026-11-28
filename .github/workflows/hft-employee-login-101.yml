@@ -16,6 +16,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22.23.4
+      - name: Install exact dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify full application source and production build
+        run: npm run verify
       - name: Exact-source employee identity policy tests
         run: node --experimental-strip-types --test tests/unit/hft-employee-login-101.test.ts
       - name: Actual disposable canonical PostgreSQL 18 identity lifecycle

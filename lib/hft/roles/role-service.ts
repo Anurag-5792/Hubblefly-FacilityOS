@@ -3,7 +3,7 @@ import {ROLE_CATALOG,RoleError,deny,exactKeys,identifier,object,scopeFrom,parseC
  requireScope,sameScope,validateAssignment,assignmentStatus,rolesAt,permissionsAt,type BusinessPermission,type Assignment,type AuditEvent,type Employee,
  type Permission,type Principal,type RoleId,type Scope} from './role-assignment.ts';
 export type SessionIdentity=Readonly<{subject:string;sessionId:string;expiresAt:number;
- canonicalEmployeeId?:string;canonicalPersonId?:string;hostedOperatorContext?:string;hostedStoresEnabled?:boolean;
+ canonicalEmployeeId?:string;canonicalPersonId?:string;employeeLoginVersion?:number;employeeRecordVersion?:number;hostedOperatorContext?:string;hostedStoresEnabled?:boolean;
  scope:Readonly<{legalEntityId:string;siteId:string;warehouseIds:readonly string[]}>}>;
 export interface RoleTransaction {
  principal(session:SessionIdentity):Promise<Principal>;

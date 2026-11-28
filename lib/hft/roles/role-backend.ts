@@ -1,3 +1,4 @@
+import {employeeLoginAttempt,employeeLoginProfileAdmitted} from '../live/employee-login-profile.ts';
 import {isRoleQualificationAttempt,assertRoleQualificationProfile,assertQualificationConnection,QUAL077_PROFILE}
  from './role-isolated-profile.ts';
 /** Restricted nonproduction application ROLE backend. No protected P2/P3 role
@@ -230,7 +231,8 @@ export async function assertRoleConnection(client:RoleSqlClient,
  env:RoleBackendEnv):Promise<RoleDatabaseIdentity>{
  assertRoleBackendProfile(env);
  const isolated=isRoleQualificationAttempt(env);
- const rolesOnly=hostedOperatorAttempt(env)&&hostedOperatorMode(env)==='ROLES_ONLY';
+ const rolesOnly=employeeLoginProfileAdmitted(env)||hostedOperatorAttempt(env)&&hostedOperatorMode(env)==='ROLES_ONLY';
+ if(employeeLoginAttempt(env)&&!employeeLoginProfileAdmitted(env))throw Error('HF101_PROFILE_NOT_ADMITTED');
  // Retained Neon terminates TLS at its proxy; verify the actual client socket.
  // The separately admitted CLI profile keeps its original backend TLS requirement.
  if(!isolated)assertVerifiedLiveTls(client,env.HFT_ROLE_PG_HOST!,Number(env.HFT_ROLE_PG_PORT));

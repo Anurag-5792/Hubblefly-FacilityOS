@@ -1,6 +1,8 @@
 import {oidcConfig,decodeFlow,cookieValue,completeLogin,completeIdentityProof,
  identityProofCookie,clearIdentityProofCookie,clearAuthCookies}
  from '../../../../../../lib/hft/live/live-oidc.ts';
+import {employeeLoginAttempt} from '../../../../../../lib/hft/live/employee-login-profile.ts';
+import {completeEmployeeLogin,clearEmployeeCookie} from '../../../../../../lib/hft/live/employee-login-session.ts';
 import {hostedOperatorAttempt} from '../../../../../../lib/hft/roles/hosted-operator-profile.ts';
 import {assertLoginDestination,loginPath} from '../../../../../../lib/hft/ui-reuse/workspace-profile.ts';
 export const runtime='nodejs';
@@ -33,6 +35,12 @@ export async function GET(request:Request):Promise<Response>{
    headers.set('Content-Security-Policy',"default-src 'none'; frame-ancestors 'none'");
    return Response.json(receipt,{status:200,headers});
   }
+  if(config.employee){
+   const cookie=await completeEmployeeLogin(config,process.env,flow,code);
+   for(const old of clearAuthCookies)headers.append('Set-Cookie',old);
+   headers.append('Set-Cookie',cookie);headers.set('Location',base+'/employee/account');
+   return new Response(null,{status:302,headers});
+  }
   const destination=flow.operatorReturn??(flow.intakeReturn?'intake':'masters');
   assertLoginDestination(process.env,destination);
   let intakeCookie=clearAuthCookies[2];
@@ -48,6 +56,7 @@ export async function GET(request:Request):Promise<Response>{
    headers.append('Set-Cookie',clearIdentityProofCookie);
    return Response.json({state:'IDENTITY_NOT_VERIFIED',authorization:'NONE'},{status:403,headers});
   }
+  if(employeeLoginAttempt(process.env)){headers.append('Set-Cookie',clearEmployeeCookie);headers.set('Location',base+'/employee/account?auth=unavailable');return new Response(null,{status:302,headers});}
   headers.set('Location',base+(hostedOperatorAttempt(process.env)?'/settings/users-roles?auth=unavailable':'/masters/live?auth=unavailable'));
   return new Response(null,{status:302,headers});
  }
