@@ -28,9 +28,10 @@ const mock=`(()=>{
   const owner=mode==='owner',context={state:owner?'ROLE_ASSIGNED':'PENDING_ROLE',employeeId:owner?'FIXTURE-OWNER':'FIXTURE-A',fullName:owner?'Synthetic Owner':'Synthetic Employee A',email:owner?'owner@example.invalid':'a@example.invalid',legalEntityId:'FIXTURE-HFT',siteId:'FIXTURE-SITE',expiresAt:Math.floor(Date.now()/1000)+600,registrationWarehouses:owner?['FIXTURE-WH']:[],scopes:owner?[{warehouseId:'FIXTURE-WH',permissions:['roles.read','roles.manage','roles.manage-admin']}]:[]};
   if(p.action==='CONTEXT')return Response.json(context);
   if(!owner)return Response.json({state:'UNAVAILABLE',code:'HF101_ACCESS_DENIED'},{status:403});
-  if(p.action==='TARGET'&&p.employeeId==='FIXTURE-B')return Response.json({state:'TARGET_VERIFIED',target:{employeeId:p.employeeId,fullName:'Synthetic Employee B',email:registered?'b@example.invalid':null,version:registered?1:0,bound:false}});
+  if(p.action==='DIRECTORY')return Response.json({state:'DIRECTORY_VERIFIED',employees:[{employeeId:'FIXTURE-B',fullName:'Synthetic Employee B',department:'QA',designation:'Operator',active:true,email:registered?'b@example.invalid':null,registrationStatus:registered?'AWAITING_FIRST_SIGN_IN':'UNREGISTERED'},{employeeId:'FIXTURE-C',fullName:'Synthetic Employee C',department:'QA',designation:'Operator',active:true,email:null,registrationStatus:'BINDING_REQUIRED'}],limit:30});
+  if(p.action==='TARGET'&&p.employeeId==='FIXTURE-B')return Response.json({state:'TARGET_VERIFIED',target:{employeeId:p.employeeId,fullName:'Synthetic Employee B',email:registered?'b@example.invalid':null,version:registered?1:0,employeeVersion:1,bound:false}});
   if(p.action==='REGISTER'&&p.employeeId==='FIXTURE-B'&&p.warehouseId==='FIXTURE-WH'&&p.version===0&&p.email==='b@example.invalid'&&p.reason.length>=8){
-   registered=true;return Response.json({state:'SAVED_VERIFIED',target:{employeeId:p.employeeId,fullName:'Synthetic Employee B',email:p.email,version:1,bound:false}});
+   registered=true;return Response.json({state:'SAVED_VERIFIED',target:{employeeId:p.employeeId,fullName:'Synthetic Employee B',email:p.email,version:1,employeeVersion:1,bound:false}});
   }
   return Response.json({state:'UNAVAILABLE',code:'HF101_INPUT_INVALID'},{status:422});
  };
@@ -67,12 +68,14 @@ try{
  assert.equal(await has('Employee email registration'),false);assert.equal(await has('Synthetic Owner'),false);
  await run('sessionStorage.setItem("hf101-mode","owner")');await send('Page.reload');
  await wait(()=>has('Employee email registration'),'OWNER_FORM');assert.ok(await has('Synthetic Owner'));
- await field('Employee ID','FIXTURE-B');await click('Find employee');await wait(()=>has('Synthetic Employee B'),'TARGET');
+ await field('Search canonical employees','Synthetic');await click('Search employees');await wait(()=>has('Canonical Employee Master'),'DIRECTORY');
+ assert.ok(await has('Synthetic Employee C'));assert.equal(await run('[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Select FIXTURE-C").disabled'),true);
+ await click('Select FIXTURE-B');await wait(()=>has('Provider identity will bind after verified first sign-in.'),'TARGET');
  await field('Registered email','b@example.invalid');await field('Reason','Synthetic employee registration');await click('Save email');
  await wait(()=>has('Employee email saved and independently read back.'),'SAVE');
  assert.deepEqual(await run('window.__calls.at(-1)'),{action:'REGISTER',employeeId:'FIXTURE-B',warehouseId:'FIXTURE-WH',email:'b@example.invalid',version:0,reason:'Synthetic employee registration'});
  await run('window.__deny=true');await click('Refresh access');await wait(()=>has('Sign in with your registered email.'),'SESSION_LOSS');
- assert.equal(await has('Synthetic Owner'),false);assert.equal(await has('Synthetic Employee B'),false);assert.equal(await has('Employee email registration'),false);
+ assert.equal(await has('Synthetic Owner'),false);assert.equal(await has('Synthetic Employee B'),false);assert.equal(await has('Synthetic Employee C'),false);assert.equal(await has('Employee email registration'),false);
  console.log('HF101_EMPLOYEE_ACCOUNT_MOUNTED=PASS; actual HTTP denial and mounted synthetic pending/owner registration/session-loss UI; no live login');
 }catch(e){console.error('HF101_EMPLOYEE_ACCOUNT_MOUNTED=FAIL',e);process.exitCode=1;}
 finally{if(ws)ws.close();for(const c of [browser,server])if(c?.pid)try{process.kill(-c.pid,'SIGTERM');}catch{}await sleep(350);if(tmp)await rm(tmp,{recursive:true,force:true,maxRetries:10,retryDelay:200});}

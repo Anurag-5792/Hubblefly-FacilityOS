@@ -43,7 +43,9 @@ INSERT INTO hft.warehouse(legal_entity_id,warehouse_id,site_id,name) VALUES('HF1
 INSERT INTO hft.employee(legal_entity_id,employee_id,site_id,full_name,department,designation,active) VALUES
  ('HF101-HFT','HF101-OWNER','HF101-SITE','Synthetic owner','QA','Fixture',true),
  ('HF101-HFT','HF101-A','HF101-SITE','Synthetic A','QA','Fixture',true),
- ('HF101-HFT','HF101-B','HF101-SITE','Synthetic B','QA','Fixture',true);
+ ('HF101-HFT','HF101-B','HF101-SITE','Synthetic B','QA','Fixture',true),
+ ('HF101-HFT','HF101-C','HF101-SITE','Synthetic C unbound','QA','Fixture',true),
+ ('HF101-HFT','HF101-D','HF101-SITE','Synthetic D inactive','QA','Fixture',false);
 INSERT INTO hft_app_roles.identity_binding VALUES
  ('HF101-OWNER-SUB','HF101-HFT','HF101-OWNER','HF101-OWNER-PERSON',true),
  ('HF101-A-SUB','HF101-HFT','HF101-A','HF101-A-PERSON',true),
@@ -58,7 +60,9 @@ GRANT USAGE ON SCHEMA hft_employee_login TO hf101_gateway;
 GRANT EXECUTE ON FUNCTION hft_employee_login.employee_login_context_v1(text,text,text,text,bigint,bigint),
  hft_employee_login.employee_google_claim_v1(text,text),
  hft_employee_login.employee_email_register_v1(text,text,text,bigint,text,text,text,bigint,bigint,text,text),
- hft_employee_login.employee_email_target_v1(text,text,text,text,text,bigint,bigint,text) TO hf101_gateway;
+ hft_employee_login.employee_email_target_v1(text,text,text,text,text,bigint,bigint,text),
+ hft_employee_login.employee_directory_v1(text,text,text,text,bigint,bigint,text,text),
+ hft_employee_login.employee_provider_rebind_v1(text,text,text,bigint,bigint,text,text,text,bigint,bigint,text,text,text) TO hf101_gateway;
 CREATE ROLE hf101_role_runtime LOGIN NOINHERIT;
 GRANT USAGE ON SCHEMA hft_employee_login TO hf101_role_runtime;
 GRANT EXECUTE ON FUNCTION hft_employee_login.employee_session_assert_v1(text,text,text,text,bigint,bigint,text) TO hf101_role_runtime;
@@ -84,7 +88,7 @@ GRANT EXECUTE ON FUNCTION hft_employee_login.employee_session_assert_v1(text,tex
                 query_sql=json.loads(raw.group(1))
                 rows=json.loads(q("SELECT COALESCE(jsonb_agg(to_jsonb(t)),'[]'::jsonb) FROM ("+query_sql+") t;",user=user).stdout)
                 if name=="identitySql":assert len(rows)==1 and rows[0]["restricted"] and rows[0]["memberships"]==0 and rows[0]["schema_owner"]=="hft_r1_employee_login_owner" and rows[0]["usage"] and not rows[0]["create_schema"],rows
-                if name=="functionsSql":assert len(rows)==6 and sum(x["executable"] for x in rows)==(4 if user=="hf101_gateway" else 1),rows
+                if name=="functionsSql":assert len(rows)==8 and sum(x["executable"] for x in rows)==(6 if user=="hf101_gateway" else 1),rows
                 if name=="ownerAclSql":assert rows==[{"memberships":0,"excess":0,"reads":7}],rows
                 if name=="triggerSql":assert len(rows)==1 and rows[0]["enabled"]=="A" and rows[0]["type"]==58,rows
         print("HF101_NATIVE_FUNCTION_PINS_AND_DEFINER_ACL=PASS; actual runtime catalog queries")
@@ -100,6 +104,14 @@ GRANT EXECUTE ON FUNCTION hft_employee_login.employee_session_assert_v1(text,tex
         def target(emp):
             return "SELECT hft_employee_login.employee_email_target_v1('HF101-HFT','"+emp+"','HF101-OWNER','HF101-OWNER-SUB','HF101-OWNER-PERSON',1,1,'HF101-WH');"
         assert query(target("HF101-A"))["version"]==0
+        def directory(search=""):
+            return "SELECT hft_employee_login.employee_directory_v1('HF101-HFT','HF101-OWNER','HF101-OWNER-SUB','HF101-OWNER-PERSON',1,1,'HF101-WH','"+search+"');"
+        rows={x["employeeId"]:x for x in query(directory())}
+        assert set(rows)=={"HF101-A","HF101-B","HF101-C","HF101-D"}
+        assert rows["HF101-C"]["registrationStatus"]=="BINDING_REQUIRED" and rows["HF101-D"]["registrationStatus"]=="INACTIVE"
+        assert query(directory("Synthetic C"))==[rows["HF101-C"]]
+        deny(directory().replace("'HF101-WH'","'CROSS-SCOPE'"),"HF101_EMPLOYEE_REGISTRATION_DENIED")
+        deny(target("HF101-C"),"HF101_CANONICAL_BINDING_REQUIRED")
         deny(claim("unknown@example.invalid","20000"),"HF101_EMPLOYEE_LOGIN_DENIED")
         assert q(reg("HF101-A","A@example.invalid"),user="hf101_gateway").stdout.strip()=="1"
         deny(reg("HF101-B","a@example.invalid"),"duplicate key")
@@ -107,7 +119,7 @@ GRANT EXECUTE ON FUNCTION hft_employee_login.employee_session_assert_v1(text,tex
         a=query(claim("a@example.invalid","20001"));b=query(claim("b@example.invalid","20002"))
         assert a["employeeId"]=="HF101-A" and b["employeeId"]=="HF101-B" and a["loginVersion"]==b["loginVersion"]==2
         assert a["assignments"]==b["assignments"]==[]
-        assert query(target("HF101-A"))=={"employeeId":"HF101-A","fullName":"Synthetic A","email":"a@example.invalid","version":2,"bound":True}
+        assert query(target("HF101-A"))=={"employeeId":"HF101-A","fullName":"Synthetic A","email":"a@example.invalid","version":2,"employeeVersion":1,"bound":True}
         deny(target("HF101-A").replace("'HF101-OWNER','HF101-OWNER-SUB','HF101-OWNER-PERSON',1,1","'HF101-B','HF101-B-SUB','HF101-B-PERSON',2,1"),"HF101_EMPLOYEE_REGISTRATION_DENIED")
         check="SELECT hft_employee_login.employee_session_assert_v1('HF101-HFT','HF101-A','HF101-A-SUB','HF101-A-PERSON',2,1,'HF101-SITE');"
         assert q(check,user="hf101_role_runtime").stdout.strip()=="t"
@@ -117,7 +129,12 @@ GRANT EXECUTE ON FUNCTION hft_employee_login.employee_session_assert_v1(text,tex
         deny(claim("a@example.invalid","20002"),"HF101_EMPLOYEE_LOGIN_DENIED")
         deny(claim("a@example.invalid","99999"),"HF101_EMPLOYEE_LOGIN_DENIED")
         deny(reg("HF101-B","other@example.invalid",2).replace("'HF101-OWNER','HF101-OWNER-SUB','HF101-OWNER-PERSON',1,1","'HF101-A','HF101-A-SUB','HF101-A-PERSON',2,1"),"HF101_EMPLOYEE_REGISTRATION_DENIED")
+        assert {x["employeeId"]:x for x in query(directory())}["HF101-A"]["registrationStatus"]=="REGISTERED"
+        deny(directory().replace("'HF101-OWNER','HF101-OWNER-SUB','HF101-OWNER-PERSON',1,1","'HF101-A','HF101-A-SUB','HF101-A-PERSON',2,1"),"HF101_EMPLOYEE_REGISTRATION_DENIED")
+        def rebind(emp,email,version,ev=1):
+            return "SELECT hft_employee_login.employee_provider_rebind_v1('HF101-HFT','"+emp+"','"+email+"',"+str(version)+","+str(ev)+",'HF101-OWNER','HF101-OWNER-SUB','HF101-OWNER-PERSON',1,1,'HF101-WH','Synthetic recovery authority',repeat('c',64));"
         assignment("HF101-A",1,["VIEWER"]);assert query(ctx("A",2))["assignments"][0]["periods"][0]["roles"]==["VIEWER"]
+        deny(rebind("HF101-A","a@example.invalid",2),"HF101_REBIND_REVOKE_ROLES_FIRST")
         assignment("HF101-A",2,[]);assert query(ctx("A",2))["assignments"][0]["periods"]==[]
         assert q(reg("HF101-A","a-new@example.invalid",2),user="hf101_gateway").stdout.strip()=="3"
         deny(ctx("A",2),"HF101_EMPLOYEE_SESSION_DENIED")
@@ -131,13 +148,23 @@ GRANT EXECUTE ON FUNCTION hft_employee_login.employee_session_assert_v1(text,tex
         q("UPDATE hft.employee SET active=true,version=version+1 WHERE employee_id='HF101-A';")
         deny(ctx("A",3),"HF101_EMPLOYEE_SESSION_DENIED")
         assert query(claim("a-new@example.invalid","20001"))["employeeVersion"]==3
+        deny(rebind("HF101-A","replacement@example.invalid",3,1),"HF101_LOGIN_VERSION_CONFLICT")
+        deny(rebind("HF101-A","replacement@example.invalid",3,3).replace("repeat('c',64)","repeat('0',64)"),"HF101_REBIND_EVIDENCE_REQUIRED")
+        assert q(rebind("HF101-A","replacement@example.invalid",3,3),user="hf101_gateway").stdout.strip()=="4"
+        deny(ctx("A",3,3),"HF101_EMPLOYEE_SESSION_DENIED")
+        deny(claim("replacement@example.invalid","20001"),"HF101_EMPLOYEE_LOGIN_DENIED")
+        deny(claim("replacement@example.invalid","20002"),"HF101_EMPLOYEE_LOGIN_DENIED")
+        recovered=query(claim("replacement@example.invalid","20003"))
+        assert recovered["employeeId"]=="HF101-A" and recovered["loginVersion"]==5 and recovered["assignments"][0]["periods"]==[]
+        assert q("SELECT count(*) FROM hft_employee_login.employee_login_event WHERE action='PROVIDER_REBIND' AND previous_email='a-new@example.invalid' AND new_email='replacement@example.invalid' AND evidence_sha256=repeat('c',64) AND retired_subject_sha256=encode(sha256(convert_to('20001','UTF8')),'hex');").stdout.strip()=="1"
         deny("SELECT * FROM hft_employee_login.employee_login_registration","permission denied")
         deny("SELECT * FROM hft_employee_login.employee_login_registration","permission denied",user="hf101_role_runtime")
         deny("SELECT * FROM hft.employee","permission denied")
-        assert q("SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='hft_employee_login' AND has_function_privilege('hf101_gateway',p.oid,'EXECUTE')").stdout.strip()=="4"
+        assert q("SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='hft_employee_login' AND has_function_privilege('hf101_gateway',p.oid,'EXECUTE')").stdout.strip()=="6"
         deny("UPDATE hft_employee_login.employee_login_event SET reason='tampered'","permission denied")
         deny("DELETE FROM hft_employee_login.employee_login_event","HF101_LOGIN_AUDIT_IMMUTABLE",user="postgres")
         assert int(q("SELECT count(*) FROM hft_employee_login.employee_login_event").stdout)>5
+        print("HF101_DIRECTORY_AND_PROVIDER_REBIND_PG18=PASS; scoped directory, missing binding, role revocation, old provider denial, immutable recovery event")
         print("HF101_EMPLOYEE_LOGIN_PG18=PASS; canonical registration, two identities, pending role, duplicate/conflict denial, role persistence/revocation, email change, deactivation/old session denial, audit and gateway ACL")
     finally:run("rm","-f",C,check=False)
 if __name__=="__main__":main()

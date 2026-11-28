@@ -23,8 +23,12 @@ CREATE TABLE hft_employee_login.employee_login_registration(
 CREATE TABLE hft_employee_login.employee_login_event(
  event_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
  legal_entity_id text NOT NULL, employee_id text NOT NULL,
- version bigint NOT NULL, action text NOT NULL CHECK(action IN('REGISTER','EMAIL_CHANGE','FIRST_BIND','SIGN_IN')),
+ version bigint NOT NULL, action text NOT NULL CHECK(action IN('REGISTER','EMAIL_CHANGE','FIRST_BIND','SIGN_IN','PROVIDER_REBIND')),
  actor_subject text NOT NULL, reason text NOT NULL CHECK(length(reason)>=8),
+ previous_email text, new_email text,
+ retired_subject_sha256 text UNIQUE CHECK(retired_subject_sha256 IS NULL OR retired_subject_sha256~'^[0-9a-f]{64}$'),
+ evidence_sha256 text CHECK(evidence_sha256 IS NULL OR evidence_sha256~'^[0-9a-f]{64}$'),
+ CHECK((action='PROVIDER_REBIND')=(retired_subject_sha256 IS NOT NULL AND evidence_sha256 IS NOT NULL AND previous_email IS NOT NULL AND new_email IS NOT NULL)),
  occurred_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  FOREIGN KEY(legal_entity_id,employee_id) REFERENCES hft_employee_login.employee_login_registration(legal_entity_id,employee_id)
 );
@@ -72,6 +76,8 @@ BEGIN
  WHERE x.email=lower(btrim(p_email)) AND x.subject=b.subject AND x.person_id=b.person_id AND b.active AND e.active;
  IF NOT FOUND OR (l.google_subject IS NOT NULL AND l.google_subject<>p_google_subject)
  OR EXISTS(SELECT 1 FROM hft_employee_login.employee_login_registration x WHERE x.google_subject=p_google_subject AND (x.legal_entity_id,x.employee_id)<>(l.legal_entity_id,l.employee_id))
+ OR EXISTS(SELECT 1 FROM hft_employee_login.employee_login_event x
+   WHERE x.retired_subject_sha256=encode(sha256(convert_to(p_google_subject,'UTF8')),'hex'))
  THEN RAISE EXCEPTION 'HF101_EMPLOYEE_LOGIN_DENIED' USING ERRCODE='42501'; END IF;
  first_bind:=l.google_subject IS NULL;
  IF first_bind THEN
@@ -88,7 +94,7 @@ END $f$;
 CREATE FUNCTION hft_employee_login.employee_email_register_v1(p_entity text,p_employee text,p_email text,p_expected bigint,
  p_actor_employee text,p_actor_subject text,p_actor_person text,p_actor_version bigint,p_actor_employee_version bigint,p_warehouse text,p_reason text)
  RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER VOLATILE SET search_path=pg_catalog,pg_temp AS $f$
-DECLARE actor jsonb; b hft_app_roles.identity_binding%ROWTYPE; e hft.employee%ROWTYPE; l hft_employee_login.employee_login_registration%ROWTYPE; changed bigint; action text;
+DECLARE actor jsonb; b hft_app_roles.identity_binding%ROWTYPE; e hft.employee%ROWTYPE; l hft_employee_login.employee_login_registration%ROWTYPE; changed bigint; action text; prior_email text;
 BEGIN
  PERFORM pg_advisory_xact_lock(1212568624,77);
  actor:=hft_employee_login.employee_login_context_v1(p_entity,p_actor_employee,p_actor_subject,p_actor_person,p_actor_version,p_actor_employee_version);
@@ -111,12 +117,13 @@ BEGIN
   IF p_expected IS DISTINCT FROM l.version OR b.subject<>l.subject OR b.person_id<>l.person_id THEN RAISE EXCEPTION 'HF101_LOGIN_VERSION_CONFLICT'; END IF;
   IF l.email=lower(btrim(p_email)) THEN RAISE EXCEPTION 'HF101_EMAIL_UNCHANGED'; END IF;
   -- Preserve the already verified provider subject; never silently rebind.
+  prior_email:=l.email;
   UPDATE hft_employee_login.employee_login_registration SET email=lower(btrim(p_email)),version=version+1
   WHERE legal_entity_id=p_entity AND employee_id=p_employee RETURNING version INTO changed;
   action:='EMAIL_CHANGE';
  END IF;
- INSERT INTO hft_employee_login.employee_login_event(legal_entity_id,employee_id,version,action,actor_subject,reason)
- VALUES(p_entity,p_employee,changed,action,p_actor_subject,btrim(p_reason));
+ INSERT INTO hft_employee_login.employee_login_event(legal_entity_id,employee_id,version,action,actor_subject,reason,previous_email,new_email)
+ VALUES(p_entity,p_employee,changed,action,p_actor_subject,btrim(p_reason),prior_email,lower(btrim(p_email)));
  RETURN changed;
 END $f$;
 REVOKE ALL ON hft_employee_login.employee_login_registration,hft_employee_login.employee_login_event FROM PUBLIC;
@@ -135,7 +142,7 @@ BEGIN
  AND period->'roles' @> '["OWNER_ADMIN"]'::jsonb)
  THEN RAISE EXCEPTION 'HF101_EMPLOYEE_REGISTRATION_DENIED' USING ERRCODE='42501'; END IF;
  SELECT jsonb_build_object('employeeId',e.employee_id,'fullName',e.full_name,'email',l.email,
- 'version',COALESCE(l.version,0),'bound',COALESCE(l.google_subject IS NOT NULL,false))
+ 'version',COALESCE(l.version,0),'employeeVersion',e.version,'bound',COALESCE(l.google_subject IS NOT NULL,false))
  INTO result FROM hft.employee e JOIN hft_app_roles.identity_binding b USING(legal_entity_id,employee_id)
  LEFT JOIN hft_employee_login.employee_login_registration l USING(legal_entity_id,employee_id)
  WHERE e.legal_entity_id=p_entity AND e.employee_id=p_employee AND e.site_id=actor->>'siteId' AND e.active AND b.active
@@ -152,6 +159,66 @@ BEGIN
  c:=hft_employee_login.employee_login_context_v1(p_entity,p_employee,p_subject,p_person,p_version,p_employee_version);
  IF c->>'siteId' IS DISTINCT FROM p_site THEN RAISE EXCEPTION 'HF101_EMPLOYEE_SESSION_DENIED' USING ERRCODE='42501'; END IF;
  RETURN true;
+END $f$;
+-- Owner-scoped canonical directory. Missing/inactive bindings are explicit
+-- blockers, not identities fabricated from names or email addresses.
+CREATE FUNCTION hft_employee_login.employee_directory_v1(p_entity text,p_actor_employee text,p_actor_subject text,p_actor_person text,p_actor_version bigint,p_actor_employee_version bigint,p_warehouse text,p_query text)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER VOLATILE SET search_path=pg_catalog,pg_temp AS $f$
+DECLARE actor jsonb; result jsonb;
+BEGIN
+ actor:=hft_employee_login.employee_login_context_v1(p_entity,p_actor_employee,p_actor_subject,p_actor_person,p_actor_version,p_actor_employee_version);
+ IF p_query IS NULL OR length(p_query)>80 OR p_query~'[[:cntrl:]]' OR NOT EXISTS(
+ SELECT 1 FROM jsonb_array_elements(actor->'assignments') a CROSS JOIN LATERAL jsonb_array_elements(a->'periods') period
+ WHERE a->'scope'->>'warehouseId'=p_warehouse AND a->'scope'->>'legalEntityId'=p_entity
+ AND a->'scope'->>'siteId'=actor->>'siteId'
+ AND (period->>'from')::timestamptz<=clock_timestamp() AND (period->>'to' IS NULL OR (period->>'to')::timestamptz>clock_timestamp())
+ AND period->'roles' @> '["OWNER_ADMIN"]'::jsonb)
+ THEN RAISE EXCEPTION 'HF101_EMPLOYEE_REGISTRATION_DENIED' USING ERRCODE='42501'; END IF;
+ SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x."fullName",x."employeeId"),'[]'::jsonb) INTO result FROM (
+ SELECT e.employee_id AS "employeeId",e.full_name AS "fullName",e.department,e.designation,e.active,
+ CASE WHEN b.active AND l.subject=b.subject AND l.person_id=b.person_id THEN l.email ELSE NULL END AS email,
+ CASE WHEN NOT e.active THEN 'INACTIVE'
+ WHEN b.subject IS NULL OR NOT b.active THEN 'BINDING_REQUIRED'
+ WHEN l.employee_id IS NOT NULL AND (l.subject<>b.subject OR l.person_id<>b.person_id) THEN 'BINDING_CHANGED'
+ WHEN l.employee_id IS NULL THEN 'UNREGISTERED'
+ WHEN l.google_subject IS NULL THEN 'AWAITING_FIRST_SIGN_IN'
+ ELSE 'REGISTERED' END AS "registrationStatus"
+ FROM hft.employee e LEFT JOIN hft_app_roles.identity_binding b USING(legal_entity_id,employee_id)
+ LEFT JOIN hft_employee_login.employee_login_registration l USING(legal_entity_id,employee_id)
+ WHERE e.legal_entity_id=p_entity AND e.site_id=actor->>'siteId' AND e.employee_id<>p_actor_employee
+ AND (position(lower(btrim(p_query)) in lower(e.employee_id))>0 OR position(lower(btrim(p_query)) in lower(e.full_name))>0)
+ ORDER BY e.full_name,e.employee_id LIMIT 30) x;
+ RETURN result;
+END $f$;
+-- Explicit replacement-provider recovery. No self-change; no current OR
+-- future roles may transfer to a replacement provider subject. The old
+-- subject is permanently retired across all employee registrations.
+-- Evidence hash identifies the owner's independently verified recovery record;
+-- it does not itself establish that the underlying evidence is genuine.
+CREATE FUNCTION hft_employee_login.employee_provider_rebind_v1(p_entity text,p_employee text,p_email text,p_expected bigint,p_target_employee_version bigint,
+ p_actor_employee text,p_actor_subject text,p_actor_person text,p_actor_version bigint,p_actor_employee_version bigint,p_warehouse text,p_reason text,p_evidence text)
+ RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER VOLATILE SET search_path=pg_catalog,pg_temp AS $f$
+DECLARE target jsonb; l hft_employee_login.employee_login_registration%ROWTYPE; changed bigint;
+BEGIN
+ PERFORM pg_advisory_xact_lock(1212568624,77);
+ target:=hft_employee_login.employee_email_target_v1(p_entity,p_employee,p_actor_employee,p_actor_subject,p_actor_person,p_actor_version,p_actor_employee_version,p_warehouse);
+ IF p_expected IS DISTINCT FROM (target->>'version')::bigint OR p_target_employee_version IS DISTINCT FROM (target->>'employeeVersion')::bigint
+ OR target->>'bound' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'HF101_LOGIN_VERSION_CONFLICT'; END IF;
+ IF p_evidence IS NULL OR p_evidence!~'^[0-9a-f]{64}$' OR p_evidence=repeat('0',64)
+ OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 8 AND 500
+ THEN RAISE EXCEPTION 'HF101_REBIND_EVIDENCE_REQUIRED'; END IF;
+ IF EXISTS(SELECT 1 FROM hft_app_roles.assignment a CROSS JOIN LATERAL jsonb_array_elements(a.snapshot->'periods') period
+ WHERE a.legal_entity_id=p_entity AND a.employee_id=p_employee
+ AND (period->>'to' IS NULL OR (period->>'to')::timestamptz>clock_timestamp())
+ AND jsonb_array_length(period->'roles')>0)
+ THEN RAISE EXCEPTION 'HF101_REBIND_REVOKE_ROLES_FIRST' USING ERRCODE='42501'; END IF;
+ SELECT * INTO STRICT l FROM hft_employee_login.employee_login_registration WHERE legal_entity_id=p_entity AND employee_id=p_employee;
+ UPDATE hft_employee_login.employee_login_registration SET email=lower(btrim(p_email)),google_subject=NULL,version=version+1
+ WHERE legal_entity_id=p_entity AND employee_id=p_employee RETURNING version INTO changed;
+ INSERT INTO hft_employee_login.employee_login_event(legal_entity_id,employee_id,version,action,actor_subject,reason,previous_email,new_email,retired_subject_sha256,evidence_sha256)
+ VALUES(p_entity,p_employee,changed,'PROVIDER_REBIND',p_actor_subject,btrim(p_reason),l.email,lower(btrim(p_email)),
+ encode(sha256(convert_to(l.google_subject,'UTF8')),'hex'),p_evidence);
+ RETURN changed;
 END $f$;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA hft_employee_login FROM PUBLIC;
 -- No runtime grant, existing data mutation, owner bootstrap, or schema admission.

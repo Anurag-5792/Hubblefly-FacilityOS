@@ -8,7 +8,7 @@ import {EMPLOYEE_FUNCTION_PINS} from './employee-login-pins.ts';
 type Env=Readonly<Record<string,string|undefined>>;
 type Pool=RoleSqlPool&{end():Promise<void>};
 const gateway='hft_r1_employee_login_np_login',owner='hft_r1_employee_login_owner';
-const gatewayFunctions=['employee_email_register_v1','employee_email_target_v1','employee_google_claim_v1','employee_login_context_v1'];
+const gatewayFunctions=['employee_email_register_v1','employee_email_target_v1','employee_google_claim_v1','employee_login_context_v1','employee_directory_v1','employee_provider_rebind_v1'];
 const noAmbient=['PGUSER','PGPASSWORD','PGHOSTADDR','PGSERVICE','PGSERVICEFILE','PGOPTIONS','PGSSLCERT','PGSSLKEY','PGSSLROOTCERT','PGPASSFILE','DATABASE_URL','POSTGRES_URL'];
 export function assertEmployeeGatewayProfile(e:Env):void{
  if(!employeeLoginProfileAdmitted(e)||e.HFT_EMPLOYEE_LOGIN_PG_LOGIN!==gateway||
@@ -86,14 +86,27 @@ export async function currentEmployee(e:Env,a:EmployeeIdentity){
  if(c.legalEntityId!==a.legalEntityId||c.employeeId!==a.employeeId||c.subject!==a.subject||c.personId!==a.personId||c.siteId!==a.siteId||c.loginVersion!==a.loginVersion||c.employeeVersion!==a.employeeVersion)throw Error('HF101_IDENTITY_READBACK_DENIED');
  return c;
 }
-export type EmailTarget={employeeId:string;fullName:string;email:string|null;version:number;bound:boolean};
+export type EmailTarget={employeeId:string;fullName:string;email:string|null;version:number;employeeVersion:number;bound:boolean};
 export async function emailTarget(e:Env,a:EmployeeIdentity,employeeId:string,warehouseId:string){
  const t=await gatewayQuery<EmailTarget>(e,'SELECT hft_employee_login.employee_email_target_v1($1,$2,$3,$4,$5,$6::bigint,$7::bigint,$8) AS value',[a.legalEntityId,employeeId,a.employeeId,a.subject,a.personId,a.loginVersion,a.employeeVersion,warehouseId],true);
- if(t.employeeId!==employeeId||!Number.isSafeInteger(t.version)||t.version<0||typeof t.bound!=='boolean')throw Error('HF101_TARGET_READBACK_DENIED');return t;
+ if(t.employeeId!==employeeId||!Number.isSafeInteger(t.version)||t.version<0||!Number.isSafeInteger(t.employeeVersion)||t.employeeVersion<1||typeof t.bound!=='boolean')throw Error('HF101_TARGET_READBACK_DENIED');return t;
 }
 export async function registerEmployeeEmail(e:Env,a:EmployeeIdentity,employeeId:string,warehouseId:string,email:string,version:number,reason:string){
  const result=await gatewayQuery<string>(e,'SELECT hft_employee_login.employee_email_register_v1($1,$2,$3,$4::bigint,$5,$6,$7,$8::bigint,$9::bigint,$10,$11)::text AS value',[a.legalEntityId,employeeId,email,version,a.employeeId,a.subject,a.personId,a.loginVersion,a.employeeVersion,warehouseId,reason]);
  try{const t=await emailTarget(e,a,employeeId,warehouseId);
   if(Number(result)!==version+1||t.version!==Number(result)||t.email!==email)throw Error('HF101_COMMIT_UNCONFIRMED');return t;
+ }catch{throw Error('HF101_COMMIT_UNCONFIRMED');}
+}
+
+export type EmployeeDirectoryRow={employeeId:string;fullName:string;department:string;designation:string;active:boolean;email:string|null;registrationStatus:'INACTIVE'|'BINDING_REQUIRED'|'BINDING_CHANGED'|'UNREGISTERED'|'AWAITING_FIRST_SIGN_IN'|'REGISTERED'};
+export async function employeeDirectory(e:Env,a:EmployeeIdentity,warehouseId:string,query:string){
+ const rows=await gatewayQuery<EmployeeDirectoryRow[]>(e,'SELECT hft_employee_login.employee_directory_v1($1,$2,$3,$4,$5::bigint,$6::bigint,$7,$8) AS value',[a.legalEntityId,a.employeeId,a.subject,a.personId,a.loginVersion,a.employeeVersion,warehouseId,query],true);
+ if(!Array.isArray(rows)||rows.length>30||new Set(rows.map(x=>x.employeeId)).size!==rows.length||rows.some(x=>x.employeeId===a.employeeId||typeof x.employeeId!=='string'||typeof x.active!=='boolean'||!['INACTIVE','BINDING_REQUIRED','BINDING_CHANGED','UNREGISTERED','AWAITING_FIRST_SIGN_IN','REGISTERED'].includes(x.registrationStatus)))throw Error('HF101_DIRECTORY_READBACK_DENIED');
+ return rows;
+}
+export async function rebindEmployeeProvider(e:Env,a:EmployeeIdentity,employeeId:string,warehouseId:string,email:string,version:number,employeeVersion:number,reason:string,evidenceSha256:string){
+ const result=await gatewayQuery<string>(e,'SELECT hft_employee_login.employee_provider_rebind_v1($1,$2,$3,$4::bigint,$5::bigint,$6,$7,$8,$9::bigint,$10::bigint,$11,$12,$13)::text AS value',[a.legalEntityId,employeeId,email,version,employeeVersion,a.employeeId,a.subject,a.personId,a.loginVersion,a.employeeVersion,warehouseId,reason,evidenceSha256]);
+ try{const t=await emailTarget(e,a,employeeId,warehouseId);
+  if(Number(result)!==version+1||t.version!==Number(result)||t.email!==email||t.bound!==false)throw Error('HF101_COMMIT_UNCONFIRMED');return t;
  }catch{throw Error('HF101_COMMIT_UNCONFIRMED');}
 }
