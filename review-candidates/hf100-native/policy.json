@@ -1,0 +1,19 @@
+{
+  "schema": "HF100_NEON_NATIVE_CONTRACT_V1",
+  "state": "NOT_ADMITTED",
+  "accepted_hf100": "281ddaff096c37910395e5470d6948f966010834",
+  "transport": "9984ed1434be65a80668d061754dd98a15e19a0c",
+  "action": "HF094_RETAINED_ROLES_ONLY_CANONICAL_0001_0006_AND_ROLE_SQL",
+  "provider_database_id": 860001,
+  "transport_mode": "authenticated provider single transaction; exact branch/compute/database/installer identity",
+  "recovery": "pre-claim provider snapshot and independently restored branch, exact catalog and sibling digests; not encrypted portable backup or immutable storage",
+  "custody": "same fixed-target HMAC registry and private Drive witnesses; no reset or replay; current owner signature and revocation",
+  "excluded": [
+    "stock posting",
+    "role activation",
+    "production",
+    "whole-branch rewind",
+    "automatic retries",
+    "new paid resources"
+  ]
+}
