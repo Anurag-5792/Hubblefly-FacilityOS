@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {splitGuardedBody,compileGuardedTransaction} from './native-statements.mjs';
+test('actual fixture lexical cases',()=>assert.equal(splitGuardedBody("SELECT 'a;''b'; -- c;\nDO $d$ BEGIN PERFORM 1; END $d$; /*a; /*b;*/ c*/ SELECT 2;").length,3));
+test('preserve quoted body exactly',()=>{const q='DO $tag$\nBEGIN\n PERFORM 1;\nEND $tag$;';assert.deepEqual(splitGuardedBody(q),[q])});
+test('preserve escaped strings',()=>assert.equal(splitGuardedBody(String.raw`SELECT E'a\';b'; SELECT 2;`).length,2));
+test('preserve quoted identifiers',()=>assert.equal(splitGuardedBody('SELECT "a;b";').length,1));
+test('translate serializable envelope',()=>assert.deepEqual(compileGuardedTransaction('BEGIN ISOLATION LEVEL SERIALIZABLE;\nSELECT 1;\nCOMMIT;\n'),['SET TRANSACTION ISOLATION LEVEL SERIALIZABLE','SELECT 1;']));
+test('translate read-only envelope',()=>assert.deepEqual(compileGuardedTransaction('BEGIN READ ONLY;\nSELECT 1;\nCOMMIT;'),['SET TRANSACTION READ ONLY','SELECT 1;']));
+test('deny unsupported outer envelope',()=>assert.throws(()=>compileGuardedTransaction('BEGIN;\nSELECT 1;\nCOMMIT;')));
+test('deny nested transactions',()=>{for(const s of ['COMMIT;','/* x /* nested */ y */ ROLLBACK;','SET TRANSACTION READ WRITE;','ABORT;','\\conninfo;'])assert.throws(()=>splitGuardedBody(s))});
+test('deny incomplete lexical tokens',()=>{for(const s of ["SELECT 'foo;",'DO $a$ BEGIN END;','/* missing','SELECT 1'])assert.throws(()=>splitGuardedBody(s))});
+test('deny empty transaction',()=>assert.throws(()=>compileGuardedTransaction('BEGIN READ ONLY;\n-- only comment\nCOMMIT;')));
