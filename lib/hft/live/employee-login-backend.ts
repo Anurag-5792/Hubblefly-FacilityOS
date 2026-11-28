@@ -57,8 +57,15 @@ async function gatewayQuery<T>(e:Env,sql:string,args:unknown[],readOnly=false):P
  ssl:{rejectUnauthorized:true,servername:e.HFT_ROLE_PG_HOST,ca:e.HFT_ROLE_PG_CA_PEM,minVersion:'TLSv1.2'},max:1,connectionTimeoutMillis:4000,statement_timeout:10000,allowExitOnIdle:true});
  let c:RoleSqlClient|undefined,begun=false,committing=false;
  try{
-  c=await p.connect();await c.query(readOnly?'BEGIN READ ONLY':'BEGIN');begun=true;
-  await c.query("SET LOCAL lock_timeout='2500ms'");await admit(c,e,false);
+  c=await p.connect();await admit(c,e,false);
+  await c.query("SET lock_timeout='2500ms'");
+  const lock=await c.query<{pid:number}>(readOnly?'SELECT pg_advisory_lock_shared(1212568624,77),pg_backend_pid() AS pid':'SELECT pg_advisory_lock(1212568624,77),pg_backend_pid() AS pid');
+  const pid=lock.rows[0]?.pid;if(lock.rows.length!==1||!Number.isSafeInteger(pid))throw Error('HF101_SESSION_FENCE_DENIED');
+  await c.query(readOnly?'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY':'BEGIN ISOLATION LEVEL SERIALIZABLE');begun=true;
+  await c.query("SET LOCAL lock_timeout='2500ms'");
+  const held=await c.query<{pid:number;held:boolean}>("SELECT pg_backend_pid() AS pid,EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pid=pg_backend_pid() AND classid=1212568624::oid AND objid=77::oid AND objsubid=2 AND mode=$1 AND granted) AS held",[readOnly?'ShareLock':'ExclusiveLock']);
+  if(held.rows.length!==1||held.rows[0].pid!==pid||held.rows[0].held!==true)throw Error('HF101_SESSION_FENCE_DENIED');
+  await admit(c,e,false);
   const out=await c.query<{value:T}>(sql,args);if(out.rows.length!==1||out.rows[0].value===null||out.rows[0].value===undefined)throw Error('HF101_GATEWAY_READBACK_DENIED');
   committing=true;await c.query('COMMIT');begun=false;return out.rows[0].value;
  }catch(err){if(c&&begun&&!committing)try{await c.query('ROLLBACK');}catch{/* connection discarded */}

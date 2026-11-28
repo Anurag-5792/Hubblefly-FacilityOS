@@ -105,8 +105,8 @@ class Transaction implements RoleTransaction {
  }
 }
 export class PostgresRoleStore implements RoleStore {
- constructor(pool:RoleSqlPool,admit:RoleConnectionAdmission){this.pool=pool;this.admit=admit;}
- private readonly pool:RoleSqlPool;private readonly admit:RoleConnectionAdmission;
+ constructor(pool:RoleSqlPool,admit:RoleConnectionAdmission,employeeIdentityFence=false){this.pool=pool;this.admit=admit;this.employeeIdentityFence=employeeIdentityFence;}
+ private readonly pool:RoleSqlPool;private readonly admit:RoleConnectionAdmission;private readonly employeeIdentityFence:boolean;
  read<T>(work:(tx:RoleTransaction)=>Promise<T>):Promise<T>{return this.run(null,work);}
  write<T>(scope:Scope,work:(tx:RoleTransaction)=>Promise<T>):Promise<T>{return this.run(scope,work);}
  private async run<T>(scope:Scope|null,work:(tx:RoleTransaction)=>Promise<T>):Promise<T>{
@@ -122,6 +122,14 @@ export class PostgresRoleStore implements RoleStore {
      'SELECT pg_catalog.pg_advisory_lock($1::integer,$2::integer),pg_catalog.pg_backend_pid() AS pid',[...ROLE_FENCE_KEYS]);
     sessionFence=true;
     fencePid=acquired.rows[0]?.pid;
+    if(acquired.rows.length!==1||!Number.isSafeInteger(fencePid))deny('ROLE_SESSION_FENCE_IDENTITY_DENIED');
+   }else if(this.employeeIdentityFence){
+    // HF101 reads must not pin an old repeatable-read snapshot while waiting
+    // for deactivation, an email edit or assignment revocation to commit.
+    await c.query("SET lock_timeout='2500ms'");
+    await c.query("SET statement_timeout='10000ms'");
+    const acquired=await c.query<{pid:number}>('SELECT pg_catalog.pg_advisory_lock_shared($1::integer,$2::integer),pg_catalog.pg_backend_pid() AS pid',[...ROLE_FENCE_KEYS]);
+    sessionFence=true;fencePid=acquired.rows[0]?.pid;
     if(acquired.rows.length!==1||!Number.isSafeInteger(fencePid))deny('ROLE_SESSION_FENCE_IDENTITY_DENIED');
    }
    begun=true;
@@ -145,11 +153,19 @@ export class PostgresRoleStore implements RoleStore {
      'WHERE s.legal_entity_id=$1 AND s.site_id=$2 AND s.warehouse_id=$3 AND e.active AND t.active AND w.active FOR UPDATE OF s',params(scope));
     if(r.rows.length!==1)deny('ROLE_ACTOR_OR_SCOPE_DENIED');
     await c.query('UPDATE hft_app_roles.scope_lock SET epoch=epoch+1 WHERE legal_entity_id=$1 AND site_id=$2 AND warehouse_id=$3',params(scope));
+   }else if(this.employeeIdentityFence){
+    const held=await c.query<{pid:number;held:boolean}>(`SELECT pg_catalog.pg_backend_pid() AS pid,
+     EXISTS(SELECT 1 FROM pg_catalog.pg_locks WHERE locktype='advisory'
+      AND database=(SELECT oid FROM pg_catalog.pg_database WHERE datname=current_database())
+      AND pid=pg_backend_pid() AND classid=$1::oid AND objid=$2::oid AND objsubid=2
+      AND mode='ShareLock' AND granted) AS held`,[...ROLE_FENCE_KEYS]);
+    if(held.rows.length!==1||held.rows[0].pid!==fencePid||held.rows[0].held!==true)deny('ROLE_SESSION_FENCE_AFFINITY_DENIED');
+    await this.admit(c);
    }
    const value=await work(new Transaction(c,scope!==null));commit=true;await c.query('COMMIT');
    if(sessionFence){
     const unlocked=await c.query<{released:boolean}>(
-     'SELECT pg_catalog.pg_advisory_unlock($1::integer,$2::integer) AS released',[...ROLE_FENCE_KEYS]);
+     scope?'SELECT pg_catalog.pg_advisory_unlock($1::integer,$2::integer) AS released':'SELECT pg_catalog.pg_advisory_unlock_shared($1::integer,$2::integer) AS released',[...ROLE_FENCE_KEYS]);
     if(unlocked.rows.length!==1||unlocked.rows[0].released!==true)throw Error('ROLE_FENCE_RELEASE_UNVERIFIED_NO_RETRY');
     sessionFence=false;
    }
@@ -160,7 +176,7 @@ export class PostgresRoleStore implements RoleStore {
    // Write connections are never returned for reuse: session settings and any
    // lost lock/BEGIN/COMMIT response cannot leak into another request. Closing
    // the connection releases an uncertain session lock, including error paths.
-   c.release(discard||scope!==null||sessionFence);
+   c.release(discard||scope!==null||this.employeeIdentityFence||sessionFence);
   }
  }
 }

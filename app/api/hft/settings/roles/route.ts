@@ -29,7 +29,7 @@ export async function POST(request:Request):Promise<Response>{
   try{session=await employeeRoleSession(request,process.env);}catch{return Response.json({state:'UNAVAILABLE',code:'HOSTED_OPERATOR_SESSION_REQUIRED'},{status:401,headers});}
   let pool:ReturnType<typeof openRoleBackendPool>;
   try{pool=openRoleBackendPool(process.env);}catch{return Response.json({state:'UNAVAILABLE',code:'ROLE_BACKEND_NOT_ADMITTED'},{status:503,headers});}
-  try{return await handleRoleApi(request,{authenticate:async()=>session,store:()=>new PostgresRoleStore(pool,async c=>{await assertRoleConnection(c,process.env);await assertEmployeeRoleConnection(c,process.env);})});}
+  try{return await handleRoleApi(request,{authenticate:async()=>session,store:()=>new PostgresRoleStore(pool,async c=>{await assertRoleConnection(c,process.env);await assertEmployeeRoleConnection(c,process.env);},true)});}
   finally{await pool.end();}
  }
  if(!isRoleBackendProfile(process.env))

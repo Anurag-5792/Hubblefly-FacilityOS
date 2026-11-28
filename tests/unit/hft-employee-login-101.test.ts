@@ -89,3 +89,22 @@ test('employee cookie contains identity/version only and rejects forged, expired
  assert.throws(()=>readEmployeeSession(req('__Host-hft_employee_session='+signed),env));
  assert.match(clearEmployeeCookie,/Max-Age=0/);
 });
+
+import {PostgresRoleStore,type RoleSqlClient} from '../../lib/hft/roles/role-postgres.ts';
+test('HF101 read fence precedes snapshot and denies lost backend affinity',async()=>{
+ for(const lost of [false,true]){
+  const queries:string[]=[];let admitted=0,worked=false,released=false;
+  const client={query:async(sql:string)=>{queries.push(sql);
+   if(sql.includes('pg_advisory_lock_shared('))return {rows:[{pid:11}]};
+   if(sql.includes("mode='ShareLock'"))return {rows:[{pid:lost?12:11,held:true}]};
+   if(sql.includes('pg_advisory_unlock_shared('))return {rows:[{released:true}]};
+   return {rows:[]};
+  },release:(discard:boolean)=>{released=discard;}} as RoleSqlClient;
+  const store=new PostgresRoleStore({connect:async()=>client},async()=>{admitted++;},true);
+  const read=store.read(async()=>{worked=true;return 'ok';});
+  if(lost)await assert.rejects(read,/ROLE_SESSION_FENCE_AFFINITY_DENIED/);
+  else{assert.equal(await read,'ok');assert.equal(admitted,2);assert.equal(queries.some(q=>q.includes('pg_advisory_unlock_shared(')),true);}
+  assert.equal(worked,!lost);assert.equal(released,true);
+  assert.ok(queries.findIndex(q=>q.includes('pg_advisory_lock_shared('))<queries.findIndex(q=>q.startsWith('BEGIN')));
+ }
+});

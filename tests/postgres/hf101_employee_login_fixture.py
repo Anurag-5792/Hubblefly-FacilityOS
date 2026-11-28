@@ -73,7 +73,21 @@ GRANT EXECUTE ON FUNCTION hft_employee_login.employee_session_assert_v1(text,tex
             assert {k:v for k,v in x.items() if k!="name"}==pins[x["name"]],x
         assert q("SELECT has_table_privilege('hft_r1_employee_login_owner','hft.employee','SELECT') AND NOT has_table_privilege('hft_r1_employee_login_owner','hft.employee','INSERT,UPDATE,DELETE') AND NOT has_table_privilege('hft_r1_employee_login_owner','hft_app_roles.assignment','INSERT,UPDATE,DELETE');").stdout.strip()=="t"
         assert q("SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='hft_employee_login' AND NOT t.tgisinternal AND t.tgenabled='A' AND t.tgtype=58;").stdout.strip()=="1"
-        print("HF101_NATIVE_FUNCTION_PINS_AND_DEFINER_ACL=PASS")
+        # Execute the exact runtime catalog queries, including the dedicated
+        # definer privilege census, as each least-privilege fixture login.
+        import re
+        backend=(ROOT/"lib/hft/live/employee-login-backend.ts").read_text()
+        for user in ("hf101_gateway","hf101_role_runtime"):
+            for name in ("identitySql","functionsSql","ownerAclSql","triggerSql"):
+                raw=re.search(r"const "+name+r'=("(?:[^"\\\\]|\\\\.)*");',backend)
+                assert raw is not None,name
+                query_sql=json.loads(raw.group(1))
+                rows=json.loads(q("SELECT COALESCE(jsonb_agg(to_jsonb(t)),'[]'::jsonb) FROM ("+query_sql+") t;",user=user).stdout)
+                if name=="identitySql":assert len(rows)==1 and rows[0]["restricted"] and rows[0]["memberships"]==0 and rows[0]["schema_owner"]=="hft_r1_employee_login_owner" and rows[0]["usage"] and not rows[0]["create_schema"],rows
+                if name=="functionsSql":assert len(rows)==6 and sum(x["executable"] for x in rows)==(4 if user=="hf101_gateway" else 1),rows
+                if name=="ownerAclSql":assert rows==[{"memberships":0,"excess":0,"reads":7}],rows
+                if name=="triggerSql":assert len(rows)==1 and rows[0]["enabled"]=="A" and rows[0]["type"]==58,rows
+        print("HF101_NATIVE_FUNCTION_PINS_AND_DEFINER_ACL=PASS; actual runtime catalog queries")
         def assignment(emp,rev,roles):
             s={"employeeId":emp,"scope":{"legalEntityId":"HF101-HFT","siteId":"HF101-SITE","warehouseId":"HF101-WH"},"revision":rev,"revokedFrom":None,"periods":[{"from":"2020-01-01T00:00:00.000Z","to":None,"roles":roles}] if roles else []}
             req=str(uuid.uuid4());ev={"requestId":req,"after":s,"actorSubject":"HF101-OWNER-SUB","actorSessionId":"FIXTURE","reason":"Synthetic role fixture"}
