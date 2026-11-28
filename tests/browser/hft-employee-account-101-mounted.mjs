@@ -17,7 +17,7 @@ const has=t=>run('document.body.innerText.includes('+JSON.stringify(t)+')');
 async function click(t){await wait(()=>run('[...document.querySelectorAll("button")].some(b=>b.textContent.trim()==='+JSON.stringify(t)+'&&!b.disabled)'),'BUTTON_'+t);await run('[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==='+JSON.stringify(t)+'&&!b.disabled).click()');}
 async function field(label,value){await run('(()=>{const l=[...document.querySelectorAll("label")].find(l=>l.textContent.trim().startsWith('+JSON.stringify(label)+'));const e=l?.querySelector("input");if(!e||e.disabled)throw Error("FIELD");Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(e,'+JSON.stringify(value)+');e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));})()');}
 const mock=`(()=>{
- const original=window.fetch.bind(window);window.__calls=[];window.__deny=false;let registered=false;
+ const original=window.fetch.bind(window);window.__calls=[];window.__deny=false;let registered=false,rebound=false;
  window.fetch=async(input,options={})=>{
   const path=typeof input==='string'?input:new URL(input.url).pathname;
   if(path==='/api/hft/live-masters/signout'){sessionStorage.setItem('hf101-mode','out');return Response.json({state:'SIGNED_OUT'});}
@@ -29,9 +29,12 @@ const mock=`(()=>{
   if(p.action==='CONTEXT')return Response.json(context);
   if(!owner)return Response.json({state:'UNAVAILABLE',code:'HF101_ACCESS_DENIED'},{status:403});
   if(p.action==='DIRECTORY')return Response.json({state:'DIRECTORY_VERIFIED',employees:[{employeeId:'FIXTURE-B',fullName:'Synthetic Employee B',department:'QA',designation:'Operator',active:true,email:registered?'b@example.invalid':null,registrationStatus:registered?'AWAITING_FIRST_SIGN_IN':'UNREGISTERED'},{employeeId:'FIXTURE-C',fullName:'Synthetic Employee C',department:'QA',designation:'Operator',active:true,email:null,registrationStatus:'BINDING_REQUIRED'}],limit:30});
-  if(p.action==='TARGET'&&p.employeeId==='FIXTURE-B')return Response.json({state:'TARGET_VERIFIED',target:{employeeId:p.employeeId,fullName:'Synthetic Employee B',email:registered?'b@example.invalid':null,version:registered?1:0,employeeVersion:1,bound:false}});
+  if(p.action==='TARGET'&&p.employeeId==='FIXTURE-B')return Response.json({state:'TARGET_VERIFIED',target:{employeeId:p.employeeId,fullName:'Synthetic Employee B',email:rebound?'replacement@example.invalid':registered?'b@example.invalid':null,version:rebound?3:registered?2:0,employeeVersion:1,bound:registered&&!rebound}});
   if(p.action==='REGISTER'&&p.employeeId==='FIXTURE-B'&&p.warehouseId==='FIXTURE-WH'&&p.version===0&&p.email==='b@example.invalid'&&p.reason.length>=8){
    registered=true;return Response.json({state:'SAVED_VERIFIED',target:{employeeId:p.employeeId,fullName:'Synthetic Employee B',email:p.email,version:1,employeeVersion:1,bound:false}});
+  }
+  if(p.action==='REBIND'&&registered&&!rebound&&p.employeeId==='FIXTURE-B'&&p.warehouseId==='FIXTURE-WH'&&p.version===2&&p.employeeVersion===1&&p.email==='replacement@example.invalid'&&p.confirm===true&&p.evidenceSha256==='c'.repeat(64)){
+   rebound=true;return Response.json({state:'REBIND_VERIFIED',target:{employeeId:p.employeeId,fullName:'Synthetic Employee B',email:p.email,version:3,employeeVersion:1,bound:false}});
   }
   return Response.json({state:'UNAVAILABLE',code:'HF101_INPUT_INVALID'},{status:422});
  };
@@ -74,8 +77,12 @@ try{
  await field('Registered email','b@example.invalid');await field('Reason','Synthetic employee registration');await click('Save email');
  await wait(()=>has('Employee email saved and independently read back.'),'SAVE');
  assert.deepEqual(await run('window.__calls.at(-1)'),{action:'REGISTER',employeeId:'FIXTURE-B',warehouseId:'FIXTURE-WH',email:'b@example.invalid',version:0,reason:'Synthetic employee registration'});
+ await click('Find employee');await wait(()=>has('Provider identity already bound'),'BOUND_TARGET');
+ await click('Replace provider identity');await field('Registered email','replacement@example.invalid');await field('Reason','Synthetic verified provider replacement');await field('Recovery evidence SHA-256','c'.repeat(64));
+ assert.equal(await run('[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Authorize provider replacement").disabled'),true);
+ await run('document.querySelector("input[type=checkbox]").click()');await click('Authorize provider replacement');await wait(()=>has('Provider replacement authorized and read back.'),'REBIND');
  await run('window.__deny=true');await click('Refresh access');await wait(()=>has('Sign in with your registered email.'),'SESSION_LOSS');
  assert.equal(await has('Synthetic Owner'),false);assert.equal(await has('Synthetic Employee B'),false);assert.equal(await has('Synthetic Employee C'),false);assert.equal(await has('Employee email registration'),false);
- console.log('HF101_EMPLOYEE_ACCOUNT_MOUNTED=PASS; actual HTTP denial and mounted synthetic pending/owner registration/session-loss UI; no live login');
+ console.log('HF101_EMPLOYEE_ACCOUNT_MOUNTED=PASS; actual HTTP denial and mounted synthetic pending/owner directory/registration/provider replacement/session-loss UI; no live login');
 }catch(e){console.error('HF101_EMPLOYEE_ACCOUNT_MOUNTED=FAIL',e);process.exitCode=1;}
 finally{if(ws)ws.close();for(const c of [browser,server])if(c?.pid)try{process.kill(-c.pid,'SIGTERM');}catch{}await sleep(350);if(tmp)await rm(tmp,{recursive:true,force:true,maxRetries:10,retryDelay:200});}

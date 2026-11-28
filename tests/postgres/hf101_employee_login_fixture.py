@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Actual disposable canonical PG18 employee identity lifecycle. No provider or live credentials."""
 from pathlib import Path
-import hashlib, json, subprocess, time, uuid
+import hashlib, json, subprocess, time, uuid, tempfile, os, shutil
 ROOT=Path(__file__).resolve().parents[2]
 DB="hft_r1_disposable_hf101"
 C="hf101-"+uuid.uuid4().hex[:12]
@@ -15,8 +15,10 @@ def deny(s,code,user="hf101_gateway"):
     p=q(s,user=user,check=False);assert p.returncode and code in p.stderr,p.stderr
 def query(s):return json.loads(q(s,user="hf101_gateway").stdout)
 def main():
+    socket_dir=tempfile.mkdtemp(prefix="hf101-pg-socket-")
+    os.chmod(socket_dir,0o777)
     try:
-        run("run","-d","--rm","--network","none","--name",C,"-e","POSTGRES_HOST_AUTH_METHOD=trust","postgres:18.7")
+        run("run","-d","--rm","--network","none","--name",C,"-v",socket_dir+":/var/run/postgresql","-e","POSTGRES_HOST_AUTH_METHOD=trust","postgres:18.7")
         for _ in range(60):
             if run("exec",C,"pg_isready","-U","postgres",check=False).returncode==0:break
             time.sleep(1)
@@ -66,6 +68,16 @@ GRANT EXECUTE ON FUNCTION hft_employee_login.employee_login_context_v1(text,text
 CREATE ROLE hf101_role_runtime LOGIN NOINHERIT;
 GRANT USAGE ON SCHEMA hft_employee_login TO hf101_role_runtime;
 GRANT EXECUTE ON FUNCTION hft_employee_login.employee_session_assert_v1(text,text,text,text,bigint,bigint,text) TO hf101_role_runtime;
+-- Same role-service business-table capabilities as the frozen HF100
+-- runtime; no employee, stock or identity-registration mutation.
+REVOKE ALL ON SCHEMA hft,hft_app_roles FROM PUBLIC;
+REVOKE ALL ON ALL TABLES IN SCHEMA hft,hft_app_roles FROM PUBLIC;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA hft,hft_app_roles FROM PUBLIC;
+GRANT USAGE ON SCHEMA hft,hft_app_roles TO hf101_role_runtime;
+GRANT SELECT ON hft.employee,hft.legal_entity,hft.site,hft.warehouse,hft_app_roles.identity_binding,hft_app_roles.scope_lock TO hf101_role_runtime;
+GRANT UPDATE(epoch) ON hft_app_roles.scope_lock TO hf101_role_runtime;
+GRANT SELECT,INSERT,UPDATE ON hft_app_roles.assignment TO hf101_role_runtime;
+GRANT SELECT,INSERT ON hft_app_roles.assignment_event TO hf101_role_runtime;
 """)
         # Compare actual native PostgreSQL prosrc (not a fixture-invented pass)
         # to the source-pinned function catalog and dedicated ownership.
@@ -133,6 +145,12 @@ GRANT EXECUTE ON FUNCTION hft_employee_login.employee_session_assert_v1(text,tex
         deny(directory().replace("'HF101-OWNER','HF101-OWNER-SUB','HF101-OWNER-PERSON',1,1","'HF101-A','HF101-A-SUB','HF101-A-PERSON',2,1"),"HF101_EMPLOYEE_REGISTRATION_DENIED")
         def rebind(emp,email,version,ev=1):
             return "SELECT hft_employee_login.employee_provider_rebind_v1('HF101-HFT','"+emp+"','"+email+"',"+str(version)+","+str(ev)+",'HF101-OWNER','HF101-OWNER-SUB','HF101-OWNER-PERSON',1,1,'HF101-WH','Synthetic recovery authority',repeat('c',64));"
+        # Use the actual shared RoleService/RoleStore on the existing disposable
+        # database over its private Unix socket. No network or live credentials.
+        worker=subprocess.run(["node","--experimental-strip-types",str(ROOT/"tests/postgres/hf101_role_service_worker.ts"),socket_dir],cwd=ROOT,text=True,capture_output=True,timeout=90)
+        if worker.returncode:raise RuntimeError(worker.stdout[-2000:]+"\n"+worker.stderr[-6000:])
+        assert "HF101_ROLE_SERVICE_PG18=PASS" in worker.stdout
+        print(worker.stdout.strip())
         assignment("HF101-A",1,["VIEWER"]);assert query(ctx("A",2))["assignments"][0]["periods"][0]["roles"]==["VIEWER"]
         deny(rebind("HF101-A","a@example.invalid",2),"HF101_REBIND_REVOKE_ROLES_FIRST")
         assignment("HF101-A",2,[]);assert query(ctx("A",2))["assignments"][0]["periods"]==[]
@@ -166,5 +184,9 @@ GRANT EXECUTE ON FUNCTION hft_employee_login.employee_session_assert_v1(text,tex
         assert int(q("SELECT count(*) FROM hft_employee_login.employee_login_event").stdout)>5
         print("HF101_DIRECTORY_AND_PROVIDER_REBIND_PG18=PASS; scoped directory, missing binding, role revocation, old provider denial, immutable recovery event")
         print("HF101_EMPLOYEE_LOGIN_PG18=PASS; canonical registration, two identities, pending role, duplicate/conflict denial, role persistence/revocation, email change, deactivation/old session denial, audit and gateway ACL")
-    finally:run("rm","-f",C,check=False)
+    finally:
+        run("rm","-f",C,check=False)
+        # PostgreSQL owns the mounted directory while running.
+        try:shutil.rmtree(socket_dir)
+        except PermissionError:os.rmdir(socket_dir)
 if __name__=="__main__":main()

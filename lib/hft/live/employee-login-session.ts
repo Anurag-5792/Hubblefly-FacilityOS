@@ -45,7 +45,13 @@ export async function completeEmployeeLogin(config:OidcConfig,e:Env,flow:Flow,co
  return issueEmployeeCookie(e,c);
 }
 export async function employeeRoleSession(req:Request,e:Env):Promise<SessionIdentity>{
- const a=readEmployeeSession(req,e),c=await currentEmployee(e,a),access=employeeAccess(c,new Date().toISOString());
+ const a=readEmployeeSession(req,e),c=await currentEmployee(e,a);return employeeRoleIdentity(a,c);
+}
+/** Maps an already verified cookie and current authoritative context into the
+ * existing RoleService contract. No role claims are carried in the cookie. */
+export function employeeRoleIdentity(a:ReturnType<typeof readEmployeeSession>,c:EmployeeLoginContext):SessionIdentity{
+ if(!valid(c)||a.legalEntityId!==c.legalEntityId||a.employeeId!==c.employeeId||a.subject!==c.subject||a.personId!==c.personId||a.siteId!==c.siteId||a.loginVersion!==c.loginVersion||a.employeeVersion!==c.employeeVersion)throw Error('HF101_ROLE_SESSION_DENIED');
+ const access=employeeAccess(c,new Date().toISOString());
  const warehouseIds=access.scopes.filter(s=>s.permissions.includes('roles.read')).map(s=>s.warehouseId);
  if(!warehouseIds.length||warehouseIds.length>32||a.exp<=Date.now()/1000)throw Error('HF101_ROLE_SESSION_DENIED');
  return {subject:a.subject,sessionId:a.jti,expiresAt:a.exp,canonicalEmployeeId:a.employeeId,canonicalPersonId:a.personId,
