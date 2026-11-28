@@ -1,0 +1,27 @@
+name: HF100 native integration qualification
+on:
+  push:
+    branches:
+      - engineering/hft-r1-hf100-native-integration
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.23.4
+      - name: Verify frozen source and native transport guards
+        run: |
+          git diff --exit-code 281ddaff096c37910395e5470d6948f966010834 HEAD -- app lib db tools/hft_roles_only_install_094.py tools/hft_roles_only_install_094_v2.py tools/hft_roles_only_install_100.py tools/hf100_registry.py tools/hf100_control.py tools/hf100_native_restore.py review-candidates/hf100-v3 review-candidates/hf094-roles-only review-candidates/hf094-owner-only-v2
+          python3 -IB tools/hft_roles_only_install_100.py --inspect
+          node --test tools/hf100-native-transport/native-statements.test.mjs
+          python3 -m unittest discover -s tests -p test_hf100_native_integration.py -v
+      - name: Execute native adapter PostgreSQL campaign
+        run: python3 tests/postgres/hf100_native_connector_fixture.py
