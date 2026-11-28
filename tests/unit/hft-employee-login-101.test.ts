@@ -82,7 +82,7 @@ test('employee cookie contains identity/version only and rejects forged, expired
  assert.throws(()=>readEmployeeSession(req(value+'; '+value),env));
  assert.throws(()=>readEmployeeSession(req(value.replace('__Host-hft_employee_session','__Host-hft_session')),env));
  assert.throws(()=>resolveVerifiedRequestOperator(req(value),env,'RETAINED_APP_ROLES'),/HF101_LEGACY_SESSION_DENIED/);
- const [head,body,sig]=value.split('=')[1].split('.');
+ const [head,,sig]=value.split('=')[1].split('.');
  assert.throws(()=>readEmployeeSession(req('__Host-hft_employee_session='+head+'.'+enc({...p,employeeId:'EMP-B'})+'.'+sig),env));
  const expired=enc({...p,iat:p.iat-700,exp:p.iat-100}),raw=head+'.'+expired;
  const signed=raw+'.'+sign(null,Buffer.from(raw,'ascii'),ed.privateKey).toString('base64url');

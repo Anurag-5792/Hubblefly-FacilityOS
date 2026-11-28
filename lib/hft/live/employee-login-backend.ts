@@ -86,6 +86,7 @@ export async function emailTarget(e:Env,a:EmployeeIdentity,employeeId:string,war
 }
 export async function registerEmployeeEmail(e:Env,a:EmployeeIdentity,employeeId:string,warehouseId:string,email:string,version:number,reason:string){
  const result=await gatewayQuery<string>(e,'SELECT hft_employee_login.employee_email_register_v1($1,$2,$3,$4::bigint,$5,$6,$7,$8::bigint,$9::bigint,$10,$11)::text AS value',[a.legalEntityId,employeeId,email,version,a.employeeId,a.subject,a.personId,a.loginVersion,a.employeeVersion,warehouseId,reason]);
- const t=await emailTarget(e,a,employeeId,warehouseId);
- if(Number(result)!==version+1||t.version!==Number(result)||t.email!==email)throw Error('HF101_COMMIT_UNCONFIRMED');return t;
+ try{const t=await emailTarget(e,a,employeeId,warehouseId);
+  if(Number(result)!==version+1||t.version!==Number(result)||t.email!==email)throw Error('HF101_COMMIT_UNCONFIRMED');return t;
+ }catch{throw Error('HF101_COMMIT_UNCONFIRMED');}
 }
