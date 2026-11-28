@@ -187,7 +187,14 @@ GRANT SELECT,INSERT ON hft_app_roles.assignment_event TO hf101_role_runtime;
         print("HF101_DIRECTORY_AND_PROVIDER_REBIND_PG18=PASS; scoped directory, missing binding, role revocation, old provider denial, immutable recovery event")
         print("HF101_EMPLOYEE_LOGIN_PG18=PASS; canonical registration, two identities, pending role, duplicate/conflict denial, role persistence/revocation, email change, deactivation/old session denial, audit and gateway ACL")
     finally:
+        # The isolated container changes permissions on its bind-mounted socket
+        # directory. Restore owner access before stopping, then use graceful
+        # PostgreSQL shutdown so the socket and lock files are removed.
+        # The enclosing host directory remains private (0700) throughout.
+        run("exec","--user","0",C,"chmod","0777","/var/run/postgresql",check=False)
+        run("stop","--time","10",C,check=False)
         run("rm","-f",C,check=False)
-        # PostgreSQL owns the mounted directory while running.
         shutil.rmtree(socket_root)
+        assert not os.path.exists(socket_root), "HF101_DISPOSABLE_SOCKET_CLEANUP_FAILED"
+        print("HF101_DISPOSABLE_SOCKET_CLEANUP=PASS")
 if __name__=="__main__":main()
