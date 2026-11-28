@@ -156,13 +156,16 @@ function UnavailableOverview({planning}:{planning:boolean}){
 }
 export default function ManagementWorkspace({requirementsOnly,presentationOnly=false}:{requirementsOnly:boolean;presentationOnly?:boolean}){
  const [tab,setTab]=useState<'overview'|'plan'>('overview'),[sidebarVisible,setSidebarVisible]=useState(true);
+ // SSR must not advertise actionable controls before React has mounted.
+ const [interactive,setInteractive]=useState(false);
+ useEffect(()=>setInteractive(true),[]);
  return <div className={s.managementShell+(!sidebarVisible?' '+s.managementCollapsed:'')}>
   <aside id="mis-sidebar" hidden={!sidebarVisible} className={s.managementSidebar}>
    <CorporateBrand/>
    <div className={s.railCaption}>MANAGEMENT</div>
    <nav className={s.managementTabs} aria-label="Management workspace views">
-    <button type="button" aria-current={tab==='overview'?'page':undefined} aria-pressed={tab==='overview'} onClick={()=>setTab('overview')}><Icon name="site"/> Management overview</button>
-    <button type="button" aria-current={tab==='plan'?'page':undefined} aria-pressed={tab==='plan'} onClick={()=>setTab('plan')}><Icon name="box"/> Plan My Builds</button>
+    <button type="button" disabled={!interactive} aria-current={tab==='overview'?'page':undefined} aria-pressed={tab==='overview'} onClick={()=>setTab('overview')}><Icon name="site"/> Management overview</button>
+    <button type="button" disabled={!interactive} aria-current={tab==='plan'?'page':undefined} aria-pressed={tab==='plan'} onClick={()=>setTab('plan')}><Icon name="box"/> Plan My Builds</button>
    </nav>
    {presentationOnly&&<p className={s.railNote}>Presentation only. Management data and planning are unavailable.</p>}
    {!presentationOnly&&requirementsOnly&&<p className={s.railNote}>Requirements-only access. Full and conditional stock planning requires separately admitted balances.</p>}
@@ -170,7 +173,7 @@ export default function ManagementWorkspace({requirementsOnly,presentationOnly=f
   </aside>
   <div className={s.managementMain}>
    <header className={s.managementToolbar}>
-    <button type="button" aria-controls="mis-sidebar" aria-expanded={sidebarVisible} onClick={()=>setSidebarVisible(v=>!v)}><Icon name="sidebar"/> {sidebarVisible?'Hide Sidebar':'Show Sidebar'}</button>
+    <button type="button" disabled={!interactive} aria-controls="mis-sidebar" aria-expanded={sidebarVisible} onClick={()=>setSidebarVisible(v=>!v)}><Icon name="sidebar"/> {sidebarVisible?'Hide Sidebar':'Show Sidebar'}</button>
     {!sidebarVisible&&<div className={s.misCompactBrand}><CorporateBrand/></div>}
     <strong>Management / {tab==='overview'?'Overview':'Plan My Builds'}</strong>
    </header>
