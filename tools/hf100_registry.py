@@ -137,7 +137,7 @@ def eligible(p,target):
     if target["database"]=="hft_r1_retained_masters_np077":
         for name,oid in ((target["installer"],16393),("neon_superuser",16384),("neon_service",16395),("cloud_admin",10),
                          ("pg_read_all_data",6181),("pg_write_all_data",6182),("pg_maintain",6337)):
-            need(name in roles and roles[name]["oid"]==oid,"HF100_PROVIDER_IDENTITY_DRIFT")
+            need(name in roles and roles[name]["oid"]==str(oid),"HF100_PROVIDER_IDENTITY_DRIFT")
         for name in (target["installer"],"neon_superuser","neon_service"):
             x=roles[name]
             need(not x["rolsuper"] and x["read_all"] and x["write_all"] and x["maintain_all"],"HF100_PROVIDER_RIGHTS_DRIFT")

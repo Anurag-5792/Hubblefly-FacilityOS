@@ -90,6 +90,27 @@ def case(mode,home,fp,key):
             f.sql("CREATE ROLE neon_superuser NOLOGIN INHERIT CREATEROLE CREATEDB REPLICATION BYPASSRLS; CREATE ROLE neon_service LOGIN INHERIT CREATEROLE CREATEDB REPLICATION BYPASSRLS; GRANT pg_read_all_data,pg_write_all_data TO neon_superuser WITH ADMIN TRUE, INHERIT TRUE, SET TRUE; GRANT pg_maintain TO neon_superuser WITH ADMIN TRUE, INHERIT TRUE, SET FALSE; ALTER ROLE "+f.INSTALLER+" INHERIT; GRANT neon_superuser TO "+f.INSTALLER+",neon_service WITH ADMIN FALSE, INHERIT TRUE, SET TRUE; CREATE ROLE ordinary_fixture NOLOGIN;")
             if mode=="provider_ordinary":f.sql("GRANT pg_read_all_data TO ordinary_fixture;")
         pg=FixturePg(target,mode);base,_=pg.wire()
+        if mode=="provider_success":
+            # PostgreSQL native OID JSON is a string. Exercise the real retained-name
+            # identity gate with synthetic retained IDs, not the disposable DB name.
+            expected={v1.TARGET["installer"]:16393,"neon_superuser":16384,"neon_service":16395,
+                      "cloud_admin":10,"pg_read_all_data":6181,"pg_write_all_data":6182,"pg_maintain":6337}
+            projected=a.strict(f.sql("SELECT jsonb_object_agg(n::text,to_jsonb(n::oid))::text FROM unnest(ARRAY[16393,16384,16395,10,6181,6182,6337]) AS x(n);").stdout.strip())
+            assert projected=={str(n):str(n) for n in expected.values()},projected
+            roles=[]
+            for row in base["registry_privileges"]["roles"]:
+                name={"postgres":"cloud_admin",f.INSTALLER:v1.TARGET["installer"]}.get(row["rolname"],row["rolname"])
+                roles.append({**row,"rolname":name,"oid":projected[str(expected[name])] if name in expected else row["oid"]})
+            identity_fixture={"roles":roles,"memberships":[]}
+            assert set(expected)<=set(x["rolname"] for x in roles)
+            r.eligible(identity_fixture,v1.TARGET)
+            for name,oid in expected.items():
+                for bad in (str(oid+1),oid):
+                    altered={"roles":[{**x,"oid":bad} if x["rolname"]==name else x for x in roles],"memberships":[]}
+                    try:r.eligible(altered,v1.TARGET)
+                    except RuntimeError as e:assert str(e)=="HF100_PROVIDER_IDENTITY_DRIFT",str(e)
+                    else:raise AssertionError("retained OID drift accepted: "+name)
+            print("HF100_RETAINED_NATIVE_OID_IDENTITY=PASS")
         if mode=="provider_membership_drift":f.sql("GRANT pg_monitor TO ordinary_fixture;")
         if mode=="provider_role_drift":f.sql("ALTER ROLE ordinary_fixture LOGIN;")
         order=t.derived();order["expires_at"]=a.iso(a.clock()+dt.timedelta(minutes=10));order["not_before"]=a.iso(a.clock()-dt.timedelta(minutes=1))
