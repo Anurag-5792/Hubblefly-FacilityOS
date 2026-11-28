@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import {hostedOperatorAttempt,hostedOperatorPathAdmitted,hostedOperatorMode} from './lib/hft/roles/hosted-operator-profile';
-import {liveWorkspaceRoutesAdmitted,intakeWorkspaceRouteAdmitted} from './lib/hft/ui-reuse/workspace-profile';
+import {liveWorkspaceRoutesAdmitted,intakeWorkspaceRouteAdmitted,misPresentationAdmitted} from './lib/hft/ui-reuse/workspace-profile';
 import {identityProofPathAdmitted} from './lib/hft/live/live-identity-mode';
 import { assertSecureStartup } from './lib/hft/security/authorization';
 import {assertRetainedMastersProfile,isRetainedMastersProfile}
@@ -66,6 +66,9 @@ export function middleware(request:NextRequest){
  if(process.env.HFT_LIVE_R1_PROFILE!==undefined){
   const live=liveWorkspaceRoutesAdmitted(process.env);
   if(live&&liveRoutes.has(path))return NextResponse.next();
+  // Exact presentation page only; /api/hft/mis and all other protected
+  // routes remain denied in this profile, regardless of cookies or query.
+  if(path==='/mis'&&(request.method==='GET'||request.method==='HEAD')&&misPresentationAdmitted(process.env))return NextResponse.next();
   if(live&&intakeWorkspaceRouteAdmitted(process.env)&&(path==='/stores/intake'||path==='/api/hft/intake'))return NextResponse.next();
   return NextResponse.json({state:'UNAVAILABLE',code:'LIVE_R1_RUNTIME_NOT_ADMITTED'},
    {status:503,headers:{'Cache-Control':'no-store'}});

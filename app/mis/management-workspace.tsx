@@ -140,7 +140,21 @@ function RequirementsOverview({planning}:{planning:boolean}){
   <footer className={s.footer}>Requirements are not stock balances, allocations, procurement or manufacturing approval.</footer>
  </main>;
 }
-export default function ManagementWorkspace({requirementsOnly}:{requirementsOnly:boolean}){
+/** Static, data-free view for the separately admitted Masters presentation route.
+ * Never mount either reader or the planner in this mode, even after tab changes.
+ */
+function UnavailableOverview({planning}:{planning:boolean}){
+ const cards=['Effective drone BOMs','Direct requirements','Gross components','Procurement review','Full build capacity'];
+ return <main className={s.shell}>
+  <header className={s.top}><div className={s.misBrand}><CorporateBrand/><strong>Management / MIS</strong></div><Link href="/">Application dashboard</Link></header>
+  <section className={s.hero}><div><p>MANAGEMENT · PRESENTATION ONLY</p><h1>{planning?'Plan My Builds':'Build readiness'}</h1><p>Approved drone models, effective BOMs and material demand require a separately admitted management source.</p></div><div className={s.heroNumber}><span>Material-supported units</span><strong>—</strong><small>Not assessed</small></div></section>
+  <section className={s.panel}><h2>Management data unavailable</h2><p className={s.message} role="status">No admitted management source. Approved BOMs, stock, reservations, shortages, procurement and manufacturing readiness are unavailable.</p><p className={s.help}>The Live Masters profile admits this presentation only. It does not authorize management data reads, calculations or exports. No zero balances or estimated capacity are shown.</p><Link className={s.signinLink} href="/masters/live">Return to Live Masters</Link></section>
+  <section className={s.overviewCards} aria-label="Management summary">{cards.map(label=><button type="button" key={label} disabled><span>{label}</span><strong>—</strong><small>Not assessed</small></button>)}</section>
+  <section className={s.panel}><h2>{planning?'Select a drone to plan material demand':'Drone-wise readiness'}</h2><div className={s.empty}>No verified effective drone BOM displayed. {planning?'Planning and export are unavailable until authorized sources are admitted.':'No manufacturing readiness assessment available.'}</div></section>
+  <footer className={s.footer}>Presentation only. No stock, procurement or manufacturing approval.</footer>
+ </main>;
+}
+export default function ManagementWorkspace({requirementsOnly,presentationOnly=false}:{requirementsOnly:boolean;presentationOnly?:boolean}){
  const [tab,setTab]=useState<'overview'|'plan'>('overview'),[sidebarVisible,setSidebarVisible]=useState(true);
  return <div className={s.managementShell+(!sidebarVisible?' '+s.managementCollapsed:'')}>
   <aside id="mis-sidebar" hidden={!sidebarVisible} className={s.managementSidebar}>
@@ -150,7 +164,8 @@ export default function ManagementWorkspace({requirementsOnly}:{requirementsOnly
     <button type="button" aria-current={tab==='overview'?'page':undefined} aria-pressed={tab==='overview'} onClick={()=>setTab('overview')}><Icon name="site"/> Management overview</button>
     <button type="button" aria-current={tab==='plan'?'page':undefined} aria-pressed={tab==='plan'} onClick={()=>setTab('plan')}><Icon name="box"/> Plan My Builds</button>
    </nav>
-   {requirementsOnly&&<p className={s.railNote}>Requirements-only access. Full and conditional stock planning requires separately admitted balances.</p>}
+   {presentationOnly&&<p className={s.railNote}>Presentation only. Management data and planning are unavailable.</p>}
+   {!presentationOnly&&requirementsOnly&&<p className={s.railNote}>Requirements-only access. Full and conditional stock planning requires separately admitted balances.</p>}
    <div className={s.railFoot}><Link href="/"><Icon name="chevron"/> Application dashboard</Link><span><Icon name="lock"/> Read-only management</span></div>
   </aside>
   <div className={s.managementMain}>
@@ -159,7 +174,7 @@ export default function ManagementWorkspace({requirementsOnly}:{requirementsOnly
     {!sidebarVisible&&<div className={s.misCompactBrand}><CorporateBrand/></div>}
     <strong>Management / {tab==='overview'?'Overview':'Plan My Builds'}</strong>
    </header>
-   {tab==='plan'&&!requirementsOnly?<BuildPlanner/>:<RequirementsOverview planning={tab==='plan'}/>}
+   {presentationOnly?<UnavailableOverview planning={tab==='plan'}/>:tab==='plan'&&!requirementsOnly?<BuildPlanner/>:<RequirementsOverview planning={tab==='plan'}/>}
   </div>
  </div>;
 }

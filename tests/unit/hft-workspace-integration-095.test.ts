@@ -21,18 +21,34 @@ const receive={...base,HFT_HOSTED_OPERATOR_MODE:'ROLES_RECEIVE',HFT_STORES_RUNTI
  HFT_STORES_APPROVED_DATABASE:base.HFT_ROLE_PG_DATABASE,PGDATABASE:base.HFT_ROLE_PG_DATABASE,
  PGHOST:base.HFT_ROLE_PG_HOST,PGPORT:base.HFT_ROLE_PG_PORT};
 
-import {loginDestination,assertLoginDestination,workspaceModules,loginPath} from '../../lib/hft/ui-reuse/workspace-profile.ts';
+import {loginDestination,assertLoginDestination,workspaceModules,loginPath,misPresentationAdmitted} from '../../lib/hft/ui-reuse/workspace-profile.ts';
 import {encodeFlow,decodeFlow,clearAuthCookies} from '../../lib/hft/live/live-oidc.ts';
 import {randomBytes} from 'node:crypto';
-const live={NODE_ENV:'production',VERCEL_ENV:'preview',HFT_ENVIRONMENT:'production-qualification',HFT_LIVE_R1_PROFILE:'HFT_R1_PRODUCTION_LIVE_MASTERS_V1',HFT_LIVE_POSTING_ENABLED:'false',HFT_AUTH_SOURCE:'verified'};
+const live={NODE_ENV:'production',VERCEL_ENV:'preview',HFT_ENVIRONMENT:'production-qualification',HFT_LIVE_R1_PROFILE:'HFT_R1_PRODUCTION_LIVE_MASTERS_V1',HFT_LIVE_POSTING_ENABLED:'false',HFT_AUTH_SOURCE:'verified',HFT_OPERATIONS_SOURCE:'database'};
 const intake={...live,HFT_INTAKE_PROFILE:'HFT_INTAKE_OWNER_REVIEW_V1'};
 test('profile-aware root never links to incompatible deployments',()=>{
  const paths=(e:Record<string,string|undefined>)=>workspaceModules(e).flatMap(m=>m.href?[m.href]:[]);
- assert.deepEqual(paths(live),['/masters/live']);assert.deepEqual(paths(intake),['/masters/live','/stores/intake']);
+ assert.deepEqual(paths(live),['/masters/live','/mis']);assert.deepEqual(paths(intake),['/masters/live','/stores/intake','/mis']);
  assert.deepEqual(paths(base),['/settings/users-roles']);assert.deepEqual(paths(receive),['/settings/users-roles','/stores/operations']);
  assert.deepEqual(paths({...base,HFT_INTAKE_PROFILE:intake.HFT_INTAKE_PROFILE}),[]);
  assert.deepEqual(paths({...live,HFT_LIVE_R1_IDENTITY_PROOF_MODE:'qualification-only'}),[]);
  assert.equal(hostedOperatorPathAdmitted('/api/hft/intake',receive),false);
+});
+test('Masters MIS route is presentation-only and excludes incompatible profiles',()=>{
+ assert.equal(misPresentationAdmitted(live),true);
+ assert.equal(misPresentationAdmitted(intake),true);
+ const module=workspaceModules(live).find(m=>m.href==='/mis');
+ assert.equal(module?.status,'Presentation only · data unavailable');
+ for(const delta of [{HFT_LIVE_POSTING_ENABLED:'true'},{HFT_AUTH_SOURCE:'unverified'},
+  {HFT_OPERATIONS_SOURCE:'fixture'},{HFT_MIS_REQUIREMENTS_PROFILE:'HFT_R1_MIS_REQUIREMENTS_RETAINED_V1'},
+  {HFT_LIVE_R1_IDENTITY_PROOF_MODE:'qualification-only'},{HFT_HOSTED_OPERATOR_PROFILE:HOSTED_OPERATOR_PROFILE},
+  {HFT_ROLE_ASSIGNMENT_RUNTIME_PROFILE:RETAINED_ROLE_PROFILE},{VERCEL_ENV:'production'},
+  {HFT_ENVIRONMENT:'production',VERCEL_ENV:'production'},{HFT_LIVE_R1_PROFILE:'invalid'}]){
+  const e={...live,...delta};assert.equal(misPresentationAdmitted(e),false);
+  assert.equal(workspaceModules(e).some(m=>m.href==='/mis'),false);
+ }
+ assert.equal(misPresentationAdmitted(base),false);
+ assert.throws(()=>loginDestination(live,['mis']),/DENIED/);
 });
 test('return destinations cannot cross profile',()=>{
  assert.equal(loginDestination(live,[]),'masters');assert.equal(loginDestination(intake,['intake']),'intake');assert.equal(loginPath('intake'),'/stores/intake');

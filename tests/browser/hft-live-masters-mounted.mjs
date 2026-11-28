@@ -39,7 +39,7 @@ const mock=`(()=>{
  const get=Storage.prototype.getItem,set=Storage.prototype.setItem,remove=Storage.prototype.removeItem;
  const isPending=k=>String(k).startsWith('hft.liveMasters.pending.');
  const failure=()=>get.call(sessionStorage,'hft.live.fixture.storageFailure');
- window.__pendingReads=[];window.__contextReturned=false;window.__liveCalls=[];window.__unknownSave=false;
+ window.__pendingReads=[];window.__contextReturned=false;window.__liveCalls=[];window.__misCalls=0;window.__unknownSave=false;
  Storage.prototype.getItem=function(k){
   if(this===sessionStorage&&isPending(k)){
    window.__pendingReads.push({key:k,verified:window.__contextReturned});
@@ -64,6 +64,7 @@ const mock=`(()=>{
    sessionStorage.removeItem(login);
    return new Response(JSON.stringify({state:'SIGNED_OUT'}),{headers:{'Content-Type':'application/json'}});
   }
+  if(path==='/api/hft/mis')window.__misCalls++;
   if(path!=='/api/hft/live-masters')return orig(input,options);
   const p=JSON.parse(options.body);window.__liveCalls.push(p);
   const who=sessionStorage.getItem(login);
@@ -123,6 +124,30 @@ async function workflow(){
  await click('Employees');await wait(()=>has('No employees recorded'),'INTEGRATED_EMPLOYEE_VIEW');
  await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application navigation").querySelector("a").click()');
  await wait(()=>has('HFT-OS workspace'),'INTEGRATED_DASHBOARD');
+ // The actual HTTP boundary is tested without interception or credentials.
+ const shell=await fetch(URL_ROOT+'/mis');assert.equal(shell.status,200);
+ assert.match(await shell.text(),/Management data unavailable/);
+ for(const [path,method] of [['/api/hft/mis','GET'],['/api/hft/mis','POST'],['/api/hft/stores/read','POST'],['/api/hft/stores/receive','POST'],['/stores/operations','GET'],['/stores/intake','GET'],['/mis','POST']]){
+  const response=await fetch(URL_ROOT+path,{method,headers:{'Content-Type':'application/json'},...(method==='POST'?{body:JSON.stringify({intent:'CONTEXT'})}:{})});
+  assert.equal(response.status,503,path+' '+method);
+  assert.equal((await response.json()).code,'LIVE_R1_RUNTIME_NOT_ADMITTED');
+  assert.match(response.headers.get('cache-control')||'',/no-store/);
+ }
+ await run(`document.querySelector('nav[aria-label="Application modules"] a[href="/mis"]').click()`);
+ await wait(()=>has('Management data unavailable'),'MIS_PRESENTATION');
+ assert.ok(await has('Presentation only'));assert.ok(await has('Not assessed'));
+ assert.equal(await run('window.__misCalls'),0);
+ assert.equal(await run('[...document.querySelectorAll("section[aria-label=\\\"Management summary\\\"] button")].every(b=>b.disabled&&b.querySelector("strong").textContent==="—")'),true);
+ await click('Plan My Builds');await wait(()=>has('Planning and export are unavailable'),'MIS_PLAN_PRESENTATION');
+ assert.equal(await run('window.__misCalls'),0);
+ assert.equal(await run('document.querySelector("form,input,select")===null'),true);
+ assert.equal(await run('[...document.querySelectorAll("button")].some(b=>/Export CSV|Calculate requirements|Refresh source|Show Build Readiness/.test(b.textContent)&&!b.disabled)'),false);
+ await click('Hide Sidebar');await wait(()=>run('document.getElementById("mis-sidebar").hidden'),'MIS_PRESENTATION_COLLAPSED');
+ await click('Show Sidebar');await click('Management overview');await wait(()=>has('No manufacturing readiness assessment available.'),'MIS_PRESENTATION_OVERVIEW');
+ await viewport(390,844);assert.ok(await has('Management data unavailable'));await viewport(1440,900);
+ assert.equal(await run('window.__misCalls'),0);
+ await run(`document.querySelector('main a[href="/"]').click()`);await wait(()=>has('HFT-OS workspace'),'MIS_BACK_TO_DASHBOARD');
+ console.log('HF099_MASTERS_MIS_PRESENTATION=PASS; actual HTTP denies, mounted overview/plan/navigation, zero MIS data requests');
  assert.equal(await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application modules").querySelector("a[href=\\\"/masters/live\\\"]")!==null'),true);
  assert.equal(await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application modules").querySelector("a[href=\\\"/stores/intake\\\"]")!==null'),false);
  assert.equal(await run('[...document.querySelectorAll("nav")].find(n=>n.getAttribute("aria-label")==="Application modules").querySelector("a[href=\\\"/stores/operations\\\"]")!==null'),false);

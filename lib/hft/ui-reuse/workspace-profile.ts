@@ -11,6 +11,14 @@ export function liveWorkspaceRoutesAdmitted(e:OperatorEnv):boolean{
  e.HFT_ROLE_ASSIGNMENT_RUNTIME_PROFILE===undefined&&e.HFT_DRAFT_RUNTIME_PROFILE===undefined&&
  e.HFT_STORES_RUNTIME_PROFILE===undefined&&e.HFT_MASTERS_RUNTIME_PROFILE===undefined;
 }
+/** Presentation only in the existing non-posting Masters qualification profile.
+ * No session, reader, stock or data authority is inferred from this route.
+ */
+export function misPresentationAdmitted(e:OperatorEnv):boolean{
+ return liveWorkspaceRoutesAdmitted(e)&&e.HFT_ENVIRONMENT==='production-qualification'&&
+ e.VERCEL_ENV!=='production'&&e.HFT_AUTH_SOURCE==='verified'&&e.HFT_OPERATIONS_SOURCE==='database'&&
+ e.HFT_MIS_REQUIREMENTS_PROFILE===undefined;
+}
 export function intakeWorkspaceRouteAdmitted(e:OperatorEnv):boolean{
  return liveWorkspaceRoutesAdmitted(e)&&e.HFT_INTAKE_PROFILE==='HFT_INTAKE_OWNER_REVIEW_V1'&&e.HFT_ENVIRONMENT==='production-qualification'&&e.VERCEL_ENV==='preview';
 }
@@ -46,6 +54,7 @@ export function workspaceModules(e:OperatorEnv):ModuleLink[]{
   link('Users & Roles','Canonical employee-based permissions.','/settings/users-roles',!proof&&(hosted!==null||ordinary)),
   link('Stores operations','Protected workflow; independent transaction controls remain.','/stores/operations',!proof&&(hosted==='ROLES_RECEIVE'||retained||ordinary)),
   link('Inventory intake','Owner-only source review, not admitted balances.','/stores/intake',intake),
+  misPresentationAdmitted(e)?{label:'Management MIS',description:'Open management overview and Plan My Builds. Approved BOM, stock and procurement data are not admitted.',href:'/mis',status:'Presentation only · data unavailable'}:
   link('Management MIS','Read-only approved BOM requirements; stock readiness separately admitted.','/mis',ordinary||hosted!==null&&misRequirementsConfigured(e),'Awaiting authorized source'),
   link('Draft Masters','Provisional records, distinct from Live Masters.','/draft',draft||ordinary),
   link('Governed Masters','Protected P3 master workflow.','/stores/masters',ordinary)
